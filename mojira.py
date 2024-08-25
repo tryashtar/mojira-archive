@@ -9,6 +9,11 @@ def main():
    dump_folder = '/d/Archives/Mojira/dump'
    dump(dump_folder, full=False)
 
+def print_user_keys(dump_folder: str):
+   for file in tat.get_files(os.path.join(dump_folder, 'users')):
+      data = tat.read_json(file)
+      print(data['key'])
+
 def fix(dump_folder: str):
    client = get_client()
    update_cache_path = os.path.join(dump_folder, 'updated.json')
@@ -24,9 +29,9 @@ def fix(dump_folder: str):
    tat.write_json(update_cache, update_cache_path)
 
 def refresh(dump_folder: str):
+   client = get_client()
    update_cache_path = os.path.join(dump_folder, 'updated.json')
    update_cache = tat.read_json(update_cache_path)
-   client = get_client()
    issues = get_issues(client, 'ORDER BY updated DESC')
    for issue in issues:
       local_date = update_cache.get(issue.key)
@@ -38,7 +43,7 @@ def refresh(dump_folder: str):
 
 def dump(dump_folder: str, full: bool=True):
    client = get_client()
-   projects = client.projects()
+   projects = client.projects(expand='description,lead,url')
       
    fields_path = os.path.join(dump_folder, 'fields.json')
    projects_path = os.path.join(dump_folder, 'projects.json')
@@ -51,7 +56,12 @@ def dump(dump_folder: str, full: bool=True):
       fields = client.fields()
       tat.write_json(fields, fields_path)
    if full or not os.path.exists(projects_path):
-      tat.write_json([p.raw for p in projects], projects_path)
+      found_users = set()
+      projects_data = [p.raw for p in projects]
+      for project in projects_data:
+         simplify_user(project, 'lead', found_users)
+      handle_found_users(dump_folder, client, found_users, full)
+      tat.write_json(projects_data, projects_path)
    if full or not os.path.exists(issue_types_path):
       issue_types = client.issue_types()
       tat.write_json([p.raw for p in issue_types], issue_types_path)
@@ -75,22 +85,40 @@ def dump(dump_folder: str, full: bool=True):
       update_cache = tat.read_json(update_cache_path)
 
    for project in projects:
-      issues = get_issues(client, f'project = {project.key}')
+      last_key = update_cache.get(project.key)
+      if full or last_key is None:
+         query = f'project = {project.key} ORDER BY key ASC'
+      else:
+         query = f'project = {project.key} AND key > {last_key} ORDER BY key ASC'
+      issues = get_issues(client, query)
       print(project.key)
       issue_count = 0
       for issue in issues:
          if save_issue(dump_folder, client, issue, update_cache, full):
             issue_count += 1
-      tat.write_json(update_cache, update_cache_path)
+            update_cache[project.key] = issue.key
+            tat.write_json(update_cache, update_cache_path)
       print(f'Saved {issue_count} issues')
 
 def handle_found_users(dump_folder: str, client: jira.JIRA, users: set[str], overwrite: bool):
-   for name in users:
-      user_path = os.path.join(dump_folder, 'users', name + '.json')
+   for key in users:
+      user_path = os.path.join(dump_folder, 'users', key + '.json')
       if overwrite or not os.path.exists(user_path):
-         print('\t' + name)
-         user_data = client.user(urllib.parse.quote(name), expand='groups')
+         user_data = get_user(client, key, expand='groups')
+         print('\t' + user_data.raw['name'])
          tat.write_json(user_data.raw, user_path)
+
+def get_user(client: jira.JIRA, key: str, expand: str | None):
+   user = jira.User(
+      client._options,
+      client._session,
+      _query_param="key"
+   )
+   params = {}
+   if expand is not None:
+      params["expand"] = expand
+   user.find(urllib.parse.quote(key), params=params)
+   return user
 
 def save_issue(dump_folder: str, client: jira.JIRA, issue: jira.Issue, update_cache: dict[str, str], overwrite: bool):
    issue_path = os.path.join(dump_folder, 'tickets', issue.key.split('-')[0], f'{issue.key}.json')
@@ -147,8 +175,8 @@ def simplify_issue(issue: dict[str, typing.Any]):
 def simplify_user(field: dict[str, typing.Any], key: str, found_users: set[str]):
    if key not in field:
       return
-   found_users.add(field[key]['name'])
-   simplify_field(field, key, 'name')
+   found_users.add(field[key]['key'])
+   simplify_field(field, key, 'key')
 
 def simplify_field(field: dict[str, typing.Any], key: str, simple_key: str='id'):
    if key not in field:
