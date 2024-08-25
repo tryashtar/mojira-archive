@@ -1,5 +1,5 @@
 import jira.client
-import requests
+import jira.resources
 import os
 import typing
 import tryashtools as tat
@@ -8,22 +8,35 @@ def main():
    dump_folder = '/d/Archives/Mojira/dump'
    dump(dump_folder, full=False)
 
-def fix(dump_folder):
-   userpath = os.path.join(dump_folder, 'users.json')
-   users = tat.read_json(userpath)
+def fix(dump_folder: str):
+   update_cache_path = os.path.join(dump_folder, 'updated.json')
+   update_cache = {}
    for project in tat.get_folders(os.path.join(dump_folder, 'projects')):
+      print(os.path.basename(project))
       for file in tat.get_files(project):
          data = tat.read_json(file)
-         simplify_issue(data, users)
+         simplify_issue(dump_folder, data, False)
          tat.write_json(data, file)
-   tat.write_json(users, userpath)
+         update_cache[data['key']] = data['fields']['updated']
+   tat.write_json(update_cache, update_cache_path)
 
-def dump(dump_folder, full=True):
-   key = tat.read_text('/d/Documents/Sensitive/mojira key.txt')
-   site = jira.client.JIRA('https://bugs.mojang.com', token_auth=key)
+def refresh(dump_folder: str):
+   update_cache_path = os.path.join(dump_folder, 'updated.json')
+   update_cache = tat.read_json(update_cache_path)
+   site = get_client()
+   issues = get_issues(site, 'ORDER BY updated DESC')
+   for issue in issues:
+      local_date = update_cache.get(issue.key)
+      if local_date is None or issue.fields.updated > local_date:
+         save_issue(dump_folder, issue, update_cache, True)
+      else:
+         break
+   tat.write_json(update_cache, update_cache_path)
+
+def dump(dump_folder: str, full: bool=True):
+   site = get_client()
    projects = site.projects()
    
-   users_path = os.path.join(dump_folder, 'users.json')
    fields_path = os.path.join(dump_folder, 'fields.json')
    projects_path = os.path.join(dump_folder, 'projects.json')
    issue_types_path = os.path.join(dump_folder, 'issue_types.json')
@@ -52,39 +65,51 @@ def dump(dump_folder, full=True):
       link_types = site.issue_link_types()
       tat.write_json([p.raw for p in link_types], link_types_path)
    
-   if not full and os.path.exists(users_path):
-      users = {'list':tat.read_json(users_path),'indices':{}}
+   update_cache_path = os.path.join(dump_folder, 'updated.json')
+   if full or not os.path.exists(update_cache_path):
+      update_cache = {}
    else:
-      users = {'list':[],'indices':{}}
-   for i in range(len(users['list'])):
-      users['indices'][users['list'][i]['name']] = i
+      update_cache = tat.read_json(update_cache_path)
 
    for project in projects:
-      issues = get_issues(site, project)
+      issues = get_issues(site, f'project = {project.key}')
       print(project.key)
       issue_count = 0
       for issue in issues:
-         issue_path = os.path.join(dump_folder, 'projects', project.key, f'{issue.key}.json')
-         if full or not os.path.exists(issue_path):
-            print(issue.key)
-            data = issue.raw
-            simplify_issue(data, users)
-            tat.write_json(data, issue_path)
-            for attachment in data['fields']['attachment']:
-               attach_path = os.path.join(dump_folder, 'attachments', attachment['id'])
-               if full or not os.path.exists(attach_path):
-                  print('\t' + attachment['filename'])
-                  response = requests.get(attachment['content'], stream=True, timeout=20)
-                  os.makedirs(os.path.dirname(attach_path), exist_ok=True)
-                  with open(attach_path, 'wb') as file:
-                     file.write(response.content)
+         if save_issue(dump_folder, issue, update_cache, full):
             issue_count += 1
-            if not full:
-               tat.write_json(users['list'], users_path)
-      print(f'Downloaded {issue_count} issues')
-      tat.write_json(users['list'], users_path)
+      tat.write_json(update_cache, update_cache_path)
+      print(f'Saved {issue_count} issues')
 
-def simplify_issue(issue: dict[str, typing.Any], users):
+def save_issue(dump_folder: str, issue: jira.Issue, update_cache: dict[str, str], overwrite: bool):
+   issue_path = os.path.join(dump_folder, 'projects', issue.key.split('-')[0], f'{issue.key}.json')
+   saved = False
+   data = issue.raw
+   if overwrite or not os.path.exists(issue_path):
+      print(issue.key)
+      simplify_issue(dump_folder, data, overwrite)
+      tat.write_json(data, issue_path)
+      saved = True
+   for attachment in issue.fields.attachment:
+      save_attachment(dump_folder, attachment, overwrite)
+   update_cache[issue.key] = issue.fields.updated
+   return saved
+
+def save_attachment(dump_folder: str, attachment: jira.resources.Attachment, overwrite: bool):
+   attach_path = os.path.join(dump_folder, 'attachments', attachment.id)
+   if overwrite or not os.path.exists(attach_path):
+      print('\t' + attachment.filename)
+      os.makedirs(os.path.dirname(attach_path), exist_ok=True)
+      with open(attach_path, 'wb') as file:
+         for data in attachment.iter_content():
+            file.write(data)
+
+def get_client():
+   key = tat.read_text('/d/Documents/Sensitive/mojira key.txt')
+   client = jira.client.JIRA('https://bugs.mojang.com', token_auth=key)
+   return client
+
+def simplify_issue(dump_folder: str, issue: dict[str, typing.Any], overwrite: bool):
    fields = issue['fields']
    simplify_field(fields, 'issuetype')
    simplify_field(fields, 'project')
@@ -92,32 +117,28 @@ def simplify_issue(issue: dict[str, typing.Any], users):
    simplify_field(fields, 'versions')
    simplify_field(fields, 'fixVersions')
    simplify_field(fields, 'status')
-   simplify_user(fields, 'creator', users)
-   simplify_user(fields, 'reporter', users)
+   simplify_user(fields, 'creator', dump_folder, overwrite)
+   simplify_user(fields, 'reporter', dump_folder, overwrite)
    for attachment in fields['attachment']:
-      simplify_user(attachment, 'author', users)
+      simplify_user(attachment, 'author', dump_folder, overwrite)
    for comment in fields['comment']['comments']:
-      simplify_user(comment, 'author', users)
-      simplify_user(comment, 'updateAuthor', users)
+      simplify_user(comment, 'author', dump_folder, overwrite)
+      simplify_user(comment, 'updateAuthor', dump_folder, overwrite)
    for link in fields['issuelinks']:
       simplify_field(link, 'type')
       simplify_field(link, 'inwardIssue')
    for change in issue['changelog']['histories']:
-      simplify_user(change, 'author', users)
+      simplify_user(change, 'author', dump_folder, overwrite)
 
-def simplify_user(field, key, users):
+def simplify_user(field: dict[str, typing.Any], key: str, dump_folder: str, overwrite: bool):
    if key not in field:
       return
-   username = field[key]['name']
-   index = users['indices'].get(username)
-   if index is None:
-      users['indices'][username] = len(users['list'])
-      users['list'].append(field[key])
-   else:
-      users['list'][index] = field[key]
+   user_path = os.path.join(dump_folder, 'users', field[key]['name'] + '.json')
+   if overwrite or not os.path.exists(user_path):
+      tat.write_json(field[key], user_path)
    simplify_field(field, key, 'name')
 
-def simplify_field(field, key, simple_key='id'):
+def simplify_field(field: dict[str, typing.Any], key: str, simple_key: str='id'):
    if key not in field:
       return
    if isinstance(field[key], dict):
@@ -127,11 +148,11 @@ def simplify_field(field, key, simple_key='id'):
          if isinstance(field[key][i], dict):
             field[key][i] = field[key][i][simple_key]
 
-def get_issues(site: jira.client.JIRA, project: jira.Project) -> typing.Generator[jira.Issue, None, None]:
+def get_issues(site: jira.client.JIRA, query: str) -> typing.Generator[jira.Issue, None, None]:
    i = 0
    chunk_size = 100
    while True:
-      chunk = site.search_issues(f'project = {project.key}', startAt=i, maxResults=chunk_size, expand='changelog')
+      chunk = site.search_issues(query, startAt=i, maxResults=chunk_size, expand='changelog')
       chunk = typing.cast(jira.client.ResultList[jira.Issue], chunk)
       i += chunk_size
       yield from chunk.iterable
