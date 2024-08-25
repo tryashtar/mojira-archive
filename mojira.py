@@ -102,7 +102,7 @@ def dump(dump_folder: str, full: bool=True):
 
 def handle_found_users(dump_folder: str, client: jira.JIRA, users: set[str], overwrite: bool):
    for key in users:
-      user_path = os.path.join(dump_folder, 'users', key + '.json')
+      user_path = os.path.join(dump_folder, 'users', urllib.parse.quote_plus(key) + '.json')
       if overwrite or not os.path.exists(user_path):
          user_data = get_user(client, key, expand='groups')
          print('\t' + user_data.raw['name'])
@@ -117,7 +117,7 @@ def get_user(client: jira.JIRA, key: str, expand: str | None):
    params = {}
    if expand is not None:
       params["expand"] = expand
-   user.find(urllib.parse.quote(key), params=params)
+   user.find(urllib.parse.quote_plus(key), params=params)
    return user
 
 def save_issue(dump_folder: str, client: jira.JIRA, issue: jira.Issue, update_cache: dict[str, str], overwrite: bool):
@@ -173,7 +173,7 @@ def simplify_issue(issue: dict[str, typing.Any]):
    return found_users
 
 def simplify_user(field: dict[str, typing.Any], key: str, found_users: set[str]):
-   if key not in field:
+   if field.get(key) is None:
       return
    found_users.add(field[key]['key'])
    simplify_field(field, key, 'key')
