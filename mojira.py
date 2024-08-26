@@ -1,4 +1,5 @@
 import jira.client
+import jira.exceptions
 import jira.resources
 import os
 import urllib.parse
@@ -16,8 +17,8 @@ def print_user_keys(dump_folder: str):
 
 def fix(dump_folder: str):
    client = get_client()
-   update_cache_path = os.path.join(dump_folder, 'updated.json')
-   update_cache = {}
+   last_tickets_path = os.path.join(dump_folder, 'last_tickets.json')
+   last_tickets = {}
    for project in tat.get_folders(os.path.join(dump_folder, 'tickets')):
       print(os.path.basename(project))
       for file in tat.get_files(project):
@@ -25,21 +26,23 @@ def fix(dump_folder: str):
          found_users = simplify_issue(data)
          handle_found_users(dump_folder, client, found_users, False)
          tat.write_json(data, file)
-         update_cache[data['key']] = data['fields']['updated']
-   tat.write_json(update_cache, update_cache_path)
+   tat.write_json(last_tickets, last_tickets_path)
 
 def refresh(dump_folder: str):
    client = get_client()
-   update_cache_path = os.path.join(dump_folder, 'updated.json')
-   update_cache = tat.read_json(update_cache_path)
+   last_tickets_path = os.path.join(dump_folder, 'last_tickets.json')
+   last_tickets = tat.read_json(last_tickets_path)
    issues = get_issues(client, 'ORDER BY updated DESC')
    for issue in issues:
-      local_date = update_cache.get(issue.key)
-      if local_date is None or issue.fields.updated > local_date:
-         save_issue(dump_folder, client, issue, update_cache, True)
+      existing_date = None
+      existing_path = os.path.join(dump_folder, 'tickets', issue.key.split('-')[0], f'{issue.key}.json')
+      if os.path.exists(existing_path):
+         existing_date = tat.read_json(existing_path)['fields']['updated']
+      if existing_date is None or issue.fields.updated > existing_date:
+         save_issue(dump_folder, client, issue, True)
       else:
          break
-   tat.write_json(update_cache, update_cache_path)
+   tat.write_json(last_tickets, last_tickets_path)
 
 def dump(dump_folder: str, full: bool=True):
    client = get_client()
@@ -78,14 +81,14 @@ def dump(dump_folder: str, full: bool=True):
       link_types = client.issue_link_types()
       tat.write_json([p.raw for p in link_types], link_types_path)
    
-   update_cache_path = os.path.join(dump_folder, 'updated.json')
-   if full or not os.path.exists(update_cache_path):
-      update_cache = {}
+   last_tickets_path = os.path.join(dump_folder, 'last_tickets.json')
+   if full or not os.path.exists(last_tickets_path):
+      last_tickets = {}
    else:
-      update_cache = tat.read_json(update_cache_path)
+      last_tickets = tat.read_json(last_tickets_path)
 
    for project in projects:
-      last_key = update_cache.get(project.key)
+      last_key = last_tickets.get(project.key)
       if full or last_key is None:
          query = f'project = {project.key} ORDER BY key ASC'
       else:
@@ -94,17 +97,23 @@ def dump(dump_folder: str, full: bool=True):
       print(project.key)
       issue_count = 0
       for issue in issues:
-         if save_issue(dump_folder, client, issue, update_cache, full):
+         if save_issue(dump_folder, client, issue, full):
             issue_count += 1
-            update_cache[project.key] = issue.key
-            tat.write_json(update_cache, update_cache_path)
+            last_tickets[project.key] = issue.key
+            tat.write_json(last_tickets, last_tickets_path)
       print(f'Saved {issue_count} issues')
 
 def handle_found_users(dump_folder: str, client: jira.JIRA, users: set[str], overwrite: bool):
    for key in users:
       user_path = os.path.join(dump_folder, 'users', urllib.parse.quote_plus(key) + '.json')
       if overwrite or not os.path.exists(user_path):
-         user_data = get_user(client, key, expand='groups')
+         try:
+            user_data = get_user(client, key, expand='groups')
+         except jira.exceptions.JIRAError as exc:
+            if exc.text == f'The user with the key \'{key}\' does not exist':
+               print(f'\tWeird missing user: {key}')
+               continue
+            raise
          print('\t' + user_data.raw['name'])
          tat.write_json(user_data.raw, user_path)
 
@@ -120,7 +129,7 @@ def get_user(client: jira.JIRA, key: str, expand: str | None):
    user.find(urllib.parse.quote_plus(key), params=params)
    return user
 
-def save_issue(dump_folder: str, client: jira.JIRA, issue: jira.Issue, update_cache: dict[str, str], overwrite: bool):
+def save_issue(dump_folder: str, client: jira.JIRA, issue: jira.Issue, overwrite: bool):
    issue_path = os.path.join(dump_folder, 'tickets', issue.key.split('-')[0], f'{issue.key}.json')
    saved = False
    data = issue.raw
@@ -132,7 +141,6 @@ def save_issue(dump_folder: str, client: jira.JIRA, issue: jira.Issue, update_ca
       saved = True
    for attachment in issue.fields.attachment:
       save_attachment(dump_folder, attachment, overwrite)
-   update_cache[issue.key] = issue.fields.updated
    return saved
 
 def save_attachment(dump_folder: str, attachment: jira.resources.Attachment, overwrite: bool):
