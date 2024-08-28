@@ -1,6 +1,5 @@
 import jira.client
 import jira.exceptions
-import jira.resources
 import pathlib
 import json
 import urllib.parse
@@ -124,6 +123,7 @@ class Dump:
       self.simplify_field(fields, 'status')
       self.simplify_user(fields, 'creator')
       self.simplify_user(fields, 'reporter')
+      self.simplify_user(fields, 'assignee')
       for attachment in fields['attachment']:
          self.simplify_user(attachment, 'author')
       for comment in fields['comment']['comments']:
@@ -234,6 +234,7 @@ def check(dump: Dump):
          verify_field(fields, 'status', dump.statuses, key)
          verify_user(fields, 'creator', dump, key)
          verify_user(fields, 'reporter', dump, key)
+         verify_user(fields, 'assignee', dump, key)
          for attachment in fields['attachment']:
             verify_user(attachment, 'author', dump, key)
             attach_path = dump.get_attachment_path(attachment['id'])
@@ -276,13 +277,13 @@ def refresh(dump: Dump):
       else:
          break
 
-def get_client():
+def get_client() -> jira.JIRA:
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
       key = file.read()
-   client = jira.client.JIRA('https://bugs.mojang.com', token_auth=key)
+   client = jira.JIRA('https://bugs.mojang.com', token_auth=key)
    return client
 
-def get_user(client: jira.JIRA, key: str, expand: str | None):
+def get_user(client: jira.JIRA, key: str, expand: str | None) -> jira.User:
    user = jira.User(
       client._options,
       client._session,
@@ -294,7 +295,7 @@ def get_user(client: jira.JIRA, key: str, expand: str | None):
    user.find(urllib.parse.quote_plus(key), params=params)
    return user
 
-def get_issues(client: jira.client.JIRA, query: str) -> typing.Generator[jira.Issue, None, None]:
+def get_issues(client: jira.JIRA, query: str) -> typing.Generator[jira.Issue, None, None]:
    i = 0
    chunk_size = 100
    while True:
