@@ -1,0 +1,154 @@
+[
+   {
+      "in": "hi",
+      "out": "<p>hi</p>"
+   },
+   {
+      "in": "h3.hi",
+      "out": "<h3><a name=\"hi\"></a>hi</h3>"
+   },
+   {
+      "in": "h3. hi",
+      "out": "<h3><a name=\"hi\"></a>hi</h3>"
+   },
+   {
+      "in": "h3.\nhi",
+      "out": "<h3><a name=\"\"></a></h3>\n<p>hi</p>"
+   },
+   {
+      "in": "h3.h3.hi",
+      "out": "<h3><a name=\"hi\"></a>h3.hi</h3>"
+   },
+   {
+      "in": "h3. h3. hi",
+      "out": "<h3><a name=\"hi\"></a>h3. hi</h3>"
+   },
+   {
+      "in": "{code}hi{code}",
+      "out": "<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">hi</pre>\n</div></div>"
+   },
+   {
+      "in": "h3.{code}hi{code}",
+      "out": "<h3><a name=\"\"></a><div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">hi</pre>\n</div></div></h3>"
+   },
+   {
+      "in": "h3.\n{code}hi{code}",
+      "out": "<h3><a name=\"\"></a></h3>\n<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">hi</pre>\n</div></div>"
+   },
+   {
+      "in": "h3.\n{code}\nhi\n{code}",
+      "out": "<h3><a name=\"\"></a></h3>\n<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">hi\n</pre>\n</div></div>"
+   },
+   {
+      "in": "{code}h3. hi{code}",
+      "out": "<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">h3. hi</pre>\n</div></div>"
+   },
+   {
+      "in": "\\h3. hello",
+      "out": "<p>\\h3. hello</p>"
+   },
+   {
+      "in": " h3. hello",
+      "out": "<h3><a name=\"hello\"></a>hello</h3>"
+   },
+   {
+      "in": "\\ h3. hello",
+      "out": "<p>\\ h3. hello</p>"
+   },
+   {
+      "in": ". h3. hello",
+      "out": "<p>. h3. hello</p>"
+   },
+   {
+      "in": "^ h3. hello",
+      "out": "<p>^ h3. hello</p>"
+   },
+   {
+      "in": "^h3. hello",
+      "out": "<p>^h3. hello</p>"
+   },
+   {
+      "in": "h0.0\nh1.1\nh2.2\nh3.3\nh4.4\nh5.5\nh6.6\nh7.7",
+      "out": "<p>h0.0</p>\n<h1><a name=\"1\"></a>1</h1>\n<h2><a name=\"2\"></a>2</h2>\n<h3><a name=\"3\"></a>3</h3>\n<h4><a name=\"4\"></a>4</h4>\n<h5><a name=\"5\"></a>5</h5>\n<h6><a name=\"6\"></a>6</h6>\n<p>h7.7</p>"
+   },
+   {
+      "in": "h3.*bold*",
+      "out": "<h3><a name=\"bold\"></a><b>bold</b></h3>"
+   },
+   {
+      "in": "h3. *bold*",
+      "out": "<h3><a name=\"bold\"></a><b>bold</b></h3>"
+   },
+   {
+      "in": "*h3. bold*",
+      "out": "<p><b>h3. bold</b></p>"
+   },
+   {
+      "in": "h3.           many spaces",
+      "out": "<h3><a name=\"manyspaces\"></a>many spaces</h3>"
+   },
+   {
+      "in": "h3.           many    spaces     ",
+      "out": "<h3><a name=\"manyspaces\"></a>many    spaces     </h3>"
+   },
+   {
+      "in": "h3.           many    spaces     \n",
+      "out": "<h3><a name=\"manyspaces\"></a>many    spaces     </h3>"
+   },
+   {
+      "in": "h3. test\n\n\n\n\n",
+      "out": "<h3><a name=\"test\"></a>test</h3>\n\n\n\n"
+   },
+   {
+      "in": "h3. test\n\n\n\n\nasdf",
+      "out": "<h3><a name=\"test\"></a>test</h3>\n\n\n\n\n<p>asdf</p>"
+   },
+   {
+      "in": "*normal bold*",
+      "out": "<p><b>normal bold</b></p>"
+   },
+   {
+      "in": "**double bold**",
+      "out": "<p>*<b>double bold</b>*</p>"
+   },
+   {
+      "in": "_normal italics_",
+      "out": "<p><em>normal italics</em></p>"
+   },
+   {
+      "in": "__double italics__",
+      "out": "<p>_<em>double italics</em>_</p>"
+   },
+   {
+      "in": "*_mixed 1_*",
+      "out": "<p><b><em>mixed 1</em></b></p>"
+   },
+   {
+      "in": "_*mixed 2*_",
+      "out": "<p><em><b>mixed 2</b></em></p>"
+   },
+   {
+      "in": "_*weird order 1_*",
+      "out": "<p><em><b>weird order 1</em></b></p>"
+   },
+   {
+      "in": "*_weird order 2*_",
+      "out": "<p><b><em>weird order 2</b></em></p>"
+   },
+   {
+      "in": "* bold with spaces *",
+      "out": "<ul>\n\t<li>bold with spaces *</li>\n</ul>\n"
+   },
+   {
+      "in": "_ italics with spaces _",
+      "out": "<p>_ italics with spaces _</p>"
+   },
+   {
+      "in": "&#90;",
+      "out": "<p>&#90;</p>"
+   },
+   {
+      "in": "<p>test</p>",
+      "out": "<p>&lt;p&gt;test&lt;/p&gt;</p>"
+   }
+]
