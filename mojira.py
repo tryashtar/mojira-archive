@@ -131,7 +131,8 @@ class Dump:
          self.simplify_user(comment, 'updateAuthor')
       for link in fields['issuelinks']:
          self.simplify_field(link, 'type')
-         self.simplify_field(link, 'inwardIssue')
+         self.simplify_field(link, 'inwardIssue', 'key')
+         self.simplify_field(link, 'outwardIssue', 'key')
       for change in issue['changelog']['histories']:
          self.simplify_user(change, 'author')
 
