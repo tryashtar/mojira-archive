@@ -1,16 +1,6 @@
 package com.renderer;
 
-import com.atlassian.jira.bc.issue.attachment.AttachmentService;
 import com.atlassian.renderer.*;
-import com.atlassian.renderer.attachments.RendererAttachment;
-import com.atlassian.renderer.attachments.RendererAttachmentManager;
-import com.atlassian.renderer.embedded.DefaultEmbeddedResourceRenderer;
-import com.atlassian.renderer.embedded.EmbeddedImage;
-import com.atlassian.renderer.embedded.EmbeddedResource;
-import com.atlassian.renderer.links.GenericLinkParser;
-import com.atlassian.renderer.links.Link;
-import com.atlassian.renderer.links.LinkResolver;
-import com.atlassian.renderer.links.UrlLink;
 import com.atlassian.renderer.v2.*;
 import com.atlassian.renderer.v2.components.*;
 import com.atlassian.renderer.v2.components.block.*;
@@ -20,12 +10,6 @@ import com.atlassian.renderer.v2.components.phrase.ForceNewLineRendererComponent
 import com.atlassian.renderer.v2.components.phrase.NewLineRendererComponent;
 import com.atlassian.renderer.v2.components.phrase.PhraseRendererComponent;
 import com.atlassian.renderer.v2.components.table.TableBlockRenderer;
-//import ru.protei.portal.core.renderer.impl.markup.custom.userlink.UserLinkRendererComponent;
-//import ru.protei.portal.core.renderer.impl.markup.jira.link.LinkRendererComponent;
-//import ru.protei.portal.core.renderer.impl.markup.jira.macro.CustomMacroManager;
-//import ru.protei.portal.core.renderer.impl.markup.jira.macro.MacroRendererComponent;
-//import ru.protei.portal.core.renderer.impl.markup.jira.phrase.NewLineRendererComponent;
-//import ru.protei.portal.core.service.AttachmentService;
 import com.atlassian.renderer.v2.macro.DefaultMacroManager;
 
 import java.nio.charset.StandardCharsets;
@@ -34,79 +18,125 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Renderer {
+   public static Random RNG = new Random();
 
    public Renderer() {
-      // Order does matter! Components will be executed one by one. Components may
-      // conflict with each other.
-      // special NewLineRendererComponent
-      List<RendererComponent> renderComponents = new ArrayList<>();
-      renderComponents.add(new BackslashEscapeRendererComponent());
-      renderComponents.add(new LinkRendererComponent(makeLinkResolver()));
-      renderComponents.add(new UrlRendererComponent(makeLinkResolver()));
-      //renderComponents.add(new UserLinkRendererComponent());
-      renderComponents.add(new EmbeddedImageRendererComponent());
-      renderComponents.add(new EmbeddedUnembeddableRendererComponent());
-      renderComponents.add(new EmbeddedObjectRendererComponent());
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("citation"));
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("strong"));
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("superscript"));
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("subscript"));
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("emphasis"));
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("deleted"));
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("inserted"));
-      renderComponents.add(PhraseRendererComponent.getDefaultRenderer("monospaced"));
-      renderComponents.add(new ForceNewLineRendererComponent());
-      V2SubRenderer macroSubRenderer = new V2SubRenderer(new V2Renderer(renderComponents));
-      MacroRendererComponent macroRendererComponent = new MacroRendererComponent(
-            new DefaultMacroManager(macroSubRenderer), macroSubRenderer);
+      var formatComponents = List.of(
+            PhraseRendererComponent.getDefaultRenderer("citation"),
+            PhraseRendererComponent.getDefaultRenderer("strong"),
+            PhraseRendererComponent.getDefaultRenderer("superscript"),
+            PhraseRendererComponent.getDefaultRenderer("subscript"),
+            PhraseRendererComponent.getDefaultRenderer("emphasis"),
+            PhraseRendererComponent.getDefaultRenderer("deleted"),
+            PhraseRendererComponent.getDefaultRenderer("inserted"),
+            PhraseRendererComponent.getDefaultRenderer("monospaced")
+            );
+      var otherComponents = List.of(
+            new BackslashEscapeRendererComponent(),
+            new HtmlEntityRendererComponent(),
+            new HtmlEscapeRendererComponent(),
+            new ForceNewLineRendererComponent(),
+            new DashRendererComponent(),
+            new NewLineRendererComponent());
+      var blockRenderers = List.of(
+            new TableBlockRenderer(),
+            new ListBlockRenderer(),
+            new HeadingBlockRenderer(),
+            new BlockquoteBlockRenderer(),
+            new HorizontalRuleBlockRenderer(),
+            new BlankLineBlockRenderer()
+            );
 
-      List<RendererComponent> renderComponentsAfterMacro = new ArrayList<>(renderComponents);
-      renderComponentsAfterMacro.add(macroRendererComponent);
-      renderComponentsAfterMacro.add(new DashRendererComponent());
-      //renderComponentsAfterMacro.add(new NewLineRendererComponent());
+      var macroSubComponents = new ArrayList<RendererComponent>();
+      macroSubComponents.addAll(otherComponents);
+      macroSubComponents.addAll(formatComponents);
+      Collections.shuffle(macroSubComponents, RNG);
+      macroSubComponents.subList(0, RNG.nextInt(macroSubComponents.size()) + 1).clear();
 
-      List<BlockRenderer> blockRendererList = new ArrayList<>();
-      blockRendererList.add(new TableBlockRenderer());
-      blockRendererList.add(new HeadingBlockRenderer());
-      blockRendererList.add(new BlockquoteBlockRenderer());
-      blockRendererList.add(new ListBlockRenderer());
-      blockRendererList.add(new HorizontalRuleBlockRenderer());
-      BlockRendererComponent blockRendererComponent = new BlockRendererComponent(
-            new V2SubRenderer(new V2Renderer(renderComponents)),
-            blockRendererList);
+      var blockSubComponents = new ArrayList<RendererComponent>();
+      blockSubComponents.addAll(otherComponents);
+      blockSubComponents.addAll(formatComponents);
+      Collections.shuffle(blockSubComponents, RNG);
+      blockSubComponents.subList(0, RNG.nextInt(blockSubComponents.size()) + 1).clear();
+      var blockSubRenderers = new ArrayList<BlockRenderer>();
+      blockSubRenderers.addAll(blockRenderers);
+      Collections.shuffle(blockSubRenderers, RNG);
+      blockSubRenderers.subList(0, RNG.nextInt(blockSubRenderers.size()) + 1).clear();
 
-      List<RendererComponent> renderComponentsAfterBlock = new ArrayList<>(renderComponentsAfterMacro);
-      renderComponentsAfterBlock.add(blockRendererComponent);
+      var macroSubRenderer1 = new V2SubRenderer(new V2Renderer(macroSubComponents));
+      var macroRendererComponent1 = new MacroRendererComponent(
+            new DefaultMacroManager(macroSubRenderer1), macroSubRenderer1);
 
-      this.subRenderer = new V2SubRenderer(new V2Renderer(renderComponentsAfterBlock));
-      this.iconManager = new JiraIconManager();
-      this.renderContext = makeRenderContext(subRenderer, iconManager);
+      // blockSubComponents.add(new TestComponent("(", ")"));
+      var blockSubRenderer1 = new V2SubRenderer(new V2Renderer(blockSubComponents));
+      var blockRendererComponent1 = new BlockRendererComponent(blockSubRenderer1, blockRenderers);
 
-      V2RendererFacade rendererFacade = new V2RendererFacade();
-      rendererFacade.setRenderer(new V2Renderer(renderComponentsAfterBlock));
-      this.rendererFacade = rendererFacade;
+      macroSubComponents.add(blockRendererComponent1);
+      macroSubComponents.add(macroRendererComponent1);
+      Collections.shuffle(macroSubComponents, RNG);
+      var macroSubRenderer2 = new V2SubRenderer(new V2Renderer(macroSubComponents));
+      var macroRendererComponent2 = new MacroRendererComponent(
+            new DefaultMacroManager(macroSubRenderer2), macroSubRenderer2);
+
+      blockSubComponents.add(blockRendererComponent1);
+      blockSubComponents.add(macroRendererComponent1);
+      Collections.shuffle(blockSubComponents, RNG);
+      var blockSubRenderer2 = new V2SubRenderer(new V2Renderer(blockSubComponents));
+      var blockRendererComponent2 = new BlockRendererComponent(blockSubRenderer2, blockRenderers);
+
+      var mainComponents = new ArrayList<RendererComponent>();
+      // mainComponents.add(new TestComponent("[","]"));
+      mainComponents.addAll(otherComponents);
+      mainComponents.addAll(formatComponents);
+      mainComponents.add(blockRendererComponent1);
+      mainComponents.add(blockRendererComponent2);
+      mainComponents.add(macroRendererComponent1);
+      mainComponents.add(macroRendererComponent2);
+      Collections.shuffle(mainComponents, RNG);
+      mainComponents.subList(0, RNG.nextInt(mainComponents.size()) + 1).clear();
+
+      this.subRenderer = new V2SubRenderer();
+      this.renderContext = makeRenderContext(subRenderer);
+
+      this.rendererFacade = new V2RendererFacade();
+      this.rendererFacade.setRenderer(new V2Renderer(mainComponents));
+   }
+
+   static class TestComponent implements RendererComponent {
+      public String p1;
+      public String p2;
+
+      public TestComponent(String p1, String p2) {
+         this.p1 = p1;
+         this.p2 = p2;
+      }
+
+      @Override
+      public String render(String wiki, RenderContext context) {
+         return p1 + wiki + p2;
+      }
+
+      @Override
+      public boolean shouldRender(RenderMode renderMode) {
+         return true;
+      }
+
    }
 
    public String plain2html(String text) {
-      return plain2html(text, true);
-   }
-
-   public String plain2html(String text, boolean renderIcons) {
       if (text == null || text.trim().isEmpty()) {
          return text;
       }
-      text = doConvert(text, renderIcons);
+      text = doConvert(text);
       return text;
    }
 
-   private String doConvert(String text, boolean renderIcons) {
-      RenderContext renderContext = getRenderContext(renderIcons);
+   private String doConvert(String text) {
       String content = rendererFacade.convertWikiToXHtml(renderContext, text);
       return restoreContentFromContentStore(renderContext, content);
    }
 
    private String restoreContentFromContentStore(RenderContext context, String content) {
-
       Map<String, String> replacementMap = new HashMap<>();
       for (TokenType tokenType : TokenType.values()) {
          Pattern p = Pattern.compile(tokenType.getTokenPatternString(), Pattern.CASE_INSENSITIVE);
@@ -143,134 +173,17 @@ public class Renderer {
       return "";
    }
 
-   private RenderContext getRenderContext(boolean renderIcons) {
-      iconManager.setRenderIcons(renderIcons);
-      return renderContext;
-   }
-
-   private RenderContext makeRenderContext(SubRenderer subRenderer, IconManager iconManager) {
+   private RenderContext makeRenderContext(SubRenderer subRenderer) {
       RenderContext renderContext = new RenderContext();
       renderContext.setSiteRoot("TEMP");
-      renderContext.setImagePath(renderContext.getSiteRoot() + "images");
-      renderContext.setLinkRenderer(new V2LinkRenderer(subRenderer, iconManager, makeRendererConfiguration()));
-      renderContext
-            .setEmbeddedResourceRenderer(new DefaultEmbeddedResourceRenderer(makeRendererAttachmentManager()));
       renderContext.setCharacterEncoding(CHARACTER_ENCODING);
       renderContext.setRenderingForWysiwyg(false);
+      renderContext.pushRenderMode(RenderMode.ALL_WITH_NO_MACRO_ERRORS);
       return renderContext;
    }
-
-   private RendererAttachmentManager makeRendererAttachmentManager() {
-      return new RendererAttachmentManager() {
-         private final String DOWNLOAD_PATH = "TEMP";
-
-         @Override
-         public RendererAttachment getAttachment(RenderContext renderContext, EmbeddedResource embeddedResource) {
-            return null;
-         }
-
-         @Override
-         public RendererAttachment getThumbnail(RendererAttachment rendererAttachment, RenderContext renderContext,
-               EmbeddedImage embeddedImage) {
-            return null;
-         }
-
-         @Override
-         public boolean systemSupportsThumbnailing() {
-            return false;
-         }
-      };
-   }
-
-   private LinkResolver makeLinkResolver() {
-      return new LinkResolver() {
-         @Override
-         public Link createLink(RenderContext renderContext, String s) {
-            return new UrlLink(new GenericLinkParser(s));
-         }
-
-         /* UrlRendererComponent and LinkRendererComponent dont use following methods */
-         @Override
-         public List extractLinkTextList(String s) {
-            return null;
-         }
-
-         @Override
-         public List extractLinks(RenderContext renderContext, String s) {
-            return null;
-         }
-
-         @Override
-         public String removeLinkBrackets(String s) {
-            return null;
-         }
-      };
-   }
-
-   static class JiraIconManager implements IconManager {
-      private boolean renderIcons;
-
-      public boolean isRenderIcons() {
-         return renderIcons;
-      }
-
-      public void setRenderIcons(boolean renderIcons) {
-         this.renderIcons = renderIcons;
-      }
-
-      @Override
-      public Icon getLinkDecoration(String s) {
-         int size = isRenderIcons() ? 10 : 0;
-         switch (s) {
-            case "mailto":
-               return Icon.makeRenderIcon("mail_small.png", 1, size, size);
-            case "external":
-               return Icon.makeRenderIcon("link_small.png", 1, size, size);
-         }
-         return null;
-      }
-
-      /* Following methods dont matter without EmoticonRendererComponent */
-      @Override
-      public Icon getEmoticon(String s) {
-         return null;
-      }
-
-      @Override
-      public String[] getEmoticonSymbols() {
-         return new String[0];
-      }
-   }
-
-   private RendererConfiguration makeRendererConfiguration() {
-      return new RendererConfiguration() {
-         @Override
-         public String getWebAppContextPath() {
-            return "TEMP";
-         }
-
-         @Override
-         public boolean isNofollowExternalLinks() {
-            return true;
-         }
-
-         @Override
-         public boolean isAllowCamelCase() {
-            return false;
-         }
-
-         @Override
-         public String getCharacterEncoding() {
-            return CHARACTER_ENCODING;
-         }
-      };
-   }
-
-   private AttachmentService attachmentService;
 
    private final V2RendererFacade rendererFacade;
    private final V2SubRenderer subRenderer;
-   private final JiraIconManager iconManager;
    private final RenderContext renderContext;
 
    private static final String CHARACTER_ENCODING = StandardCharsets.UTF_8.name();

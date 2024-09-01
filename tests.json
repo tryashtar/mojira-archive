@@ -1403,5 +1403,130 @@
       "in": "# line1\nh2. test\nh3. test\n# line2",
       "out": "<ol>\n\t<li>line1\n<h2><a name=\"test\"></a>test</h2>\n<h3><a name=\"test\"></a>test</h3></li>\n\t<li>line2</li>\n</ol>\n",
       "index": 280
+   },
+   {
+      "in": "start text\n# now\n# a\n# list\n\nend text",
+      "out": "<p>start text</p>\n<ol>\n\t<li>now</li>\n\t<li>a</li>\n\t<li>list</li>\n</ol>\n\n\n<p>end text</p>",
+      "index": 281
+   },
+   {
+      "in": "*_-+^~words",
+      "out": "<p>*_-+^~words</p>",
+      "index": 282
+   },
+   {
+      "in": "*_-+^~words~^+-_*",
+      "out": "<p><b><em><del><ins><sup><sub>words</sub></sup></ins></del></em></b></p>",
+      "index": 283
+   },
+   {
+      "in": "*_-+^~words*_-+^~",
+      "out": "<p><b><em><del><ins><sup><sub>words</b></em></del></ins></sup></sub></p>",
+      "index": 284
+   },
+   {
+      "in": "*{panel}a\nlot\nof\narbitrary\ntext{panel}*",
+      "out": "<p><b><div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<p>a<br/>\nlot<br/>\nof<br/>\narbitrary<br/>\ntext</p>\n</div></div></b></p>",
+      "index": 285
+   },
+   {
+      "in": "*{panel}a\nlot\nof\narbitrary\ntext{panel}_",
+      "out": "<p>*<div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<p>a<br/>\nlot<br/>\nof<br/>\narbitrary<br/>\ntext</p>\n</div></div>_</p>",
+      "index": 286
+   },
+   {
+      "in": "*{panel}ends during* panel{panel}",
+      "out": "<p>*<div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<p>ends during* panel</p>\n</div></div></p>",
+      "index": 287
+   },
+   {
+      "in": "before *outside {panel}that *has its own* text{panel} after* again",
+      "out": "<p>before <b>outside <div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<p>that <b>has its own</b> text</p>\n</div></div> after</b> again</p>",
+      "index": 288
+   },
+   {
+      "in": "this is my {block of weird text and now is it over",
+      "out": "<p>this is my {block of weird text and now is it over</p>",
+      "index": 289
+   },
+   {
+      "in": "this is my {block of weird text and *now is it over*",
+      "out": "<p>this is my {block of weird text and <b>now is it over</b></p>",
+      "index": 290
+   },
+   {
+      "in": "bold*inside*aword",
+      "out": "<p>bold*inside*aword</p>",
+      "index": 291
+   },
+   {
+      "in": "this is *my {blockof} weird* text",
+      "out": "<p>this is *my </p>\n{blockof}\n<p> weird* text</p>",
+      "index": 292
+   },
+   {
+      "in": "this is *my {blockof}{blockof} weird* text",
+      "out": "<p>this is *my </p>\n{blockof}\n<p> weird* text</p>",
+      "index": 293
+   },
+   {
+      "in": "this is *my {blockone}{blocktwo} weird* text",
+      "out": "<p>this is *my </p>\n{blockone}\n{blocktwo}\n<p> weird* text</p>",
+      "index": 294
+   },
+   {
+      "in": "this is *my {panel}{panel} weird* text",
+      "out": "<p>this is <b>my <div class=\"panel\" style=\"border-width: 1px;\"></div> weird</b> text</p>",
+      "index": 295
+   },
+   {
+      "in": "this is my {test}{test}{test}{test}{test} weirdness",
+      "out": "<p>this is my </p>\n{test}\n{test}\n{test}\n<p> weirdness</p>",
+      "index": 296
+   },
+   {
+      "in": "this is my {test}{not}{not}{test}{test} weirdness",
+      "out": "<p>this is my </p>\n{test}{not}{test}\n{test}\n<p> weirdness</p>",
+      "index": 297
+   },
+   {
+      "in": "this is my {1}{2}{3}{4}{5}{6}{7} test",
+      "out": "<p>this is my </p>\n{1}\n{2}\n{3}\n{4}\n{5}\n{6}\n{7}\n<p> test</p>",
+      "index": 298
+   },
+   {
+      "in": "this is my {1}{1}{1}{2}{2}{2}{3}{3}{3} test",
+      "out": "<p>this is my </p>\n{1}\n{1}\n{2}\n{2}\n{3}\n{3}\n<p> test</p>",
+      "index": 299
+   },
+   {
+      "in": "this is my {1:a}{1:b}{1:c}{2:a}{2:b}{2:c}{3:a}{3:b}{3:c} test",
+      "out": "<p>this is my </p>\n{1:a}\n{1:b}\n{1:c}\n{2:a}\n{2:b}\n{2:c}\n{3:a}\n{3:b}\n{3:c}\n<p> test</p>",
+      "index": 300
+   },
+   {
+      "in": "{loremipsum}",
+      "out": "<p>Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aliquam fermentum vestibulum est. Cras rhoncus. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Sed quis tortor. Donec non ipsum. Mauris condimentum, odio nec porta tristique, ante neque malesuada massa, in dignissim eros velit at tellus. Donec et risus in ligula eleifend consectetuer. Donec volutpat eleifend augue. Integer gravida sodales leo. Nunc vehicula neque ac erat. Vivamus non nisl. Fusce ac magna. Suspendisse euismod libero eget mauris.</p>\n<p>Ut ligula. Maecenas consequat. Aliquam placerat. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Nulla convallis. Ut quis tortor. Vestibulum a lectus at diam fermentum vehicula. Mauris sed turpis a nisl ultricies facilisis. Fusce ornare, mi vitae hendrerit eleifend, augue erat cursus nunc, a aliquam elit leo sed est. Donec eget sapien sit amet eros vehicula mollis. In sollicitudin libero in felis. Phasellus metus sem, pulvinar in, porta nec, faucibus in, ipsum. Nam a tellus. Aliquam erat volutpat.</p>\n<p>Sed id velit ut orci feugiat tempus. Pellentesque accumsan augue at libero elementum vestibulum. Maecenas sit amet metus. Etiam molestie massa sed erat. Aenean tincidunt. Mauris id eros. Quisque eu ante. Fusce eu dolor. Aenean ultricies ante ut diam. Donec iaculis, pede eu aliquet lobortis, wisi est dignissim diam, ut fringilla eros magna a mi. Nulla vel lorem. Donec placerat, lectus quis molestie hendrerit, ante tortor pharetra risus, ac rutrum arcu odio eu tortor. In dapibus lacus nec ligula. Aenean vel metus. Nunc mattis lorem posuere felis. In vehicula tempus lacus. Phasellus arcu. Nam ut arcu. Duis eget elit id eros adipiscing dignissim.</p>\n",
+      "index": 301
+   },
+   {
+      "in": "*# h3. *text {panel}in _panel_ now{panel}*",
+      "out": "<ul>\n\t<li>\n\t<ol>\n\t\t<li><h3><a name=\"text\"></a><b>text <div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<p>in <em>panel</em> now</p>\n</div></div></b></h3></li>\n\t</ol>\n\t</li>\n</ul>\n",
+      "index": 302
+   },
+   {
+      "in": "a\n\n\n\n\nb",
+      "out": "<p>a</p>\n\n\n\n\n<p>b</p>",
+      "index": 303
+   },
+   {
+      "in": "start then {panel}panel with {code}some code inside{code} and then{panel} end",
+      "out": "<p>start then <div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<p>panel with </p>\n<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">some code inside</pre>\n</div></div>\n<p> and then</p>\n</div></div> end</p>",
+      "index": 304
+   },
+   {
+      "in": "* start then {panel}* panel with {code}some code inside{code} and then{panel} end",
+      "out": "<ul>\n\t<li>start then <div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<ul>\n\t<li>panel with \n<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">some code inside</pre>\n</div></div>\n<p> and then</p></li>\n</ul>\n</div></div> end</li>\n</ul>\n",
+      "index": 305
    }
 ]
