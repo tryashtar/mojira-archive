@@ -2,32 +2,26 @@ package com.renderer;
 
 public class Main {
     public static void main(String[] args) {
-        var input = "* {panel}* entry 1\n* entry 2{panel}\n* more";
-        var expected = "<ul>\n\t<li><div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<ul>\n\t<li>entry 1</li>\n\t<li>entry 2</li>\n</ul>\n</div></div></li>\n\t<li>more</li>\n</ul>\n";
         // var input = args[0];
-        long seed = 0;
         var inputs = inputs();
         var outputs = outputs();
-        int high_score = 0;
-        while (true) {
-            Renderer.RNG.setSeed(seed);
-            var renderer = new Renderer();
-            int score = 0;
-            for (int i = 0; i < inputs.length; i++) {
-                input = inputs[i];
-                expected = outputs[i];
-                var output = renderer.plain2html(input);
-                if (expected.equals(output)) {
-                    score++;
-                }
+        var renderer = new Renderer();
+        int score = 0;
+        for (int i = 0; i < inputs.length; i++) {
+            var input = inputs[i];
+            var expected = outputs[i];
+            var output = renderer.plain2html(input);
+            if (!expected.equals(output)) {
+                System.out.println(i);
+                System.out.println(input);
+                System.out.println(expected);
+                System.out.println(output);
+                System.out.println();
+            } else {
+                score++;
             }
-            if (score>high_score) {
-                high_score = score;
-                System.out.println("Seed " + seed + " got " + score + " / " + inputs.length);
-            }
-            seed++;
         }
-        // System.out.print(output);
+        System.out.println("Passed: " + score);
     }
 
     public static String[] outputs() {

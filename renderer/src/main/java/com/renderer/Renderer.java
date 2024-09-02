@@ -21,79 +21,98 @@ public class Renderer {
    public static Random RNG = new Random();
 
    public Renderer() {
-      var formatComponents = List.of(
-            PhraseRendererComponent.getDefaultRenderer("citation"),
-            PhraseRendererComponent.getDefaultRenderer("strong"),
-            PhraseRendererComponent.getDefaultRenderer("superscript"),
-            PhraseRendererComponent.getDefaultRenderer("subscript"),
-            PhraseRendererComponent.getDefaultRenderer("emphasis"),
-            PhraseRendererComponent.getDefaultRenderer("deleted"),
-            PhraseRendererComponent.getDefaultRenderer("inserted"),
-            PhraseRendererComponent.getDefaultRenderer("monospaced")
-            );
-      var otherComponents = List.of(
-            new BackslashEscapeRendererComponent(),
-            new HtmlEntityRendererComponent(),
-            new HtmlEscapeRendererComponent(),
-            new ForceNewLineRendererComponent(),
-            new DashRendererComponent(),
-            new NewLineRendererComponent());
-      var blockRenderers = List.of(
-            new TableBlockRenderer(),
-            new ListBlockRenderer(),
-            new HeadingBlockRenderer(),
-            new BlockquoteBlockRenderer(),
-            new HorizontalRuleBlockRenderer(),
-            new BlankLineBlockRenderer()
-            );
+      var macroSubComponents1 = new ArrayList<RendererComponent>();
+      macroSubComponents1.add(new ForceNewLineRendererComponent());
+      macroSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("monospaced"));
+      macroSubComponents1.add(new HtmlEntityRendererComponent());
+      macroSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("strong"));
+      macroSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("subscript"));
+      macroSubComponents1.add(new NewLineRendererComponent());
+      macroSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("deleted"));
+      macroSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("superscript"));
+      macroSubComponents1.add(new BackslashEscapeRendererComponent());
 
-      var macroSubComponents = new ArrayList<RendererComponent>();
-      macroSubComponents.addAll(otherComponents);
-      macroSubComponents.addAll(formatComponents);
-      Collections.shuffle(macroSubComponents, RNG);
-      macroSubComponents.subList(0, RNG.nextInt(macroSubComponents.size()) + 1).clear();
+      var blockSubComponents1 = new ArrayList<RendererComponent>();
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("inserted"));
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("emphasis"));
+      blockSubComponents1.add(new ForceNewLineRendererComponent());
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("deleted"));
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("strong"));
+      blockSubComponents1.add(new HtmlEntityRendererComponent());
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("subscript"));
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("monospaced"));
+      blockSubComponents1.add(new NewLineRendererComponent());
+      blockSubComponents1.add(new BackslashEscapeRendererComponent());
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("citation"));
+      blockSubComponents1.add(PhraseRendererComponent.getDefaultRenderer("superscript"));
+      blockSubComponents1.add(new DashRendererComponent());
+      var blockSubRenderers1 = new ArrayList<BlockRenderer>();
+      blockSubRenderers1.add(new TableBlockRenderer());
+      blockSubRenderers1.add(new ListBlockRenderer());
+      blockSubRenderers1.add(new HeadingBlockRenderer());
+      blockSubRenderers1.add(new BlockquoteBlockRenderer());
+      blockSubRenderers1.add(new HorizontalRuleBlockRenderer());
+      blockSubRenderers1.add(new BlankLineBlockRenderer());
 
-      var blockSubComponents = new ArrayList<RendererComponent>();
-      blockSubComponents.addAll(otherComponents);
-      blockSubComponents.addAll(formatComponents);
-      Collections.shuffle(blockSubComponents, RNG);
-      blockSubComponents.subList(0, RNG.nextInt(blockSubComponents.size()) + 1).clear();
-      var blockSubRenderers = new ArrayList<BlockRenderer>();
-      blockSubRenderers.addAll(blockRenderers);
-      Collections.shuffle(blockSubRenderers, RNG);
-      blockSubRenderers.subList(0, RNG.nextInt(blockSubRenderers.size()) + 1).clear();
-
-      var macroSubRenderer1 = new V2SubRenderer(new V2Renderer(macroSubComponents));
+      var macroSubRenderer1 = new V2SubRenderer(new V2Renderer(macroSubComponents1));
       var macroRendererComponent1 = new MacroRendererComponent(
             new DefaultMacroManager(macroSubRenderer1), macroSubRenderer1);
 
-      // blockSubComponents.add(new TestComponent("(", ")"));
-      var blockSubRenderer1 = new V2SubRenderer(new V2Renderer(blockSubComponents));
-      var blockRendererComponent1 = new BlockRendererComponent(blockSubRenderer1, blockRenderers);
+      var blockSubRenderer1 = new V2SubRenderer(new V2Renderer(blockSubComponents1));
+      var blockRendererComponent1 = new BlockRendererComponent(blockSubRenderer1, blockSubRenderers1);
 
-      macroSubComponents.add(blockRendererComponent1);
-      macroSubComponents.add(macroRendererComponent1);
-      Collections.shuffle(macroSubComponents, RNG);
-      var macroSubRenderer2 = new V2SubRenderer(new V2Renderer(macroSubComponents));
+      var macroSubComponents2 = new ArrayList<RendererComponent>();
+      macroSubComponents2.add(blockRendererComponent1);
+      macroSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("subscript"));
+      macroSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("deleted"));
+      macroSubComponents2.add(new NewLineRendererComponent());
+      macroSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("strong"));
+      macroSubComponents2.add(new HtmlEntityRendererComponent());
+      macroSubComponents2.add(new ForceNewLineRendererComponent());
+      macroSubComponents2.add(macroRendererComponent1);
+      macroSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("monospaced"));
+      macroSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("superscript"));
+      macroSubComponents2.add(new BackslashEscapeRendererComponent());
+
+      var macroSubRenderer2 = new V2SubRenderer(new V2Renderer(macroSubComponents2));
       var macroRendererComponent2 = new MacroRendererComponent(
             new DefaultMacroManager(macroSubRenderer2), macroSubRenderer2);
 
-      blockSubComponents.add(blockRendererComponent1);
-      blockSubComponents.add(macroRendererComponent1);
-      Collections.shuffle(blockSubComponents, RNG);
-      var blockSubRenderer2 = new V2SubRenderer(new V2Renderer(blockSubComponents));
-      var blockRendererComponent2 = new BlockRendererComponent(blockSubRenderer2, blockRenderers);
+      var blockSubComponents2 = new ArrayList<RendererComponent>();
+      blockSubComponents2.add(blockRendererComponent1);
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("deleted"));
+      blockSubComponents2.add(new ForceNewLineRendererComponent());
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("strong"));
+      blockSubComponents2.add(new NewLineRendererComponent());
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("subscript"));
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("superscript"));
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("monospaced"));
+      blockSubComponents2.add(macroRendererComponent1);
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("inserted"));
+      blockSubComponents2.add(new DashRendererComponent());
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("citation"));
+      blockSubComponents2.add(new BackslashEscapeRendererComponent());
+      blockSubComponents2.add(PhraseRendererComponent.getDefaultRenderer("emphasis"));
+      blockSubComponents2.add(new HtmlEntityRendererComponent());
+      var blockSubRenderers2 = new ArrayList<BlockRenderer>();
+      blockSubRenderers2.add(new TableBlockRenderer());
+      blockSubRenderers2.add(new ListBlockRenderer());
+      blockSubRenderers2.add(new HeadingBlockRenderer());
+      blockSubRenderers2.add(new BlockquoteBlockRenderer());
+      blockSubRenderers2.add(new HorizontalRuleBlockRenderer());
+      blockSubRenderers2.add(new BlankLineBlockRenderer());
+
+      var blockSubRenderer2 = new V2SubRenderer(new V2Renderer(blockSubComponents2));
+      var blockRendererComponent2 = new BlockRendererComponent(blockSubRenderer2, blockSubRenderers2);
 
       var mainComponents = new ArrayList<RendererComponent>();
-      // mainComponents.add(new TestComponent("[","]"));
-      mainComponents.addAll(otherComponents);
-      mainComponents.addAll(formatComponents);
-      mainComponents.add(blockRendererComponent1);
-      mainComponents.add(blockRendererComponent2);
-      mainComponents.add(macroRendererComponent1);
+      mainComponents.add(new HtmlEntityRendererComponent());
+      mainComponents.add(new HtmlEscapeRendererComponent());
       mainComponents.add(macroRendererComponent2);
-      Collections.shuffle(mainComponents, RNG);
-      mainComponents.subList(0, RNG.nextInt(mainComponents.size()) + 1).clear();
+      mainComponents.add(new DashRendererComponent());
+      mainComponents.add(macroRendererComponent1);
+      mainComponents.add(blockRendererComponent2);
+      mainComponents.add(new ForceNewLineRendererComponent());
 
       this.subRenderer = new V2SubRenderer();
       this.renderContext = makeRenderContext(subRenderer);
