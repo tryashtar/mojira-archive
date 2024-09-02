@@ -10,6 +10,8 @@ def main():
    check_tests()
 
 def convert(text):
+   if text.isspace():
+      return '&nbsp;'
    parser = MarkupParser(text)
    return parser.parse()
 
@@ -17,6 +19,7 @@ class MarkupParser:
    def __init__(self, text):
       self.stream = io.StringIO(text)
       self.list_stack = ''
+      self.formats = set()
 
    def peek(self, size=1):
       pos = self.stream.tell()
@@ -79,9 +82,7 @@ class MarkupParser:
             output.write('<ol>')
       self.list_stack = list_start
    
-   def fresh_line(self, output):
-      whitespace = self.read_whitespace()
-      
+   def try_list(self, output):
       (list_start, pos) = self.peek_list_start()
       self.handle_list(output, list_start)
       self.stream.seek(pos)
@@ -89,28 +90,53 @@ class MarkupParser:
          output.write('\n')
          output.write('\t' * len(list_start))
          output.write('<li>')
-         
+         if not self.try_header(output):
+            text = self.read_normal()
+            output.write(text)
+         output.write('</li>')
+         return True
+      return False
+   
+   def try_header(self, output):
       header = self.peek(3)
       if header in ['h1.', 'h2.', 'h3.', 'h4.', 'h5.', 'h6.']:
          output.write('<' + header[:2] + '>')
          self.stream.read(3)
          self.read_whitespace()
-         text = self.read_to_eol()
+         text = self.read_normal()
          output.write('<a name="')
+         output.write(text.replace(' ',''))
          output.write('"></a>')
          output.write(text)
          output.write('</' + header[:2] + '>')
-      
-      text = self.read_to_eol()
-      output.write(text)
-      
-      if len(list_start) > 0:
-         output.write('</li>')
+         return True
+      return False
    
-   def read_to_eol(self):
-      text = self.read_while(lambda x: True)
+   def fresh_line(self, output):
+      whitespace = self.read_whitespace()
+      
+      if self.try_list(output):
+         return
+      
+      if self.try_header(output):
+         return
+      
+      text = self.read_normal()
+      output.write('<p>')
+      output.write(whitespace)
+      output.write(text)
+      output.write('</p>')
+   
+   def read_normal(self):
+      result = ''
+      if self.peek() == '{':
+         return self.read_block()
+      return result
+   
+   def read_block(self):
       self.stream.read(1)
-      return text
+      block_type = self.read_while(lambda x: x != '}')
+      self.stream.read(1)
 
 def check_tests():
    tests = tat.read_json('tests.json')
