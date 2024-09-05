@@ -8,7 +8,6 @@ import typing
 def main():
    dump = Dump(pathlib.Path('/d/Archives/Mojira/dump'))
    populate(dump)
-   dump.save()
 
 class Dump:
    def __init__(self, folder: pathlib.Path):
@@ -16,8 +15,6 @@ class Dump:
       self.attachments_folder = folder / 'attachments'
       self.tickets_folder = folder / 'tickets'
       self.users_folder = folder / 'users'
-      self.unknown_users_path = folder / 'unknown_users.json'
-      self.unknown_users = self.load_or(self.unknown_users_path, {})
       self.new_users = {}
       
       self.fields_path = folder / 'fields.json'
@@ -35,7 +32,7 @@ class Dump:
       self.versions_path = folder / 'versions.json'
       self.versions = self.load_meta(self.versions_path)
    
-   def save(self):
+   def save_metas(self):
       self.root_folder.mkdir(parents=True, exist_ok=True)
       if self.fields is not None:
          self.save_meta(self.fields, self.fields_path)
@@ -51,8 +48,6 @@ class Dump:
          self.save_meta(self.statuses, self.statuses_path)
       if self.versions is not None:
          self.save_meta(self.versions, self.versions_path)
-      with open(self.unknown_users_path, 'w', encoding='utf-8') as file:
-         json.dump(self.unknown_users, file, indent=3)
    
    def load_meta(self, path: pathlib.Path) -> dict[str, typing.Any] | None:
       data = self.load_or(path, None)
@@ -158,25 +153,31 @@ class Dump:
    def get_issue_path(self, key: str) -> pathlib.Path:
       return self.tickets_folder / key.split('-')[0] / (key + '.json')
    
-   def get_user_path(self, key: str) -> pathlib.Path:
+   def get_user_path(self, key: str, unknown=False) -> pathlib.Path:
+      if unknown:
+         return self.users_folder / 'unknown' / (urllib.parse.quote_plus(key) + '.json')   
       return self.users_folder / (urllib.parse.quote_plus(key) + '.json')
    
    def flush_users(self, client: jira.JIRA, overwrite: bool):
       self.users_folder.mkdir(parents=True, exist_ok=True)
       for key,value in self.new_users.items():
          user_path = self.get_user_path(key)
-         if overwrite or not user_path.exists():
-            try:
-               user = get_user(client, key, expand='groups')
-            except jira.exceptions.JIRAError as exc:
-               if exc.text == f'The user with the key \'{key}\' does not exist':
-                  self.unknown_users[key] = value
-                  continue
+         if not (overwrite or not user_path.exists()):
+            continue
+         try:
+            data = get_user(client, key, expand='groups').raw
+         except jira.exceptions.JIRAError as exc:
+            if exc.text == f'The user with the key \'{key}\' does not exist':
+               user_path = self.get_user_path(key, True)
+               data = value
+            else:
                raise
-            print('\t' + user.raw['name'])
-            user_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(user_path, 'w', encoding='utf-8') as file:
-               json.dump(user.raw, file, indent=3)
+         if not (overwrite or not user_path.exists()):
+            continue
+         print('\t' + data['name'])
+         user_path.parent.mkdir(parents=True, exist_ok=True)
+         with open(user_path, 'w', encoding='utf-8') as file:
+            json.dump(data, file, indent=3)
       self.new_users = {}
          
    def key_by(self, items: list[dict[str, typing.Any]], key: str) -> dict[str, dict[str, typing.Any]]:
@@ -252,8 +253,9 @@ def check(dump: Dump):
 def verify_user(fields: dict[str, typing.Any], key: str, dump: Dump, ticket: str):
    val = fields.get(key)
    if val is not None:
-      user = dump.get_user_path(val)
-      if not user.exists() and not val in dump.unknown_users:
+      user1 = dump.get_user_path(val, False)
+      user2 = dump.get_user_path(val, True)
+      if not user1.exists() and not user2.exists():
          print(f'{ticket}: No user {val}')
 
 def verify_field(fields: dict[str, typing.Any], key: str, source: dict[str, typing.Any], ticket: str):
@@ -263,7 +265,7 @@ def verify_field(fields: dict[str, typing.Any], key: str, source: dict[str, typi
          values = [values]
       for val in values:
          if val not in source:
-            print(f'{ticket}: Unknown {key}')
+            print(f'{ticket}: Unknown {key} {val}')
 
 def refresh(dump: Dump):
    client = get_client()
