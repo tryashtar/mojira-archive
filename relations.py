@@ -9,6 +9,8 @@ def main():
    def append(path, value):
       block = relations
       for i,entry in enumerate(path):
+         if entry is None:
+            entry = ''
          if entry not in block:
             if i == len(path) - 1:
                block[entry] = []
@@ -40,7 +42,7 @@ def main():
          append(['users', comment.get('updateAuthor'), 'edits', key], comment['id'])
       for change in data['changelog']['histories']:
          append(['users', change['author'], 'changes', key], change['id'])
-   tat.write_json(relations, dump.root_folder / 'relations.json', mini=True)
+   tat.write_json(relations, dump.root_folder / 'relations.json')
 
 if __name__ == '__main__':
    main()
