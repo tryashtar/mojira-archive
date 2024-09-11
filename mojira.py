@@ -4,6 +4,7 @@ import pathlib
 import json
 import urllib.parse
 import typing
+import os
 
 def main():
    dump = Dump(pathlib.Path('/d/Archives/Mojira/dump'))
@@ -242,6 +243,10 @@ def check(dump: Dump):
             attach_path = dump.get_attachment_path(attachment['id'])
             if not attach_path.exists():
                print(f'{key}: No attachment {attachment['id']}')
+            else:
+               size = os.path.getsize(attach_path)
+               if size != attachment['size']:
+                  print(f'{key}: Attachment size mismatch {attachment['id']}: {size} / {attachment['size']}')
          for comment in fields['comment']['comments']:
             verify_user(comment, 'author', dump, key)
             verify_user(comment, 'updateAuthor', dump, key)
