@@ -28,6 +28,8 @@ def main():
                if item['field'] in fields:
                   fromstr = render(client, data['key'], item['fromString'])
                   tostr = render(client, data['key'], item['toString'])
+                  if item['field'] in result['history'][-1]:
+                     raise ValueError('overwrite eek!')
                   result['history'][-1][item['field']] = {"from":fromstr,"to":tostr}
       tat.write_json(result, out_path)
 
