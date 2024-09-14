@@ -4,6 +4,7 @@ import pathlib
 import json
 import urllib.parse
 import typing
+import datetime
 
 def main():
    dump = Dump(pathlib.Path('/d/Archives/Mojira/dump'))
@@ -34,65 +35,44 @@ class Dump:
    
    def save_metas(self):
       self.root_folder.mkdir(parents=True, exist_ok=True)
-      if self.fields is not None:
-         self.save_meta(self.fields, self.fields_path)
-      if self.issue_types is not None:
-         self.save_meta(self.issue_types, self.issue_types_path)
-      if self.link_types is not None:
-         self.save_meta(self.link_types, self.link_types_path)
-      if self.projects is not None:
-         self.save_meta(self.projects, self.projects_path)
-      if self.resolutions is not None:
-         self.save_meta(self.resolutions, self.resolutions_path)
-      if self.statuses is not None:
-         self.save_meta(self.statuses, self.statuses_path)
-      if self.versions is not None:
-         self.save_meta(self.versions, self.versions_path)
+      self.save_meta(self.fields, self.fields_path)
+      self.save_meta(self.issue_types, self.issue_types_path)
+      self.save_meta(self.link_types, self.link_types_path)
+      self.save_meta(self.projects, self.projects_path)
+      self.save_meta(self.resolutions, self.resolutions_path)
+      self.save_meta(self.statuses, self.statuses_path)
+      self.save_meta(self.versions, self.versions_path)
    
-   def load_meta(self, path: pathlib.Path) -> dict[str, typing.Any] | None:
-      data = self.load_or(path, None)
-      if data is not None:
-         data = self.key_by(data, 'id')
+   def load_meta(self, path: pathlib.Path) -> dict[str, typing.Any]:
+      data = self.load_or(path, {})
+      data = self.key_by(data, 'id')
       return data
    
    def save_meta(self, data: dict[str, typing.Any], path: pathlib.Path):
       with open(path, 'w', encoding='utf-8') as file:
          json.dump(list(data.values()), file, indent=3)
    
-   def fetch_metas(self, client: jira.JIRA, overwrite: bool):
-      if overwrite or self.fields is None:
-         self.fields = self.key_by(client.fields(), 'id')
-      if overwrite or self.projects is None:
-         data = [p.raw for p in client.projects(expand='description,lead,url')]
-         for project in data:
-            self.simplify_user(project, 'lead')
-         self.projects = self.key_by(data, 'id')
-      if overwrite or self.issue_types is None:
-         data = [p.raw for p in client.issue_types()]
-         self.issue_types = self.key_by(data, 'id')
-      if overwrite or self.resolutions is None:
-         data = [p.raw for p in client.resolutions()]
-         self.resolutions = self.key_by(data, 'id')
-      if overwrite or self.statuses is None:
-         data = [p.raw for p in client.statuses()]
-         self.statuses = self.key_by(data, 'id')
-      if overwrite or self.versions is None:
-         projects = client.projects()
-         data = [v.raw for p in projects for v in client.project_versions(p.key)]
-         self.versions = self.key_by(data, 'id')
-      if overwrite or self.link_types is None:
-         data = [p.raw for p in client.issue_link_types()]
-         self.link_types = self.key_by(data, 'id')
-      self.flush_users(client, overwrite)
+   def fetch_metas(self, client: jira.JIRA):
+      projects = client.projects(expand='description,lead,url')
+      self.fields = self.key_by(client.fields(), 'id')
+      project_data = [p.raw for p in projects]
+      for project in project_data:
+         self.simplify_user(project, 'lead')
+      self.projects = self.key_by(project_data, 'id')
+      self.issue_types = self.key_by([p.raw for p in client.issue_types()], 'id')
+      self.resolutions = self.key_by([p.raw for p in client.resolutions()], 'id')
+      self.statuses = self.key_by([p.raw for p in client.statuses()], 'id')
+      self.versions = self.key_by([v.raw for p in projects for v in client.project_versions(p.key)], 'id')
+      self.link_types = self.key_by([p.raw for p in client.issue_link_types()], 'id')
    
    def fetch_issues(self, client: jira.JIRA, query: str, overwrite: bool):
       self.attachments_folder.mkdir(parents=True, exist_ok=True)
+      self.tickets_folder.mkdir(parents=True, exist_ok=True)
       for issue in get_issues(client, query):
          self.save_issue(client, issue, overwrite)
                      
    def save_issue(self, client: jira.JIRA, issue: jira.Issue, overwrite: bool):
-      issue_path = self.get_issue_path(issue.key)
-      issue_path.parent.mkdir(parents=True, exist_ok=True)
+      issue_path = self.get_issue_path(issue.id)
       data = issue.raw
       if overwrite or not issue_path.exists():
          print(issue.key)
@@ -126,8 +106,8 @@ class Dump:
          self.simplify_user(comment, 'updateAuthor')
       for link in fields['issuelinks']:
          self.simplify_field(link, 'type')
-         self.simplify_field(link, 'inwardIssue', 'key')
-         self.simplify_field(link, 'outwardIssue', 'key')
+         self.simplify_field(link, 'inwardIssue')
+         self.simplify_field(link, 'outwardIssue')
       for change in issue['changelog']['histories']:
          self.simplify_user(change, 'author')
 
@@ -150,8 +130,8 @@ class Dump:
    def get_attachment_path(self, attach_id: str) -> pathlib.Path:
       return self.attachments_folder / attach_id
    
-   def get_issue_path(self, key: str) -> pathlib.Path:
-      return self.tickets_folder / key.split('-')[0] / (key + '.json')
+   def get_issue_path(self, issue_id: str) -> pathlib.Path:
+      return self.tickets_folder / (issue_id + '.json')
    
    def get_user_path(self, key: str, unknown=False) -> pathlib.Path:
       if unknown:
@@ -192,29 +172,35 @@ class Dump:
             return json.load(file)
       return default
 
-   def tickets(self, project_key: str) -> typing.Generator[dict[str, typing.Any], None, None]:
-      for path in (self.tickets_folder / project_key).iterdir():
+   def tickets(self) -> typing.Generator[dict[str, typing.Any], None, None]:
+      for path in self.tickets_folder.iterdir():
          with open(path, 'r', encoding='utf-8') as path:
             yield json.load(path)
 
-   def ticket_names(self, project_key: str) -> typing.Generator[str, None, None]:
-      for path in (self.tickets_folder / project_key).iterdir():
+   def ticket_names(self) -> typing.Generator[str, None, None]:
+      for path in self.tickets_folder.iterdir():
          yield path.stem
 
 def populate(dump: Dump):
    print('Connecting...')
    client = get_client()
    print('Fetching metadata...')
-   dump.fetch_metas(client, overwrite=False)
-   for project in dump.projects.values():
-      key = project['key']
-      print(key + ':')
-      last_ticket = max(map(lambda x: int(x.removeprefix(key + '-')), dump.ticket_names(key)), default=None)
-      if last_ticket is None:
-         query = f'project = {key} ORDER BY key ASC'
-      else:
-         query = f'project = {key} AND key > {key}-{last_ticket} ORDER BY key ASC'
-      dump.fetch_issues(client, query, overwrite=False)
+   dump.fetch_metas(client)
+   dump.save_metas()
+   dump.flush_users(client, overwrite=False)
+   print('Finding last stopping point...')
+   last_stop = None
+   for ticket in dump.tickets():
+      created = datetime.datetime.fromisoformat(ticket['fields']['created'])
+      if last_stop is None or created > last_stop:
+         last_stop = created
+   if last_stop is None:
+      query = 'ORDER BY created ASC'
+   else:
+      jira_date = last_stop.strftime('%Y-%m-%d %H:%M')
+   query = f'created >= {jira_date} ORDER BY created ASC'
+   print(f'Query: {query}')
+   dump.fetch_issues(client, query, overwrite=False)
 
 def fetch(dump: Dump, query: str):
    client = get_client()
@@ -225,9 +211,11 @@ def refresh(dump: Dump):
    issues = get_issues(client, 'ORDER BY updated DESC')
    for issue in issues:
       existing_date = None
-      existing_path = dump.get_issue_path(issue.key)
+      existing_path = dump.get_issue_path(issue.id)
       if existing_path.exists():
-         existing_date = tat.read_json(existing_path)['fields']['updated']
+         with open(existing_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+            existing_date = data['fields']['updated']
       if existing_date is None or issue.fields.updated > existing_date:
          dump.save_issue(client, issue, True)
       else:
