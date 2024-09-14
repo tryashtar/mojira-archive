@@ -21,14 +21,21 @@ for i,file in enumerate(files):
       if inw is not None:
          if inw in pairs:
             link['inwardIssue'] = pairs[inw]
+         elif '-' not in inw:
+            link['inwardIssue'] = inw
          else:
+            print('Looking up ' + inw)
             issue = client.issue(inw)
             link['inwardIssue'] = issue.id
       if outw is not None:
          if outw in pairs:
             link['outwardIssue'] = pairs[outw]
+         elif '-' not in outw:
+            link['outwardIssue'] = outw
          else:
+            print('Looking up ' + outw)
             issue = client.issue(outw)
             link['outwardIssue'] = issue.id
    new_path = dump.root_folder / 'new_issues' / (data['id'] + '.json')
-   tat.write_json(data, new_path)
+   if not new_path.exists():
+      tat.write_json(data, new_path)
