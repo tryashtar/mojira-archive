@@ -10,6 +10,7 @@ def download_avatar(url, folder):
    avatarid = re.search(r'avatarId=(\d+)', url).groups(1)[0]
    filepath = dump.root_folder / 'avatars' / folder / avatarid
    if not filepath.exists():
+      print('NEW!')
       response = client._session.get(url)
       tat.write_bytes(response.content, filepath)
 for project in dump.projects.values():

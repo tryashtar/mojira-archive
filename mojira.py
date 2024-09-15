@@ -8,7 +8,7 @@ import datetime
 
 def main():
    dump = Dump(pathlib.Path('/d/Archives/Mojira/dump'))
-   populate(dump)
+   refresh(dump)
 
 class Dump:
    def __init__(self, folder: pathlib.Path):
@@ -16,6 +16,8 @@ class Dump:
       self.attachments_folder = folder / 'attachments'
       self.tickets_folder = folder / 'tickets'
       self.users_folder = folder / 'users'
+      self.project_avatars_folder = folder / 'avatars/projects'
+      self.users_avatars_folder = folder / 'avatars/users'
       self.new_users = {}
       
       self.fields_path = folder / 'fields.json'
@@ -42,6 +44,26 @@ class Dump:
       self.save_meta(self.resolutions, self.resolutions_path)
       self.save_meta(self.statuses, self.statuses_path)
       self.save_meta(self.versions, self.versions_path)
+      
+   def save_project_avatars(self, client: jira.JIRA, overwrite: bool):
+      for project in self.projects.values():
+         self.save_avatar(client, self.project_avatars_folder, project['avatarUrls']['48x48'], overwrite)
+   
+   def get_avatar_id(self, url: str):
+      url_obj = urllib.parse.urlparse(url)
+      queries = urllib.parse.parse_qs(url_obj.query)
+      avatarid = queries['avatarId'][0]
+      return avatarid
+   
+   def save_avatar(self, client: jira.JIRA, folder: pathlib.Path, url: str, overwrite: bool):
+      avatarid = self.get_avatar_id(url)
+      filepath = folder / avatarid
+      if overwrite or not filepath.exists():
+         print('\t' + avatarid)
+         folder.mkdir(parents=True, exist_ok=True)
+         response = client._session.get(url)
+         with open(filepath, 'wb') as file:
+            file.write(response.content)
    
    def load_meta(self, path: pathlib.Path) -> dict[str, typing.Any]:
       data = self.load_or(path, {})
@@ -75,7 +97,7 @@ class Dump:
       issue_path = self.get_issue_path(issue.id)
       data = issue.raw
       if overwrite or not issue_path.exists():
-         print(issue.key)
+         print(f'{issue.key} / {issue.id}')
          self.simplify_issue(data)
          self.flush_users(client, overwrite)
       for attachment in issue.fields.attachment:
@@ -141,25 +163,26 @@ class Dump:
    def flush_users(self, client: jira.JIRA, overwrite: bool):
       self.users_folder.mkdir(parents=True, exist_ok=True)
       for key,value in self.new_users.items():
-         user_path = self.get_user_path(key)
-         if not (overwrite or not user_path.exists()):
-            continue
+         user_path = self.get_user_path(key, unknown=False)
          try:
-            data = get_user(client, key, expand='groups').raw
+            user_data = get_user(client, key, expand='groups').raw
          except jira.exceptions.JIRAError as exc:
             if exc.text == f'The user with the key \'{key}\' does not exist':
-               user_path = self.get_user_path(key, True)
-               data = value
+               user_path = self.get_user_path(key, unknown=True)
+               user_data = value
             else:
                raise
-         if not (overwrite or not user_path.exists()):
-            continue
-         print('\t' + data['name'])
-         user_path.parent.mkdir(parents=True, exist_ok=True)
-         with open(user_path, 'w', encoding='utf-8') as file:
-            json.dump(data, file, indent=3)
+         self.save_user_data(user_path, user_data, overwrite)
+         avatar_url = user_data['avatarUrls']['48x48']
+         self.save_avatar(client, self.users_avatars_folder, avatar_url, overwrite)
       self.new_users = {}
-         
+   
+   def save_user_data(self, path: pathlib.Path, data: dict[str, typing.Any], overwrite: bool):
+      if overwrite or not path.exists():
+         print('\t' + data['name'])
+         with open(path, 'w', encoding='utf-8') as file:
+            json.dump(data, file, indent=3)
+   
    def key_by(self, items: list[dict[str, typing.Any]], key: str) -> dict[str, dict[str, typing.Any]]:
       result = {}
       for item in items:
@@ -198,7 +221,8 @@ def populate(dump: Dump):
       query = 'ORDER BY created ASC'
    else:
       jira_date = last_stop.strftime('%Y-%m-%d %H:%M')
-   query = f'created >= {jira_date} ORDER BY created ASC'
+   # problem: saved tickets use a fixed timezone, but queries are evaluated with the client's timezone
+   query = f'created >= "{jira_date}" ORDER BY created ASC'
    print(f'Query: {query}')
    dump.fetch_issues(client, query, overwrite=False)
 
@@ -207,7 +231,13 @@ def fetch(dump: Dump, query: str):
    dump.fetch_issues(client, query, overwrite=True)
 
 def refresh(dump: Dump):
+   print('Connecting...')
    client = get_client()
+   print('Fetching metas...')
+   dump.fetch_metas(client)
+   dump.save_metas()
+   dump.save_project_avatars(client, True)
+   print('Checking issues...')
    issues = get_issues(client, 'ORDER BY updated DESC')
    for issue in issues:
       existing_date = None
@@ -217,9 +247,11 @@ def refresh(dump: Dump):
             data = json.load(file)
             existing_date = data['fields']['updated']
       if existing_date is None or issue.fields.updated > existing_date:
+         print(f'Updated {issue.fields.updated}, last saved {existing_date}')
          dump.save_issue(client, issue, True)
       else:
-         break
+         print(f'{issue.key} already up-to-date')
+         #break
 
 def get_client() -> jira.JIRA:
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
