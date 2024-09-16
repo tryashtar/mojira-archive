@@ -32,8 +32,6 @@ class Dump:
       self.resolutions = self.load_meta(self.resolutions_path)
       self.statuses_path = folder / 'statuses.json'
       self.statuses = self.load_meta(self.statuses_path)
-      self.versions_path = folder / 'versions.json'
-      self.versions = self.load_meta(self.versions_path)
    
    def save_metas(self):
       self.root_folder.mkdir(parents=True, exist_ok=True)
@@ -43,7 +41,6 @@ class Dump:
       self.save_meta(self.projects, self.projects_path)
       self.save_meta(self.resolutions, self.resolutions_path)
       self.save_meta(self.statuses, self.statuses_path)
-      self.save_meta(self.versions, self.versions_path)
       
    def save_project_avatars(self, client: jira.JIRA, overwrite: bool):
       for project in self.projects.values():
@@ -75,7 +72,7 @@ class Dump:
          json.dump(list(data.values()), file, indent=3)
    
    def fetch_metas(self, client: jira.JIRA):
-      projects = client.projects(expand='description,lead,url')
+      projects = [client.project(x.id, expand='description,lead,url') for x in client.projects()]
       self.fields = self.key_by(client.fields(), 'id')
       project_data = [p.raw for p in projects]
       for project in project_data:
@@ -84,7 +81,6 @@ class Dump:
       self.issue_types = self.key_by([p.raw for p in client.issue_types()], 'id')
       self.resolutions = self.key_by([p.raw for p in client.resolutions()], 'id')
       self.statuses = self.key_by([p.raw for p in client.statuses()], 'id')
-      self.versions = self.key_by([v.raw for p in projects for v in client.project_versions(p.key)], 'id')
       self.link_types = self.key_by([p.raw for p in client.issue_link_types()], 'id')
    
    def fetch_issues(self, client: jira.JIRA, query: str, overwrite: bool):
