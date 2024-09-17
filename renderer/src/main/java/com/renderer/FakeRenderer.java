@@ -1,14 +1,9 @@
 package com.renderer;
 
-import com.atlassian.jira.component.ComponentAccessor;
-import com.atlassian.jira.issue.MutableIssue;
 import com.atlassian.jira.issue.fields.renderer.IssueRenderContext;
 import com.atlassian.jira.issue.fields.renderer.wiki.links.JiraIssueLink;
-import com.atlassian.jira.issue.fields.renderer.wiki.links.JiraIssueLinkRendererComponent;
 import com.atlassian.jira.util.JiraKeyUtils;
 import com.atlassian.jira.util.JiraKeyUtils.KeyMatcher;
-import com.atlassian.jira.util.velocity.VelocityRequestContext;
-import com.atlassian.jira.util.velocity.VelocityRequestContextFactory;
 import com.atlassian.renderer.*;
 import com.atlassian.renderer.attachments.RendererAttachment;
 import com.atlassian.renderer.attachments.RendererAttachmentManager;
@@ -177,36 +172,34 @@ public class FakeRenderer {
          return key;
       }
 
-      // @Override
-      // public String getLink(String key) {
-      // StringBuilder buff = new StringBuilder();
-      // try {
-      // MutableIssue issue = this.getIssueManager().getIssueObject(key);
-      // if (issue != null && this.canCurrentUserSeeIssue(issue)) {
-      // String title = TextUtils.htmlEncode((String)issue.getSummary());
-      // VelocityRequestContext velocityRequestContext =
-      // ComponentAccessor.getComponent(VelocityRequestContextFactory.class).getJiraVelocityRequestContext();
-      // buff.append("<a
-      // href=\"").append(velocityRequestContext.getBaseUrl()).append("/browse/").append(issue.getKey()).append("\"
-      // title=\"").append(title).append("\"").append(" class=\"issue-link\"
-      // data-issue-key=\"").append(issue.getKey()).append("\">");
-      // if (issue.getResolutionObject() != null) {
-      // buff.append("<strike>");
-      // buff.append(key);
-      // buff.append("</strike>");
-      // } else {
-      // buff.append(key);
-      // }
-      // buff.append("</a>");
-      // } else {
-      // buff.append(key);
-      // }
-      // }
-      // catch (Exception e) {
-      // buff.append(key);
-      // }
-      // return buff.toString();
-      // }
+      //@Override
+      //public String getLink(String key) {
+      //   StringBuilder buff = new StringBuilder();
+      //   try {
+      //      MutableIssue issue = this.getIssueManager().getIssueObject(key);
+      //      if (issue != null && this.canCurrentUserSeeIssue(issue)) {
+      //         String title = TextUtils.htmlEncode((String) issue.getSummary());
+      //         VelocityRequestContext velocityRequestContext = ComponentAccessor
+      //               .getComponent(VelocityRequestContextFactory.class).getJiraVelocityRequestContext();
+      //         buff.append("<a href=\"").append(velocityRequestContext.getBaseUrl()).append("/browse/")
+      //               .append(issue.getKey()).append("\" title=\"").append(title).append("\"")
+      //               .append(" class=\"issue-link\" data-issue-key=\"").append(issue.getKey()).append("\">");
+      //         if (issue.getResolutionObject() != null) {
+      //            buff.append("<strike>");
+      //            buff.append(key);
+      //            buff.append("</strike>");
+      //         } else {
+      //            buff.append(key);
+      //         }
+      //         buff.append("</a>");
+      //      } else {
+      //         buff.append(key);
+      //      }
+      //   } catch (Exception e) {
+      //      buff.append(key);
+      //   }
+      //   return buff.toString();
+      //}
    }
 
    private static class JiraIssueLinkRendererComponent extends AbstractRendererComponent {
@@ -270,7 +263,9 @@ public class FakeRenderer {
       var renderer = new V2Renderer();
       var subrenderer = new V2SubRenderer(renderer);
       var components = new ArrayList<RendererComponent>();
-      components.add(new MacroRendererComponent(new DefaultMacroManager(subrenderer), null));
+      var macros = new DefaultMacroManager(subrenderer);
+      macros.unregisterMacro("html");
+      components.add(new MacroRendererComponent(macros, subrenderer));
       components.add(new BlockRendererComponent(subrenderer,
             Arrays.asList(new BlankLineBlockRenderer(), new HeadingBlockRenderer(), new BlockquoteBlockRenderer(),
                   new HorizontalRuleBlockRenderer(), new ListBlockRenderer(), new TableBlockRenderer())));
@@ -305,6 +300,9 @@ public class FakeRenderer {
    }
 
    public String render(String text, IssueRenderContext context) {
+      if (StringUtils.isBlank(text)) {
+         return "&nbsp;";
+      }
       var renderContext = getRenderContext(context);
       return Renderer.render(text, renderContext);
    }
@@ -324,7 +322,7 @@ public class FakeRenderer {
       renderContext.setCharacterEncoding(RendererConfig.getCharacterEncoding());
       renderContext.setUnicodeEscapingTool(EscapingTool);
       renderContext.setBaseUrl("https://bugs.mojang.com");
-      renderContext.pushRenderMode(RenderMode.ALL);
+      renderContext.pushRenderMode(RenderMode.ALL_WITH_NO_MACRO_ERRORS);
       renderContext.addParam("com.atlassian.renderer.v2.components.macro.render.consider.variable.format", true);
       return renderContext;
    }

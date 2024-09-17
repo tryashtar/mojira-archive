@@ -1528,5 +1528,10 @@
       "in": "* start then {panel}* panel with {code}some code inside{code} and then{panel} end",
       "out": "<ul>\n\t<li>start then <div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<ul>\n\t<li>panel with \n<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\">some code inside</pre>\n</div></div>\n<p> and then</p></li>\n</ul>\n</div></div> end</li>\n</ul>\n",
       "index": 305
+   },
+   {
+      "in": "{html}<b>no html!</b>{html}",
+      "out": "{html}&lt;b&gt;no html!&lt;/b&gt;{html}",
+      "index": 306
    }
 ]
