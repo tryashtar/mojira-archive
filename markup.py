@@ -41,7 +41,7 @@ def render(markup: str, context: RenderContext):
    if len(markup) == 0:
       return ''
    markup = component_macros(markup, context)
-   markup = component_block(markup, context)
+   #markup = component_block(markup, context)
    #markup = component_link(markup)
    #markup = component_url(markup)
    #markup = component_camel_link(markup)
@@ -176,6 +176,7 @@ def handle_macro(body: str, context: RenderContext, start_tag):
          out += context.add_rendered(result, marker)
       else:
          # 'exception' handler
+         # I want this and other errors to be preserved in the context as well
          pass
    else:
       rendered_body = render(body, context)
@@ -196,6 +197,29 @@ def macro_color(body: str, context: RenderContext, params: dict[str, str]):
    if len(color) == 0 or color.isspace() or regex.fullmatch("\\w+", color) or regex.fullmatch("^#([\\da-fA-F]){3}$", color) or regex.fullmatch("^#([\\da-fA-F]){6}$", color) or regex.fullmatch("^#rgb\\((\\d+),\\s*(\\d+),\\s*(\\d+)\\)$", color) or regex.fullmatch("^#rgb\\((\\d+)%,\\s*(\\d+)%,\\s*(\\d+)%\\)$", color):
       return (True, '<font color="' + color + '">' + body + '</font>')
    return (False, 'Color value is invalid')
+
+def macro_quote(body: str, _context: RenderContext, _params: dict[str, str]):
+   return '<blockquote>' + body + '</blockquote>'
+
+def macro_lorem(_body: str, _context: RenderContext, params: dict[str, str]):
+   parastr = params.get('paragraphs')
+   if parastr is None:
+      parastr = params.get('0', '')
+   try:
+      paragraphs = int(parastr)
+   except ValueError:
+      try:
+         paragraphs = int(float(parastr))
+      except ValueError:
+         paragraphs = 0
+   if paragraphs <= 0:
+      paragraphs = 3
+   lines = tat.read_lines('lorem.txt')
+   paragraphs = min(paragraphs, len(lines))
+   result = ''
+   for i in range(paragraphs):
+      result += '<p>' + lines[i] + '</p>\n'
+   return (True, result)
 
 def html_escape(text: str):
    pass
