@@ -135,8 +135,8 @@
       "index": 26
    },
    {
-      "in": "[~username]",
-      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=username\" class=\"user-hover\" rel=\"username\">jujhar singh</a></p>",
+      "in": "[~anonexistentuser]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=anonexistentuser\" class=\"user-hover\" rel=\"anonexistentuser\">anonexistentuser</a></p>",
       "index": 27
    },
    {
@@ -1533,5 +1533,125 @@
       "in": "{html}<b>no html!</b>{html}",
       "out": "{html}&lt;b&gt;no html!&lt;/b&gt;{html}",
       "index": 306
+   },
+   {
+      "in": "a*test*",
+      "out": "<p>a*test*</p>",
+      "index": 307
+   },
+   {
+      "in": "a *test*",
+      "out": "<p>a <b>test</b></p>",
+      "index": 308
+   },
+   {
+      "in": ".*test*",
+      "out": "<p>.<b>test</b></p>",
+      "index": 309
+   },
+   {
+      "in": "$*test*",
+      "out": "<p>$<b>test</b></p>",
+      "index": 310
+   },
+   {
+      "in": "**test*",
+      "out": "<p>*<b>test</b></p>",
+      "index": 311
+   },
+   {
+      "in": "***test*",
+      "out": "<p>**<b>test</b></p>",
+      "index": 312
+   },
+   {
+      "in": "*test**test*",
+      "out": "<p><b>test</b><b>test</b></p>",
+      "index": 313
+   },
+   {
+      "in": "*test*_test_",
+      "out": "<p><b>test</b><em>test</em></p>",
+      "index": 314
+   },
+   {
+      "in": "*test*_test_",
+      "out": "<p><b>test</b><em>test</em></p>",
+      "index": 315
+   },
+   {
+      "in": "{*}test*",
+      "out": "<p><b>test</b></p>",
+      "index": 316
+   },
+   {
+      "in": "{*}    test    {*}",
+      "out": "<p>{<b>}    test    {</b>}</p>",
+      "index": 317
+   },
+   {
+      "in": "*    test    *",
+      "out": "<ul>\n\t<li>test    *</li>\n</ul>\n",
+      "index": 318
+   },
+   {
+      "in": "*test{*}",
+      "out": "<p><b>test</b></p>",
+      "index": 319
+   },
+   {
+      "in": "{*}test{*}",
+      "out": "<p><b>test</b></p>",
+      "index": 320
+   },
+   {
+      "in": "{*}test{ *}",
+      "out": "<p>{*}test</p>\n{ *}",
+      "index": 321
+   },
+   {
+      "in": "{* }test{*}",
+      "out": "<p>{* }test{*}</p>",
+      "index": 322
+   },
+   {
+      "in": "{*}just a*qu*ick test{*}",
+      "out": "<p><b>just a*qu*ick test</b></p>",
+      "index": 323
+   },
+   {
+      "in": "*te\\*st*",
+      "out": "<p><b>te&#42;st</b></p>",
+      "index": 324
+   },
+   {
+      "in": "*te\\\\*st*",
+      "out": "<p><b>te<br class=\"atl-forced-newline\" />*st</b></p>",
+      "index": 325
+   },
+   {
+      "in": "*te*\\*st*",
+      "out": "<p><b>te</b>&#42;st*</p>",
+      "index": 326
+   },
+   {
+      "in": "\\{*}test{*}",
+      "out": "<p><b>test</b></p>",
+      "index": 327
+   },
+   {
+      "in": "{*}test\\{*}",
+      "out": "<p><b>test</b></p>",
+      "index": 328
+   },
+   {
+      "in": "inltokxyzkdtnhgnsbdfinltok*hello*",
+      "out": "<p>inltokxyzkdtnhgnsbdfinltok*hello*</p>",
+      "index": 329
+   },
+   {
+      "in": "inltokxyzkdtnhgnsbdfinlto*hello*",
+      "out": "<p>inltokxyzkdtnhgnsbdfinlto*hello*</p>",
+      "index": 330
    }
 ]

@@ -202,10 +202,10 @@ public class FakeRenderer {
       //}
    }
 
-   private static class JiraIssueLinkRendererComponent extends AbstractRendererComponent {
+   private static class FakeIssueLinkRendererComponent extends AbstractRendererComponent {
       private final KeyMatcher Matcher;
 
-      public JiraIssueLinkRendererComponent() {
+      public FakeIssueLinkRendererComponent() {
          Matcher = new FakeKeyMatcher("");
       }
 
@@ -273,7 +273,7 @@ public class FakeRenderer {
       components.add(new UrlRendererComponent(resolver));
       components.add(new CamelCaseLinkRendererComponent(resolver, config));
       components.add(new EmbeddedImageRendererComponent());
-      components.add(new JiraIssueLinkRendererComponent());
+      components.add(new FakeIssueLinkRendererComponent());
       components.add(new BackslashEscapeRendererComponent());
       components.add(new HtmlEscapeRendererComponent());
       components.add(new DashRendererComponent());

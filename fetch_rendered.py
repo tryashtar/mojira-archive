@@ -13,6 +13,8 @@ def main():
          continue
       print(tat.base_name(ticket))
       data = tat.read_json(ticket)
+      if data['key'].startswith('TRASH-'):
+         continue
       for field in fields:
          if field in data['fields']:
             result[field] = render(client, data['key'], data['fields'][field])
