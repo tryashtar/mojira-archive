@@ -9,13 +9,6 @@ def main():
    print('Checking...')
    check_tests()
 
-class RenderContext:
-   def __init__(self):
-      self.rendered_content = {}
-      self.mode_stack = [RenderMode()]
-   def get_mode(self):
-      return self.mode_stack[-1]
-
 class RenderMode:
    def __init__(self):
       self.phrases = True
@@ -23,9 +16,26 @@ class RenderMode:
       self.paragraphs = True
       self.linebreaks = True
 
+class RenderContext:
+   def __init__(self):
+      self.rendered_content = {}
+      self.rendered_index = 0
+      self.mode_stack = [RenderMode()]
+   def get_mode(self):
+      return self.mode_stack[-1]
+   def push_mode(self, mode: RenderMode):
+      self.mode_stack.append(mode)
+   def pop_mode(self):
+      self.mode_stack.pop()
+   def add_rendered(self, text: str, marker: str):
+      self.rendered_index += 1
+      self.rendered_content[id] = text
+      return marker + str(self.rendered_index) + marker
+
 def convert(markup: str, context: RenderContext):
    if len(markup) == 0 or markup.isspace():
       return '&nbsp;'
+   return render(markup, context)
 
 def render(markup: str, context: RenderContext):
    if len(markup) == 0:
@@ -76,8 +86,8 @@ def component_macros(markup: str, context: RenderContext):
                i += 1
             else:
                output += markup[last_start:i]
-               last_start = i + 1
-               (i, more) = handle_potential_macro(markup, i)
+               last_start = i + 1 # why is this here?
+               (i, more) = handle_potential_macro(markup, context, i)
                output += more
                last_start = i + 1
       i += 1
@@ -85,13 +95,14 @@ def component_macros(markup: str, context: RenderContext):
       output += markup[last_start:]
    return output
 
-def handle_potential_macro(markup: str, index: int):
+def handle_potential_macro(markup: str, context: RenderContext, index: int):
    out = ''
    start_tag = make_macro_tag(markup, index)
    if start_tag is None:
       out += '{'
       return (index, out)
    macro_name = start_tag['command'].lower()
+   # we may want to store a dict for these with their relevant values
    if macro_name not in ['anchor', 'code', 'quote', 'noformat', 'panel', 'color', 'loremipsum'] or macro_name in ['quote', 'code', 'noformat', 'panel', 'color']:
       set_end_tag(markup, start_tag)
    if 'end_tag' in start_tag:
@@ -99,10 +110,10 @@ def handle_potential_macro(markup: str, index: int):
       body = markup[(start_tag['index'] + len(start_tag['original']) - 1):end_tag['index']]
       if body == '\n' and start_tag['newlines'][1] and end_tag['newlines'][0]:
          end_tag['newlines'][0] = False
-      out += handle_macro(start_tag, body)
+      out += handle_macro(body, context, start_tag)
       index = end_tag['index'] + len(end_tag['original']) - 1
    else:
-      out += handle_macro(start_tag, '')
+      out += handle_macro('', context, start_tag)
       index = start_tag['index'] + len(start_tag['original']) - 1
    return (index, out)
       
@@ -123,17 +134,68 @@ def set_end_tag(markup: str, start_tag):
                return
       i += 1
 
-def handle_macro(text: str, context: RenderContext, start_tag):
+def handle_macro(body: str, context: RenderContext, start_tag):
    out = ''
    macro_name = start_tag['command'].lower()
    params = make_params(start_tag['args'])
    if macro_name in ['anchor', 'code', 'quote', 'noformat', 'panel', 'color', 'loremipsum']:
-      pass
+      rendered_body = body
+      mode = {'anchor':'inline','code':'all','quote':'all','noformat':'html_escape','panel':'all','color':'inline+macros','loremipsum':'none'}
+      if mode[macro_name] != 'none':
+         # need to convert from these strings to RenderMode bools
+         context.push_mode(RenderMode(mode[macro_name]))
+         rendered_body = render(body, context)
+         context.pop_mode()
+      if macro_name == 'anchor':
+         (success, result) = macro_anchor(rendered_body, context, params)
+         # may want to store these weirdo strings somewhere
+         marker = 'inltokxyzkdtnhgnsbdfinltok'
+      elif macro_name == 'code':
+         # implement all of these
+         (success, result) = macro_code(rendered_body, context, params)
+         marker = 'blktokxyzkdtnhgnsbdfblktok'
+      elif macro_name == 'quote':
+         (success, result) = macro_quote(rendered_body, context, params)
+         marker = 'ibltokxyzkdtnhgnsbdfibltok'
+      elif macro_name == 'noformat':
+         (success, result) = macro_noformat(rendered_body, context, params)
+         if params.get('nopanel') == 'true':
+            marker = 'inltokxyzkdtnhgnsbdfinltok'
+         else:
+            marker = 'blktokxyzkdtnhgnsbdfblktok'
+      elif macro_name == 'panel':
+         (success, result) = macro_panel(rendered_body, context, params)
+         marker = 'ibltokxyzkdtnhgnsbdfibltok'
+      elif macro_name == 'color':
+         (success, result) = macro_color(rendered_body, context, params)
+         marker = 'inltokxyzkdtnhgnsbdfinltok'
+      elif macro_name == 'loremipsum':
+         (success, result) = macro_lorem(rendered_body, context, params)
+         marker = 'ibltokxyzkdtnhgnsbdfibltok'
+      if success:
+         out += context.add_rendered(result, marker)
+      else:
+         # 'exception' handler
+         pass
    else:
-      body = render(text, context)
+      rendered_body = render(body, context)
       error_text = 'Unknown macro: {' + start_tag['command'] + '}'
-      error_full = '<div class="error"><span class="error">' + html_escape(error_text) + '</span> ' + body + '</div>'
+      # figure out what html escape is supposed to be doing
+      error_full = '<div class="error"><span class="error">' + html_escape(error_text) + '</span> ' + rendered_body + '</div>'
    return out
+
+def macro_anchor(body: str, context: RenderContext, params: dict[str, str]):
+   link = params.get('0', '')
+   if link == '':
+      return ''
+   anchor = ...
+   return '<a name="' + anchor + '">' + body + '</a>'
+
+def macro_color(body: str, context: RenderContext, params: dict[str, str]):
+   color = trim(params.get('0', ''))
+   if len(color) == 0 or color.isspace() or regex.fullmatch("\\w+", color) or regex.fullmatch("^#([\\da-fA-F]){3}$", color) or regex.fullmatch("^#([\\da-fA-F]){6}$", color) or regex.fullmatch("^#rgb\\((\\d+),\\s*(\\d+),\\s*(\\d+)\\)$", color) or regex.fullmatch("^#rgb\\((\\d+)%,\\s*(\\d+)%,\\s*(\\d+)%\\)$", color):
+      return (True, '<font color="' + color + '">' + body + '</font>')
+   return (False, 'Color value is invalid')
 
 def html_escape(text: str):
    pass
@@ -154,6 +216,7 @@ def make_params(args: str):
             result[trim(param[:index])] = trim(param[(index + 1):])
       else:
          result[str(i)] = param
+   return result
 
 def make_macro_tag(markup: str, index: int):
    if markup[index] != '{' or index + 3 > len(markup):
@@ -176,6 +239,7 @@ def make_macro_tag(markup: str, index: int):
                return None
             newline_before = index > 0 and markup[index - 1] == '\n'
             newline_after = index + 1 < len(markup) and markup[i +1] == '\n'
+            # we may want to make this a real object
             return {'original':original,'index':index,'command':command,'args':args,'newlines':[newline_before, newline_after]}
          elif c in ('\n','\r','\\'):
             escape_next = True
@@ -214,6 +278,7 @@ def component_block(markup: str, context: RenderContext):
       pass
 
 def block_paragraph(paragraph: str, first: bool, context: RenderContext):
+   # need to conver this to proper bools mode
    context.push_mode('inline')
    inner = render(paragraph, context)
    context.pop_mode()
@@ -221,7 +286,7 @@ def block_paragraph(paragraph: str, first: bool, context: RenderContext):
 def component_phrase(markup: str, context: RenderContext, start_delim: str, end_delim: str, tag_name: str):
    if not context.get_mode().phrases:
       return markup
-   pattern = regex.compile("(?:(?:((?<![\\p{L}\\p{Nd}\\\\])|(?<=inltokxyzkdtnhgnsbdfinltok))" + start_delim + ")|\\{" + start_delim + "\\})([^\\s" + start_delim + "]((?!" + end_delim + ")[\\p{L}\\p{Nd}\\p{Z}\\p{S}\\p{M}\\p{P}]*?[^\\s" + end_delim + "])??)(?<!\\\\)(?:(?:" + end_delim + "((?![\\p{L}\\p{Nd}])|(?=inltokxyzkdtnhgnsbdfinltok)))|\\{" + end_delim + "\\})")
+   pattern = regex.compile('(?:(?:((?<![\\p{L}\\p{Nd}\\\\])|(?<=inltokxyzkdtnhgnsbdfinltok))' + start_delim + ')|\\{' + start_delim + '\\})([^\\s' + start_delim + ']((?!' + end_delim + ')[\\p{L}\\p{Nd}\\p{Z}\\p{S}\\p{M}\\p{P}]*?[^\\s' + end_delim + '])??)(?<!\\\\)(?:(?:' + end_delim + '((?![\\p{L}\\p{Nd}])|(?=inltokxyzkdtnhgnsbdfinltok)))|\\{' + end_delim + '\\})')
    replacement = f'<{tag_name}>\\2</{tag_name}>'
    start_delim = regex.sub('\\\\', '', start_delim)
    end_delim = regex.sub('\\\\', '', end_delim)
@@ -258,8 +323,7 @@ def trim(text: str):
    return text.strip(''.join(map(chr, range(0, 0x20 + 1))))
 
 def component_token(markup: str):
-   while True:
-      pass
+   pass
 
 def check_tests():
    tests = tat.read_json('tests.json')
