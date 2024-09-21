@@ -26,6 +26,7 @@ class RenderMode:
       self.linebreaks = source.get('linebreaks', rest)
       self.html_escape = source.get('html_escape', rest)
       self.first_paragraph = source.get('first_paragraph', rest)
+      self.links = source.get('links', rest)
    
    def intersect(self, other: 'RenderMode'):
       return self.combine(other, lambda x, y: x and y)
@@ -41,11 +42,12 @@ class RenderMode:
       result.linebreaks = op(self.linebreaks, other.linebreaks)
       result.html_escape = op(self.html_escape, other.html_escape)
       result.first_paragraph = op(self.first_paragraph, other.first_paragraph)
+      result.links = op(self.links, other.links)
       return result
    
 RenderMode.ALL = RenderMode(rest=True)
 RenderMode.NONE = RenderMode(rest=False)
-RenderMode.INLINE = RenderMode(rest=False,source={'phrases':True,'linebreaks':True,'html_escape':True})
+RenderMode.INLINE = RenderMode(rest=False,source={'phrases':True,'linebreaks':True,'html_escape':True,'links':True})
 
 class RenderContext:
    def __init__(self):
@@ -79,9 +81,30 @@ def macro_anchor(body: str, context: RenderContext, params: dict[str, str]):
    link = params.get('0', '')
    if link == '':
       return MacroResult(True, '', INLINE_TOKEN)
-   # finish this weirdness
-   anchor = 'TEMP'
+   anchor = summarize(strip_tokens(trim(link)))
+   anchor = anchor.replace(' ', '')
+   anchor = url_encode(anchor)
    return MacroResult(True, '<a name="' + anchor + '">' + body + '</a>', INLINE_TOKEN)
+
+def summarize(content: str):
+   if len(content) == 0:
+      return ''
+   content = strip_markup(content)
+   if 'http://' in content:
+      index = content.index('http://')
+      if index > 0:
+         content = content[:index]
+   return summarize_without(content)
+
+def summarize_without(content: str):
+   if len(content) == 0:
+      return ''
+
+def strip_tokens(text: str):
+   pass
+
+def url_encode(text: str):
+   pass
 
 def macro_color(body: str, _context: RenderContext, params: dict[str, str]):
    color = trim(params.get('0', ''))
@@ -146,7 +169,7 @@ def render(markup: str, context: RenderContext):
       return ''
    markup = component_macros(markup, context)
    markup = component_block(markup, context)
-   #markup = component_link(markup, context)
+   markup = component_link(markup, context)
    #markup = component_url(markup, context)
    #markup = component_camel_link(markup, context)
    #markup = component_image(markup, context)
@@ -168,6 +191,13 @@ def render(markup: str, context: RenderContext):
    markup = component_newline(markup, context)
    #markup = component_token(markup, context)
    return markup
+
+def component_link(markup: str, context: RenderContext):
+   if not context.get_mode().links:
+      return markup
+   if len(markup) < 3:
+      return markup
+   return 'TEMP' # finish
 
 class MacroTag:
    def __init__(self, original: str, index: int, command: str, args: str, newline_before: bool, newline_after: bool):
