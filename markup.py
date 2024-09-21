@@ -15,49 +15,43 @@ BLOCK_TOKEN = 'blktokxyzkdtnhgnsbdfblktok'
 INLINE_BLOCK_TOKEN = 'ibltokxyzkdtnhgnsbdfibltok'
 
 class RenderMode:
-   def __init__(self):
-      self.phrases = True
-      self.macros = True
-      self.paragraphs = True
-      self.linebreaks = True
-      self.html_escape = True
+   ALL: 'RenderMode'
+   NONE: 'RenderMode'
+   INLINE: 'RenderMode'
+   def __init__(self, source: dict[str, bool] | None=None, rest=False):
+      source = source or {}
+      self.phrases = source.get('phrases', rest)
+      self.macros = source.get('macros', rest)
+      self.paragraphs = source.get('paragraphs', rest)
+      self.linebreaks = source.get('linebreaks', rest)
+      self.html_escape = source.get('html_escape', rest)
+      self.first_paragraph = source.get('first_paragraph', rest)
    
-   def all(self):
-      self.phrases = True
-      self.macros = True
-      self.paragraphs = True
-      self.linebreaks = True
-      self.html_escape = True
-      return self
-      
-   def none(self):
-      self.phrases = False
-      self.macros = False
-      self.paragraphs = False
-      self.linebreaks = False
-      self.html_escape = False
-      return self
-      
-   def inline(self):
-      self.none()
-      self.phrases = True
-      self.linebreaks = True
-      self.html_escape = True
-      return self
+   def intersect(self, other: 'RenderMode'):
+      return self.combine(other, lambda x, y: x and y)
    
-   def with_macros(self):
-      self.macros = True
-      return self
+   def union(self, other: 'RenderMode'):
+      return self.combine(other, lambda x, y: x or y)
    
-   def with_html_escape(self):
-      self.html_escape = True
-      return self
+   def combine(self, other: 'RenderMode', op: typing.Callable[[bool, bool], bool]):
+      result = RenderMode()
+      result.phrases = op(self.phrases, other.phrases)
+      result.macros = op(self.macros, other.macros)
+      result.paragraphs = op(self.paragraphs, other.paragraphs)
+      result.linebreaks = op(self.linebreaks, other.linebreaks)
+      result.html_escape = op(self.html_escape, other.html_escape)
+      result.first_paragraph = op(self.first_paragraph, other.first_paragraph)
+      return result
+   
+RenderMode.ALL = RenderMode(rest=True)
+RenderMode.NONE = RenderMode(rest=False)
+RenderMode.INLINE = RenderMode(rest=False,source={'phrases':True,'linebreaks':True,'html_escape':True})
 
 class RenderContext:
    def __init__(self):
       self.rendered_content = {}
       self.rendered_index = 0
-      self.mode_stack = [RenderMode()]
+      self.mode_stack = [RenderMode.ALL]
    def get_mode(self):
       return self.mode_stack[-1]
    def push_mode(self, mode: RenderMode):
@@ -76,17 +70,17 @@ class MacroResult:
       self.marker = marker
 
 class MacroDef:
-   def __init__(self, mode: RenderMode | None, body: bool, handle: typing.Callable[[str, RenderContext, dict[str,str]], MacroResult]):
+   def __init__(self, mode: RenderMode | None, body: bool, execute: typing.Callable[[str, RenderContext, dict[str,str]], MacroResult]):
       self.mode = mode
       self.body = body
-      self.handle = handle
+      self.execute = execute
 
 def macro_anchor(body: str, context: RenderContext, params: dict[str, str]):
    link = params.get('0', '')
    if link == '':
       return MacroResult(True, '', INLINE_TOKEN)
    # finish this weirdness
-   anchor = ...
+   anchor = 'TEMP'
    return MacroResult(True, '<a name="' + anchor + '">' + body + '</a>', INLINE_TOKEN)
 
 def macro_color(body: str, _context: RenderContext, params: dict[str, str]):
@@ -118,13 +112,27 @@ def macro_lorem(_body: str, _context: RenderContext, params: dict[str, str]):
       result += '<p>' + lines[i] + '</p>\n'
    return MacroResult(True, result, INLINE_BLOCK_TOKEN)
 
+# finish these
+def macro_code(body: str, context: RenderContext, params: dict[str, str]):
+   return MacroResult(True, 'TEMP', BLOCK_TOKEN)
+
+def macro_noformat(body: str, context: RenderContext, params: dict[str, str]):
+   if params.get('nopanel') == 'true':
+      marker = INLINE_TOKEN
+   else:
+      marker = BLOCK_TOKEN
+   return MacroResult(True, 'TEMP', marker)
+
+def macro_panel(body: str, context: RenderContext, params: dict[str, str]):
+   return MacroResult(True, 'TEMP', INLINE_BLOCK_TOKEN)
+
 MACROS = {
-   'anchor': MacroDef(RenderMode().inline(), False, macro_anchor),
-   'code': MacroDef(RenderMode(), True, macro_code),
-   'quote': MacroDef(RenderMode(), True, macro_quote),
-   'noformat': MacroDef(RenderMode().none().with_html_escape(), True, macro_noformat),
-   'panel': MacroDef(RenderMode(), True, macro_panel),
-   'color': MacroDef(RenderMode().inline().with_macros(), True, macro_color),
+   'anchor': MacroDef(RenderMode.INLINE, False, macro_anchor),
+   'code': MacroDef(RenderMode.ALL, True, macro_code),
+   'quote': MacroDef(RenderMode.ALL, True, macro_quote),
+   'noformat': MacroDef(RenderMode(source={'html_escape':True},rest=False), True, macro_noformat),
+   'panel': MacroDef(RenderMode.ALL, True, macro_panel),
+   'color': MacroDef(RenderMode.INLINE.union(RenderMode(source={'macros':True},rest=False)), True, macro_color),
    'loremipsum': MacroDef(None, False, macro_lorem)
 }
 
@@ -137,17 +145,17 @@ def render(markup: str, context: RenderContext):
    if len(markup) == 0:
       return ''
    markup = component_macros(markup, context)
-   #markup = component_block(markup, context)
-   #markup = component_link(markup)
-   #markup = component_url(markup)
-   #markup = component_camel_link(markup)
-   #markup = component_image(markup)
-   #markup = component_issue_link(markup)
-   #markup = component_backslash_escape(markup)
-   #markup = component_html_escape(markup)
-   #markup = component_dash(markup)
-   #markup = component_emoticon(markup)
-   #markup = component_object(markup)
+   markup = component_block(markup, context)
+   #markup = component_link(markup, context)
+   #markup = component_url(markup, context)
+   #markup = component_camel_link(markup, context)
+   #markup = component_image(markup, context)
+   #markup = component_issue_link(markup, context)
+   #markup = component_backslash_escape(markup, context)
+   #markup = component_html_escape(markup, context)
+   markup = component_dash(markup, context)
+   #markup = component_emoticon(markup, context)
+   #markup = component_object(markup, context)
    markup = component_phrase(markup, context, '\\?\\?', '\\?\\?', 'cite')
    markup = component_phrase(markup, context, '\\*', '\\*', 'b')
    markup = component_phrase(markup, context, '\\^', '\\^', 'sup')
@@ -158,7 +166,7 @@ def render(markup: str, context: RenderContext):
    markup = component_phrase(markup, context, '\\{\\{', "\\}\\}", 'tt')
    markup = component_force_newline(markup, context)
    markup = component_newline(markup, context)
-   #markup = component_token(markup)
+   #markup = component_token(markup, context)
    return markup
 
 class MacroTag:
@@ -184,20 +192,19 @@ def component_macros(markup: str, context: RenderContext):
       c = markup[i]
       if in_escape:
          in_escape = False
-      else:
-         if c == '\\':
-            in_escape = True
-         elif c == '{':
-            if len(markup) > i + 1 and markup[i + 1] in '{*?^_-+~':
-               i += 1
-            elif not markup.isspace() and i > 0 and markup[i - 1] == '$':
-               i += 1
-            else:
-               output += markup[last_start:i]
-               last_start = i + 1 # why is this here?
-               (i, more) = handle_potential_macro(markup, context, i)
-               output += more
-               last_start = i + 1
+      elif c == '\\':
+         in_escape = True
+      elif c == '{':
+         if len(markup) > i + 1 and markup[i + 1] in '{*?^_-+~':
+            i += 1
+         elif not markup.isspace() and i > 0 and markup[i - 1] == '$':
+            i += 1
+         else:
+            output += markup[last_start:i]
+            last_start = i + 1 # why is this here?
+            (i, more) = handle_potential_macro(markup, context, i)
+            output += more
+            last_start = i + 1
       i += 1
    if last_start < len(markup):
       output += markup[last_start:]
@@ -233,12 +240,18 @@ def set_end_tag(markup: str, start_tag: MacroTag):
       elif c == '\\':
          in_escape = True
       elif c == '{':
-         if len(markup) > 0 and markup[i - 1] == '$':
+         if len(markup) > 0 and markup[i - 1] != '$':
             end_tag = make_macro_tag(markup, i)
             if end_tag is not None and end_tag.command == start_tag.command and len(end_tag.args) != 0:
                start_tag.end_tag = end_tag
                return
       i += 1
+
+def macro_error(context: RenderContext, message: str, body: str):
+   rendered_body = render(body, context)
+   added = context.add_rendered(rendered_body, BLOCK_TOKEN)
+   full_error = '<div class="error"><span class="error">' + html_escape(message) + '</span> ' + added + '</div>'
+   return context.add_rendered(full_error, BLOCK_TOKEN)
 
 def handle_macro(body: str, context: RenderContext, start_tag: MacroTag):
    out = ''
@@ -251,22 +264,19 @@ def handle_macro(body: str, context: RenderContext, start_tag: MacroTag):
          context.push_mode(mode)
          rendered_body = render(body, context)
          context.pop_mode()
-      output = MACROS[macro_name].handle(rendered_body, context, params)
+      output = MACROS[macro_name].execute(rendered_body, context, params)
       if output.success:
          out += context.add_rendered(output.result, output.marker)
       else:
-         # 'exception' handler
-         # I want this and other errors to be preserved in the context as well
-         pass
+         error_text = start_tag.command + ': ' + output.result
+         out += macro_error(context, error_text, body)
    else:
-      rendered_body = render(body, context)
       error_text = 'Unknown macro: {' + start_tag.command + '}'
-      # figure out what html escape is supposed to be doing
-      error_full = '<div class="error"><span class="error">' + html_escape(error_text) + '</span> ' + rendered_body + '</div>'
+      out += macro_error(context, error_text, body)
    return out
 
 def html_escape(text: str):
-   pass
+   return 'TEMP'
 
 def make_params(args: str):
    result = {}
@@ -298,29 +308,28 @@ def make_macro_tag(markup: str, index: int):
       c = markup[i]
       if escape_next:
          escape_next = False
-      else:
-         if c == '}':
-            if len(command) == 0 or command.isspace() or command.startswith('$'):
-               return None
-            original = markup[index:i+1]
-            if even_brackets(markup, i):
-               return None
-            newline_before = index > 0 and markup[index - 1] == '\n'
-            newline_after = index + 1 < len(markup) and markup[i +1] == '\n'
-            return MacroTag(original, index, command, args, newline_before, newline_after)
-         elif c in ('\n','\r','\\'):
-            escape_next = True
-            i += 1
-            continue
-         elif c == '{':
+      elif c == '}':
+         if len(command) == 0 or command.isspace() or command.startswith('$'):
             return None
-         elif c == ':':
-            if in_command:
-               in_command = False
-            else:
-               args += ':'
-            i += 1
-            continue
+         original = markup[index:i+1]
+         if even_brackets(markup, i):
+            return None
+         newline_before = index > 0 and markup[index - 1] == '\n'
+         newline_after = i + 1 < len(markup) and markup[i + 1] == '\n'
+         return MacroTag(original, index, command, args, newline_before, newline_after)
+      elif c in ('\n','\r','\\'):
+         escape_next = True
+         i += 1
+         continue
+      elif c == '{':
+         return None
+      elif c == ':':
+         if in_command:
+            in_command = False
+         else:
+            args += ':'
+         i += 1
+         continue
       if in_command:
          command += c
       else:
@@ -340,15 +349,98 @@ def component_block(markup: str, context: RenderContext):
    if not context.get_mode().paragraphs:
       return markup
    single_line = regex.compile('\\s*[\\p{Alnum}&&[^PLhb]][^\n]*')
-   token_pattern = regex.compile(BLOCK_TOKEN + r'\d+' + BLOCK_TOKEN)
-   if single_line.fullmatch(markup) and token_pattern.search(markup) is None:
-      pass
+   token_pattern1 = regex.compile(BLOCK_TOKEN + r'\d+' + BLOCK_TOKEN)
+   token_pattern2 = regex.compile(INLINE_BLOCK_TOKEN + r'\d+' + INLINE_BLOCK_TOKEN)
+   if single_line.fullmatch(markup) and token_pattern1.search(markup) is None and token_pattern2.search(markup) is None:
+      paragraph = block_paragraph(markup, True, context)
+      return context.add_rendered(paragraph, BLOCK_TOKEN)
+   lines = markup.splitlines()
+   rendered_lines = []
+   paragraph = []
+   first_paragraph = True
+   i = 0
+   while i < len(lines):
+      line = lines[i]
+      if first_paragraph and len(paragraph) == 0 and not context.get_mode().first_paragraph and len(trim(line)) == 0:
+         first_paragraph = False
+      else:
+         rendered = None
+         if regex.fullmatch(r'(\s*' + BLOCK_TOKEN + r'\d+' + BLOCK_TOKEN + r')+\s*', line) or regex.fullmatch(r'(\s*' + INLINE_BLOCK_TOKEN + r'\d+' + INLINE_BLOCK_TOKEN + r')+\s*', line):
+            rendered = line
+         elif not regex.fullmatch('\\s*[\\p{Alnum}&&[^PLhb]][^\n]*', markup):
+            rendered = block_blank(line, context)
+            if rendered is None:
+               rendered = block_heading(line, context)
+            if rendered is None:
+               rendered = block_quote(line, context)
+            if rendered is None:
+               rendered = block_rule(line, context)
+            if rendered is None:
+               rendered = block_list(line, context)
+            if rendered is None:
+               rendered = block_table(line, context)
+         if rendered is None:
+            pass
+         #for (String linePortion : BlockRendererComponent.splitLineByBlockTokens(nextLine)) {
+         #           if (!TokenType.BLOCK.getTokenPattern().matcher(linePortion).matches()) {
+         #               paragraph.add(linePortion);
+         #               continue;
+         #           }
+         #           this.flushParagraph(renderedLines, paragraph, context, firstPara);
+         #           renderedLines.add(linePortion);
+         #           firstPara = false;
+         #       }
+         else:
+            pass
+            #this.flushParagraph(renderedLines, paragraph, context, firstPara);
+            #renderedLines.add(rendered);
+            #firstPara = false;
+      i += 1
+   #this.flushParagraph(renderedLines, paragraph, context, firstPara);
+   combined = '\n'.join(rendered_lines)
+   return context.add_rendered(combined, BLOCK_TOKEN)
+
+def block_blank(line: str, _context: RenderContext):
+   if line.isspace():
+      return ''
+   return None
+
+def block_heading(line: str, context: RenderContext):
+   match = regex.fullmatch(r'\s*h([1-6])\.\s*(.*)', line)
+   if match is None:
+      return None
+   level = match.group(1)
+   body = match.group(2)
+   # finish this
+
+# finish these
+def block_quote(line: str, context: RenderContext):
+   return None
+
+def block_rule(line: str, _context: RenderContext):
+   if regex.fullmatch(r'\s*-{4,5}\s*', line):
+      return '<hr />'
+   return None
+
+def block_list(line: str, context: RenderContext):
+   return None
+
+def block_table(line: str, context: RenderContext):
+   return None
+
 
 def block_paragraph(paragraph: str, first: bool, context: RenderContext):
-   # need to conver this to proper bools mode
-   context.push_mode('inline')
+   context.push_mode(context.get_mode().intersect(RenderMode.INLINE))
    inner = render(paragraph, context)
    context.pop_mode()
+   if first and not context.get_mode().first_paragraph:
+      return inner
+   return '<p>' + inner + '</p>'
+
+def component_dash(markup: str, context: RenderContext):
+   if not context.get_mode().phrases:
+      return markup
+   return 'TEMP' # finish this
 
 def component_phrase(markup: str, context: RenderContext, start_delim: str, end_delim: str, tag_name: str):
    if not context.get_mode().phrases:
@@ -378,7 +470,7 @@ def component_newline(markup: str, context: RenderContext):
    for i in range(len(lines)):
       line = lines[i]
       output += line
-      if i < len(lines):
+      if i + 1 < len(lines):
          next_line = lines[i + 1]
          if trim(next_line).startswith('<br') or trim(line).endswith('<br class="atl-forced-newline" />') or pattern.fullmatch(next_line) is not None:
             output += '\n'
