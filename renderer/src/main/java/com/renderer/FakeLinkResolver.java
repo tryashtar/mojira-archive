@@ -48,10 +48,12 @@ public class FakeLinkResolver implements LinkResolver {
       return new UnresolvedLink(linkText);
    }
 
+   @SuppressWarnings("rawtypes")
    public List extractLinkTextList(String pageContent) {
       return null;
    }
 
+   @SuppressWarnings("rawtypes")
    public List extractLinks(RenderContext context, String text) {
       return null;
    }

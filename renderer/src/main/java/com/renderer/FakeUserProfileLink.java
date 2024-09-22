@@ -18,7 +18,7 @@ public class FakeUserProfileLink extends BaseLink {
       if (TextUtils.stringSet(parser.getNotLinkBody()) && parser.getNotLinkBody().startsWith("~")) {
          try {
             String username = parser.getNotLinkBody().substring(1);
-            this.user = manager.getUserObject(username);
+            this.user = manager.getUserByName(username);
             if (this.user != null && this.user.getDisplayName() != null) {
                this.linkBody = this.user.getDisplayName();
             } else {

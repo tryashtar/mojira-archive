@@ -2,7 +2,6 @@ package com.renderer;
 
 import java.text.ParseException;
 
-import com.atlassian.jira.issue.Issue;
 import com.atlassian.jira.issue.IssueManager;
 import com.atlassian.jira.issue.MutableIssue;
 import com.atlassian.renderer.RenderContext;
@@ -26,7 +25,7 @@ public class FakeIssueLink extends Link {
             this.title = issue.getSummary();
             this.issueKey = issue.getKey();
             this.url = context.getBaseUrl() + "/browse/" + this.issueKey;
-            if (issue.getResolutionObject() != null) {
+            if (issue.getResolution() != null) {
                this.linkBody = "-" + (linkTitle == null ? key : linkTitle) + "-";
             } else {
                this.linkBody = linkTitle == null ? key : linkTitle;

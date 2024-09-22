@@ -2,12 +2,15 @@ package com.renderer;
 
 import java.sql.Timestamp;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 
 import org.ofbiz.core.entity.GenericValue;
 
 import com.atlassian.jira.bc.project.component.ProjectComponent;
 import com.atlassian.jira.issue.Issue;
+import com.atlassian.jira.issue.ModifiedValue;
+import com.atlassian.jira.issue.MutableIssue;
 import com.atlassian.jira.issue.attachment.Attachment;
 import com.atlassian.jira.issue.fields.CustomField;
 import com.atlassian.jira.issue.fields.renderer.IssueRenderContext;
@@ -20,378 +23,456 @@ import com.atlassian.jira.project.Project;
 import com.atlassian.jira.project.version.Version;
 import com.atlassian.jira.user.ApplicationUser;
 
-public class FakeIssue implements Issue {
-
-   @Override
-   public Long getLong(String arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getLong'");
+public class FakeIssue implements MutableIssue {
+   private final String Key;
+   private final String Resolution;
+   private final String Summary;
+   public FakeIssue(String key, String resolution, String summary) {
+      this.Key = key;
+      this.Resolution = resolution;
+      this.Summary = summary;
    }
 
-   @Override
-   public String getString(String arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getString'");
-   }
-
-   @Override
-   public Timestamp getTimestamp(String arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getTimestamp'");
-   }
-
-   @Override
-   public void store() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'store'");
-   }
-
-   @Override
-   public Collection<Version> getAffectedVersions() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getAffectedVersions'");
-   }
-
-   @Override
-   public ApplicationUser getAssignee() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getAssignee'");
-   }
-
-   @Override
-   public String getAssigneeId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getAssigneeId'");
-   }
-
-   @Override
-   public ApplicationUser getAssigneeUser() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getAssigneeUser'");
-   }
-
-   @Override
-   public Collection<Attachment> getAttachments() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getAttachments'");
-   }
-
-   @Override
-   public Collection<ProjectComponent> getComponentObjects() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getComponentObjects'");
-   }
-
-   @Override
-   public Collection<ProjectComponent> getComponents() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getComponents'");
-   }
-
-   @Override
-   public Timestamp getCreated() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getCreated'");
-   }
-
-   @Override
-   public ApplicationUser getCreator() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getCreator'");
-   }
-
-   @Override
-   public String getCreatorId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getCreatorId'");
-   }
-
-   @Override
-   public Object getCustomFieldValue(CustomField arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getCustomFieldValue'");
-   }
-
-   @Override
-   public String getDescription() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getDescription'");
-   }
-
-   @Override
-   public Timestamp getDueDate() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getDueDate'");
-   }
-
-   @Override
-   public String getEnvironment() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getEnvironment'");
-   }
-
-   @Override
-   public Long getEstimate() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getEstimate'");
-   }
-
-   @Override
-   public Object getExternalFieldValue(String arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getExternalFieldValue'");
-   }
-
-   @Override
-   public Collection<Version> getFixVersions() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getFixVersions'");
-   }
-
-   @Override
-   public GenericValue getGenericValue() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getGenericValue'");
-   }
-
-   @Override
-   public Long getId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getId'");
-   }
-
-   @Override
-   public IssueRenderContext getIssueRenderContext() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueRenderContext'");
-   }
-
-   @Override
-   public IssueType getIssueType() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueType'");
-   }
-
-   @Override
-   public String getIssueTypeId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueTypeId'");
-   }
-
-   @Override
-   public IssueType getIssueTypeObject() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueTypeObject'");
-   }
-
-   @Override
-   public String getKey() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getKey'");
-   }
-
-   @Override
-   public Set<Label> getLabels() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getLabels'");
-   }
-
-   @Override
-   public Long getNumber() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getNumber'");
-   }
-
-   @Override
-   public Long getOriginalEstimate() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getOriginalEstimate'");
-   }
-
-   @Override
-   public GenericValue getParent() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getParent'");
-   }
-
-   @Override
-   public Long getParentId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getParentId'");
-   }
-
-   @Override
-   public Issue getParentObject() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getParentObject'");
-   }
-
-   @Override
-   public Priority getPriority() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getPriority'");
-   }
-
-   @Override
-   public Priority getPriorityObject() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getPriorityObject'");
-   }
-
-   @Override
-   public GenericValue getProject() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getProject'");
-   }
-
-   @Override
-   public Long getProjectId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getProjectId'");
-   }
-
-   @Override
-   public Project getProjectObject() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getProjectObject'");
-   }
-
-   @Override
-   public ApplicationUser getReporter() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getReporter'");
-   }
-
-   @Override
-   public String getReporterId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getReporterId'");
-   }
-
-   @Override
-   public ApplicationUser getReporterUser() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getReporterUser'");
-   }
-
-   @Override
-   public Resolution getResolution() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getResolution'");
-   }
-
-   @Override
-   public Timestamp getResolutionDate() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getResolutionDate'");
-   }
-
-   @Override
-   public String getResolutionId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getResolutionId'");
-   }
-
-   @Override
-   public Resolution getResolutionObject() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getResolutionObject'");
-   }
-
-   @Override
-   public GenericValue getSecurityLevel() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getSecurityLevel'");
-   }
-
-   @Override
-   public Long getSecurityLevelId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getSecurityLevelId'");
-   }
-
-   @Override
-   public Status getStatus() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getStatus'");
-   }
-
-   @Override
-   public String getStatusId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getStatusId'");
-   }
-
-   @Override
-   public Status getStatusObject() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getStatusObject'");
-   }
-
-   @Override
-   public Collection<Issue> getSubTaskObjects() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getSubTaskObjects'");
-   }
-
-   @Override
-   public Collection<GenericValue> getSubTasks() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getSubTasks'");
-   }
-
-   @Override
    public String getSummary() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getSummary'");
+      return this.Summary;
    }
 
-   @Override
+   public String getKey() {
+      return this.Key;
+   }
+
+   public Resolution getResolution() {
+      return this.Resolution == null ? null : new FakeResolution();
+   }
+
+   public Collection<Version> getAffectedVersions() {
+      throw new UnsupportedOperationException();
+   }
+
+   public ApplicationUser getAssignee() {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getAssigneeId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public ApplicationUser getAssigneeUser() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Collection<Attachment> getAttachments() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Collection<ProjectComponent> getComponentObjects() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Collection<ProjectComponent> getComponents() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Timestamp getCreated() {
+      throw new UnsupportedOperationException();
+   }
+
+   public ApplicationUser getCreator() {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getCreatorId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Object getCustomFieldValue(CustomField arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getDescription() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Timestamp getDueDate() {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getEnvironment() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Long getEstimate() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Object getExternalFieldValue(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public Collection<Version> getFixVersions() {
+      throw new UnsupportedOperationException();
+   }
+
+   public GenericValue getGenericValue() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Long getId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public IssueRenderContext getIssueRenderContext() {
+      throw new UnsupportedOperationException();
+   }
+
+   public IssueType getIssueType() {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getIssueTypeId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public IssueType getIssueTypeObject() {
+      throw new UnsupportedOperationException();
+   }
+
+
+
+   public Set<Label> getLabels() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Long getNumber() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Long getOriginalEstimate() {
+      throw new UnsupportedOperationException();
+   }
+
+   public GenericValue getParent() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Long getParentId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Issue getParentObject() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Priority getPriority() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Priority getPriorityObject() {
+      throw new UnsupportedOperationException();
+   }
+
+   public GenericValue getProject() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Long getProjectId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Project getProjectObject() {
+      throw new UnsupportedOperationException();
+   }
+
+   public ApplicationUser getReporter() {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getReporterId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public ApplicationUser getReporterUser() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Resolution getResolutionObject() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Timestamp getResolutionDate() {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getResolutionId() {
+      throw new UnsupportedOperationException();
+   }
+
+
+
+   public GenericValue getSecurityLevel() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Long getSecurityLevelId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Status getStatus() {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getStatusId() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Status getStatusObject() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Collection<Issue> getSubTaskObjects() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Collection<GenericValue> getSubTasks() {
+      throw new UnsupportedOperationException();
+   }
+
    public Long getTimeSpent() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getTimeSpent'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Timestamp getUpdated() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getUpdated'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Long getVotes() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getVotes'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Long getWatches() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getWatches'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Long getWorkflowId() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getWorkflowId'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public boolean isCreated() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'isCreated'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public boolean isEditable() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'isEditable'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public boolean isSubTask() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'isSubTask'");
+      throw new UnsupportedOperationException();
    }
+
+   public Long getLong(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public String getString(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public Timestamp getTimestamp(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   @SuppressWarnings("rawtypes")
+   public Map<String, ModifiedValue> getModifiedFields() {
+      throw new UnsupportedOperationException();
+   }
+
+   public void resetModifiedFields() {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setAffectedVersions(Collection<Version> arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setAssignee(ApplicationUser arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setAssigneeId(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setComponent(Collection<ProjectComponent> arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setCreated(Timestamp arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setCustomFieldValue(CustomField arg0, Object arg1) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setDescription(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setDueDate(Timestamp arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setEnvironment(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setEstimate(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setExternalFieldValue(String arg0, Object arg1) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setExternalFieldValue(String arg0, Object arg1, Object arg2) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setFixVersions(Collection<Version> arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setIssueType(IssueType arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setIssueTypeId(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setIssueTypeObject(IssueType arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setKey(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setLabels(Set<Label> arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setNumber(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setOriginalEstimate(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setParentId(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setParentObject(Issue arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setPriority(Priority arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setPriorityId(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setPriorityObject(Priority arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setProject(GenericValue arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setProjectId(Long arg0) throws IllegalArgumentException {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setProjectObject(Project arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setReporter(ApplicationUser arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setReporterId(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setResolution(Resolution arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setResolutionDate(Timestamp arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setResolutionId(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setResolutionObject(Resolution arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setSecurityLevel(GenericValue arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setSecurityLevelId(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setStatus(Status arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setStatusId(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setStatusObject(Status arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setSummary(String arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setTimeSpent(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setUpdated(Timestamp arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setVotes(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setWatches(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setWorkflowId(Long arg0) {
+      throw new UnsupportedOperationException();
+   }
+
+   public void store() {
+      throw new UnsupportedOperationException();
+   }
+
    
 }

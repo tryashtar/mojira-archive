@@ -1,5 +1,8 @@
 package com.renderer;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -18,303 +21,230 @@ import com.atlassian.jira.issue.MutableIssue;
 import com.atlassian.jira.issue.UpdateIssueRequest;
 import com.atlassian.jira.user.ApplicationUser;
 import com.atlassian.jira.util.lang.Pair;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 public class FakeIssueManager implements IssueManager {
+   private final Path issueFolder;
+   private JsonObject keyMap = null;
 
-   @Override
+   public FakeIssueManager(Path issueFolder) {
+      this.issueFolder = issueFolder;
+   }
+
+   public void setKeyMap(JsonObject keyMap) {
+      this.keyMap = keyMap;
+   }
+
+   public MutableIssue getIssueObject(String key) throws DataAccessException {
+      var id = this.keyMap.get(key).getAsLong();
+      return this.getIssueObject(id);
+   }
+
+   public MutableIssue getIssueObject(Long id) throws DataAccessException {
+      var path = issueFolder.resolve(id.toString() + ".json");
+      String json;
+      try {
+         json = Files.readString(path);
+      } catch (IOException ex) {
+         return null;
+      }
+      var data = new JsonParser().parse(json).getAsJsonObject();
+      var key = data.get("key").getAsString();
+      var fields = data.get("fields").getAsJsonObject();
+      var resolutionField = fields.get("resolution");
+      var resolution = resolutionField.isJsonNull() ? null : resolutionField.getAsString();
+      var summary = fields.get("summary").getAsString();
+      return new FakeIssue(key, resolution, summary);
+   }
+
    public boolean atLeastOneIssueExists() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'atLeastOneIssueExists'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public GenericValue createIssue(String arg0, Map<String, Object> arg1) throws CreateException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'createIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public GenericValue createIssue(ApplicationUser arg0, Map<String, Object> arg1) throws CreateException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'createIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public GenericValue createIssue(ApplicationUser arg0, Issue arg1) throws CreateException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'createIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Issue createIssueObject(String arg0, Map<String, Object> arg1) throws CreateException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'createIssueObject'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Issue createIssueObject(ApplicationUser arg0, Map<String, Object> arg1) throws CreateException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'createIssueObject'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Issue createIssueObject(ApplicationUser arg0, Issue arg1) throws CreateException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'createIssueObject'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public void deleteIssue(ApplicationUser arg0, Issue arg1, EventDispatchOption arg2, boolean arg3)
          throws RemoveException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'deleteIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public void deleteIssue(ApplicationUser arg0, MutableIssue arg1, EventDispatchOption arg2, boolean arg3)
          throws RemoveException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'deleteIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public void deleteIssueNoEvent(Issue arg0) throws RemoveException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'deleteIssueNoEvent'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public void deleteIssueNoEvent(MutableIssue arg0) throws RemoveException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'deleteIssueNoEvent'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Issue findMovedIssue(String arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'findMovedIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Set<String> getAllIssueKeys(Long arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getAllIssueKeys'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<GenericValue> getEntitiesByIssue(String arg0, GenericValue arg1) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getEntitiesByIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<GenericValue> getEntitiesByIssueObject(String arg0, Issue arg1) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getEntitiesByIssueObject'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Set<Long> getIdsOfMissingIssues(Set<Long> arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIdsOfMissingIssues'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public GenericValue getIssue(Long arg0) throws DataAccessException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public GenericValue getIssue(String arg0) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public MutableIssue getIssueByCurrentKey(String arg0) throws DataAccessException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueByCurrentKey'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public MutableIssue getIssueByKeyIgnoreCase(String arg0) throws DataAccessException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueByKeyIgnoreCase'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public GenericValue getIssueByWorkflow(Long arg0) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueByWorkflow'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public long getIssueCount() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueCount'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public long getIssueCountForProject(Long arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueCountForProject'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Collection<Long> getIssueIdsForProject(Long arg0) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueIdsForProject'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
-   public MutableIssue getIssueObject(Long arg0) throws DataAccessException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueObject'");
-   }
-
-   @Override
-   public MutableIssue getIssueObject(String arg0) throws DataAccessException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueObject'");
-   }
-
-   @Override
    public MutableIssue getIssueObjectByWorkflow(Long arg0) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueObjectByWorkflow'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<Issue> getIssueObjects(Collection<Long> arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueObjects'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<Issue> getIssueObjectsByEntity(String arg0, GenericValue arg1) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssueObjectsByEntity'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<GenericValue> getIssues(Collection<Long> arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssues'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<GenericValue> getIssuesByEntity(String arg0, GenericValue arg1) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getIssuesByEntity'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Set<String> getKeysOfMissingIssues(Set<String> arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getKeysOfMissingIssues'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Set<Pair<Long, String>> getProjectIssueTypePairsByIds(Set<Long> arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getProjectIssueTypePairsByIds'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Set<Pair<Long, String>> getProjectIssueTypePairsByKeys(Set<String> arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getProjectIssueTypePairsByKeys'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<GenericValue> getProjectIssues(GenericValue arg0) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getProjectIssues'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public long getUnassignedIssueCount() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getUnassignedIssueCount'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<Issue> getVotedIssues(ApplicationUser arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getVotedIssues'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<Issue> getVotedIssuesOverrideSecurity(ApplicationUser arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getVotedIssuesOverrideSecurity'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<Issue> getWatchedIssues(ApplicationUser arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getWatchedIssues'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<Issue> getWatchedIssuesOverrideSecurity(ApplicationUser arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getWatchedIssuesOverrideSecurity'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<ApplicationUser> getWatchers(Issue arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getWatchers'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public List<ApplicationUser> getWatchersFor(Issue arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'getWatchersFor'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public boolean hasUnassignedIssues() {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'hasUnassignedIssues'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public boolean isEditable(Issue arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'isEditable'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public boolean isEditable(Issue arg0, ApplicationUser arg1) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'isEditable'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public boolean isExistingIssueKey(String arg0) throws GenericEntityException {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'isExistingIssueKey'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public void recordMovedIssueKey(Issue arg0) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'recordMovedIssueKey'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Issue updateIssue(ApplicationUser arg0, MutableIssue arg1, UpdateIssueRequest arg2) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'updateIssue'");
+      throw new UnsupportedOperationException();
    }
 
-   @Override
    public Issue updateIssue(ApplicationUser arg0, MutableIssue arg1, EventDispatchOption arg2, boolean arg3) {
-      // TODO Auto-generated method stub
-      throw new UnsupportedOperationException("Unimplemented method 'updateIssue'");
+      throw new UnsupportedOperationException();
    }
-   
 }

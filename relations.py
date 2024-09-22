@@ -1,7 +1,6 @@
 import mojira
 import pathlib
 import bisect
-import orjson
 import tryashtools as tat
 
 def main():
@@ -27,12 +26,17 @@ def main():
       data = tat.read_json(issue)
       key = data['id']
       print(f'{i+1} / {total} - {data['key']}')
+      if 'issues' not in relations:
+         relations['issues'] = {}
+      relations['issues'][data['key']] = key
       fields = data['fields']
       append(['resolutions', fields['resolution']], key)
-      for version in fields['versions']:
-         append(['versions', version, 'affected'], key)
-      for version in fields['fixVersions']:
-         append(['versions', version, 'fixed'], key)
+      if 'versions' in fields:
+         for version in fields['versions']:
+            append(['versions', version, 'affected'], key)
+      if 'fixVersions' in fields:
+         for version in fields['fixVersions']:
+            append(['versions', version, 'fixed'], key)
       append(['users', fields['creator'], 'created'], key)
       append(['users', fields['reporter'], 'reported'], key)
       if 'assignee' in fields:

@@ -16,22 +16,18 @@ public class FakeKeyMatcher implements KeyMatcher {
       this.issueKeyRegex = "/(^|[^a-zA-Z]|\n)([A-Z][A-Z]+-[0-9]+)/";
    }
 
-   @Override
    public boolean isKeyInString(String s) {
       return this.perlUtil.match(this.getIssueKeyRegex(), s);
    }
 
-   @Override
    public String getProjectKeyRegex() {
       return this.projectKeyRegex;
    }
 
-   @Override
    public String getIssueKeyRegex() {
       return this.issueKeyRegex;
    }
 
-   @Override
    public boolean isValidIssueKey(String issueKey) {
       if (issueKey == null) {
          return false;
@@ -57,7 +53,6 @@ public class FakeKeyMatcher implements KeyMatcher {
       return false;
    }
 
-   @Override
    public boolean isValidProjectKey(String projectKey) {
       if (StringUtils.isBlank((CharSequence) projectKey)) {
          return false;
@@ -65,17 +60,14 @@ public class FakeKeyMatcher implements KeyMatcher {
       return this.perlUtil.match(this.getProjectKeyRegex(), projectKey);
    }
 
-   @Override
    public boolean isIgnoreUrlWithKey() {
       return true;
    }
 
-   @Override
    public boolean isKeyDetectionBackwardsCompatible() {
       return false;
    }
 
-   @Override
    public String getLink(String key) {
       return key;
    }
