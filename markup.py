@@ -20,7 +20,9 @@ def get_process(dump: mojira.Dump):
    subprocess.run(['mvn', 'package', 'assembly:single'], cwd='renderer', check=True, stdout=subprocess.DEVNULL)
    print('Starting...')
    process = subprocess.Popen(['java', '-jar', 'renderer/target/renderer-1.0-SNAPSHOT-jar-with-dependencies.jar', json.dumps(input_args)], encoding='utf-8', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-   process.stdin.write(json.dumps({'type':'configure','issue_map':{k: int(v) for k, v in relations['issues'].items()}}) + '\n')
+   issue_map = {k: int(v) for k, v in relations['issues'].items()}
+   attachment_map = {k: {x: int(y) for x, y in v.items()} for k, v in relations['attachments'].items()}
+   process.stdin.write(json.dumps({'type':'configure','issue_map':issue_map,'attachment_map':attachment_map}) + '\n')
    process.stdin.flush()
    return process
 

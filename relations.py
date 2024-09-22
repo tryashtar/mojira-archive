@@ -43,6 +43,11 @@ def main():
          append(['users', fields['assignee'], 'assigned'], key)
       for attachment in fields['attachment']:
          append(['users', attachment.get('author'), 'attachments', key], attachment['id'])
+         if 'attachments' not in relations:
+            relations['attachments'] = {}
+         if key not in relations['attachments']:
+            relations['attachments'][key] = {}
+         relations['attachments'][key][attachment['filename']] = attachment['id']
       for comment in fields['comment']['comments']:
          append(['users', comment.get('author'), 'comments', key], comment['id'])
          append(['users', comment.get('updateAuthor'), 'edits', key], comment['id'])

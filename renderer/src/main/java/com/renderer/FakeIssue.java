@@ -24,13 +24,19 @@ import com.atlassian.jira.project.version.Version;
 import com.atlassian.jira.user.ApplicationUser;
 
 public class FakeIssue implements MutableIssue {
+   private final long Id;
    private final String Key;
    private final String Resolution;
    private final String Summary;
-   public FakeIssue(String key, String resolution, String summary) {
+   public FakeIssue(long id, String key, String resolution, String summary) {
+      this.Id = id;
       this.Key = key;
       this.Resolution = resolution;
       this.Summary = summary;
+   }
+
+   public Long getId() {
+      return this.Id;
    }
 
    public String getSummary() {
@@ -114,10 +120,6 @@ public class FakeIssue implements MutableIssue {
    }
 
    public GenericValue getGenericValue() {
-      throw new UnsupportedOperationException();
-   }
-
-   public Long getId() {
       throw new UnsupportedOperationException();
    }
 

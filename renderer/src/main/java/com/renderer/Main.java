@@ -31,8 +31,10 @@ public class Main {
             var json_in = parser.parse(input.nextLine()).getAsJsonObject();
             var type = json_in.get("type").getAsString();
             if (type.equals("configure")) {
-                var map = json_in.get("issue_map").getAsJsonObject();
-                issueManager.setKeyMap(map);
+                var issueMap = json_in.get("issue_map").getAsJsonObject();
+                var attachMap = json_in.get("attachment_map").getAsJsonObject();
+                issueManager.setKeyMap(issueMap);
+                attachments.setAttachmentMap(attachMap);
             } else if (type.equals("render")) {
                 var markup = json_in.get("markup").getAsString();
                 var issue_id = json_in.get("issue");

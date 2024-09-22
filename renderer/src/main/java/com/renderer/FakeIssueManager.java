@@ -55,7 +55,7 @@ public class FakeIssueManager implements IssueManager {
       var resolutionField = fields.get("resolution");
       var resolution = resolutionField.isJsonNull() ? null : resolutionField.getAsString();
       var summary = fields.get("summary").getAsString();
-      return new FakeIssue(key, resolution, summary);
+      return new FakeIssue(id, key, resolution, summary);
    }
 
    public boolean atLeastOneIssueExists() {

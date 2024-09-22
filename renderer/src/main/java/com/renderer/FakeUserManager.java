@@ -35,7 +35,7 @@ public class FakeUserManager implements UserManager {
       catch (UnsupportedEncodingException ex) {
          return null;
       }
-      var path = userFolder.resolve(encoded.toString() + ".json");
+      var path = userFolder.resolve(encoded + ".json");
       String json;
       try {
          json = Files.readString(path);
