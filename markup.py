@@ -32,6 +32,27 @@ def get_tests(extended: bool):
             if (out_val := markup_data.get(field)) is not None and (in_val := ticket_data['fields'].get(field)) is not None:
                yield {'in':in_val,'out':out_val,'index':index}
                index += 1
+         if 'comments' in markup_data:
+            for i in range(len(markup_data['comments'])):
+               out_val = markup_data['comments'][i]
+               in_val = ticket_data['fields']['comment']['comments'][i]['body']
+               yield {'in':in_val,'out':out_val,'index':index}
+               index += 1
+         if 'history' in markup_data:
+            for i in range(len(markup_data['history'])):
+               for key,value in markup_data['history'][i].items():
+                  old_out = value['from']
+                  new_out = value['to']
+                  for entry in ticket_data['changelog']['histories'][i]['items']:
+                     if entry['field'] == key:
+                        old_in = entry['fromString']
+                        new_in = entry['toString']
+                        if old_in is not None:
+                           yield {'in':old_in,'out':old_out,'index':index}
+                           index += 1
+                        if new_in is not None:
+                           yield {'in':new_in,'out':new_out,'index':index}
+                           index += 1
 
 def check_tests(extended=False):
    print('Compiling...')

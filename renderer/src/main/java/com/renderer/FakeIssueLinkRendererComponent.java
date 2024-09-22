@@ -11,13 +11,15 @@ import com.atlassian.renderer.v2.components.link.LinkDecorator;
 import org.apache.oro.text.perl.Perl5Util;
 import org.apache.oro.text.regex.MatchResult;
 
-import com.atlassian.jira.issue.fields.renderer.wiki.links.JiraIssueLink;
+import com.atlassian.jira.issue.IssueManager;
 import com.atlassian.renderer.links.Link;
 
 public class FakeIssueLinkRendererComponent extends AbstractRendererComponent {
       private final KeyMatcher Matcher;
+      private final IssueManager Manager;
 
-      public FakeIssueLinkRendererComponent(KeyMatcher matcher) {
+      public FakeIssueLinkRendererComponent(KeyMatcher matcher, IssueManager manager) {
+         Manager = manager;
          Matcher = matcher;
       }
 
@@ -54,7 +56,7 @@ public class FakeIssueLinkRendererComponent extends AbstractRendererComponent {
                   buff.append(key);
                } else {
                   try {
-                     Link link = new JiraIssueLink(key);
+                     Link link = new FakeIssueLink(key, null, Manager, context);
                      buff.append(context.getRenderedContentStore().addInline(new LinkDecorator(link)));
                   } catch (Exception var11) {
                      buff.append(key);

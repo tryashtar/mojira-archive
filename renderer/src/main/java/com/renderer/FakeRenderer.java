@@ -3,7 +3,7 @@ package com.renderer;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import com.atlassian.renderer.DefaultIconManager;
+import com.atlassian.jira.issue.fields.renderer.wiki.JiraIconManager;
 import com.atlassian.renderer.RenderContext;
 import com.atlassian.renderer.RendererConfiguration;
 import com.atlassian.renderer.WikiStyleRenderer;
@@ -47,7 +47,7 @@ public class FakeRenderer {
    public final LinkRenderer LinkRenderer;
 
    public FakeRenderer(LinkResolver resolver, RendererConfiguration config, AbstractRendererComponent issue_link) {
-      var icon_manager = new DefaultIconManager();
+      var icon_manager = new JiraIconManager();
       var renderer = new V2Renderer();
       var subrenderer = new V2SubRenderer(renderer);
       var components = new ArrayList<RendererComponent>();

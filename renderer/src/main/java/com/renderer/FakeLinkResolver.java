@@ -5,7 +5,7 @@ import java.util.List;
 import com.atlassian.jira.issue.IssueManager;
 import com.atlassian.jira.issue.fields.renderer.wiki.resolvers.AnchorLinkResolver;
 import com.atlassian.jira.issue.fields.renderer.wiki.resolvers.AttachmentLinkResolver;
-import com.atlassian.jira.issue.fields.renderer.wiki.resolvers.UserProfileLinkResolver;
+import com.atlassian.jira.user.util.UserManager;
 import com.atlassian.jira.util.JiraKeyUtils.KeyMatcher;
 import com.atlassian.renderer.RenderContext;
 import com.atlassian.renderer.links.ContentLinkResolver;
@@ -19,12 +19,12 @@ import com.opensymphony.util.TextUtils;
 
 public class FakeLinkResolver implements LinkResolver {
    private final List<ContentLinkResolver> Resolvers;
-   public FakeLinkResolver(KeyMatcher matcher, IssueManager manager) {
+   public FakeLinkResolver(KeyMatcher matcher, IssueManager issueManager, UserManager userManager) {
       Resolvers = List.of(
          new AttachmentLinkResolver(),
          new AnchorLinkResolver(),
-         new FakeIssueLinkResolver(matcher, manager),
-         new UserProfileLinkResolver()
+         new FakeIssueLinkResolver(matcher, issueManager),
+         new FakeUserProfileLinkResolver(userManager)
       );
    }
    public Link createLink(RenderContext context, String linkText) {

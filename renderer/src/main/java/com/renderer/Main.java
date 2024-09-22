@@ -14,10 +14,11 @@ import com.google.gson.JsonParser;
 public class Main {
     public static void main(String[] args) {
         var matcher = new FakeKeyMatcher();
-        var manager = new FakeIssueManager();
-        var resolver = new FakeLinkResolver(matcher, manager);
+        var issueManager = new FakeIssueManager();
+        var userManager = new FakeUserManager();
+        var resolver = new FakeLinkResolver(matcher, issueManager, userManager);
         var config = new FakeRendererConfiguration();
-        var component = new FakeIssueLinkRendererComponent(matcher);
+        var component = new FakeIssueLinkRendererComponent(matcher, issueManager);
         var attachments = new FakeAttachmentManager();
         var renderer = new FakeRenderer(resolver, config, component);
         var embedded = new DefaultEmbeddedResourceRenderer(attachments);
@@ -38,7 +39,7 @@ public class Main {
     private static RenderContext makeRenderContext(LinkRenderer linkRenderer,
             EmbeddedResourceRenderer resourceRenderer, RendererConfiguration config) {
         var context = new RenderContext();
-        context.setSiteRoot("");
+        context.setSiteRoot("https://bugs.mojang.com");
         context.setImagePath(context.getSiteRoot() + "/images");
         context.setLinkRenderer(linkRenderer);
         context.setEmbeddedResourceRenderer(resourceRenderer);

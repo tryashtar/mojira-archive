@@ -16,7 +16,7 @@ public class FakeRendererConfiguration implements RendererConfiguration {
    }
 
    public boolean isNofollowExternalLinks() {
-      return false;
+      return true;
    }
 
    public boolean isOpenExternalLinksInNewWindow() {
