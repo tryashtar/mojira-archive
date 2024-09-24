@@ -1,10 +1,11 @@
 package com.renderer;
 
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.NoSuchFileException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -16,8 +17,10 @@ import com.atlassian.jira.exception.CreateException;
 import com.atlassian.jira.exception.PermissionException;
 import com.atlassian.jira.user.ApplicationUser;
 import com.atlassian.jira.user.UserDetails;
+import com.atlassian.jira.user.util.DuplicatedUsersToDirectoriesMapping;
 import com.atlassian.jira.user.util.UserIdentity;
 import com.atlassian.jira.user.util.UserManager;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 public class FakeUserManager implements UserManager {
@@ -36,13 +39,15 @@ public class FakeUserManager implements UserManager {
          return null;
       }
       var path = userFolder.resolve(encoded + ".json");
-      String json;
+      JsonObject data;
       try {
-         json = Files.readString(path);
+         data = JsonParser.parseReader(new FileReader(path.toFile())).getAsJsonObject();
       } catch (IOException ex) {
+         if (ex instanceof NoSuchFileException) {
+            return new FakeUser(username, username);
+         }
          return null;
       }
-      var data = new JsonParser().parse(json).getAsJsonObject();
       var name = data.get("name").getAsString();
       var display = data.get("displayName").getAsString();
       return new FakeUser(name, display);
@@ -196,4 +201,11 @@ public class FakeUserManager implements UserManager {
       throw new UnsupportedOperationException();
    }
 
+   public DuplicatedUsersToDirectoriesMapping getDuplicatedUserMapping() {
+      throw new UnsupportedOperationException();
+   }
+
+   public boolean isUserDeleted(ApplicationUser arg0) {
+      throw new UnsupportedOperationException();
+   }
 }

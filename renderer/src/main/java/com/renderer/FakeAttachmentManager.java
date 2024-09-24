@@ -1,9 +1,5 @@
 package com.renderer;
 
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import com.atlassian.jira.issue.Issue;
@@ -13,7 +9,6 @@ import com.atlassian.renderer.attachments.RendererAttachmentManager;
 import com.atlassian.renderer.embedded.EmbeddedImage;
 import com.atlassian.renderer.embedded.EmbeddedResource;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 public class FakeAttachmentManager implements RendererAttachmentManager {
    private final Path attachFolder;

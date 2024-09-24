@@ -476,5 +476,23 @@ public class FakeIssue implements MutableIssue {
       throw new UnsupportedOperationException();
    }
 
-   
+   public String getArchivedById() {
+      throw new UnsupportedOperationException();
+   }
+
+   public ApplicationUser getArchivedByUser() {
+      throw new UnsupportedOperationException();
+   }
+
+   public Timestamp getArchivedDate() {
+      throw new UnsupportedOperationException();
+   }
+
+   public boolean isArchived() {
+      throw new UnsupportedOperationException();
+   }
+
+   public void setArchived(boolean arg0) {
+      throw new UnsupportedOperationException();
+   }   
 }

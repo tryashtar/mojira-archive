@@ -1688,5 +1688,15 @@
       "in": "1{panel}2{quote}3{code}4{quote}5{panel}6{code}7",
       "out": "<p>1<div class=\"panel\" style=\"border-width: 1px;\"><div class=\"panelContent\">\n<p>2<blockquote><p>3</p>\n<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\"></pre>\n</div></div>\n<p>4</p></blockquote>5</p>\n</div></div>6</p>\n<div class=\"code panel\" style=\"border-width: 1px;\"><div class=\"codeContent panelContent\">\n<pre class=\"code-java\"></pre>\n</div></div>\n<p>7</p>",
       "index": 337
+   },
+   {
+      "in": "don't",
+      "out": "<p>don't</p>",
+      "index": 338
+   },
+   {
+      "in": "[~dinnerbone]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=dinnerbone\" class=\"user-hover\" rel=\"dinnerbone\">[Mojang] Nathan Adams</a></p>",
+      "index": 339
    }
 ]

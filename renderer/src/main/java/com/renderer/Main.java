@@ -3,10 +3,12 @@ package com.renderer;
 import java.nio.file.Path;
 import java.util.Scanner;
 
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+
 import com.atlassian.jira.issue.Issue;
 import com.atlassian.renderer.RenderContext;
 import com.atlassian.renderer.RendererConfiguration;
-import com.atlassian.renderer.embedded.DefaultEmbeddedResourceRenderer;
 import com.atlassian.renderer.embedded.EmbeddedResourceRenderer;
 import com.atlassian.renderer.links.LinkRenderer;
 import com.atlassian.renderer.v2.RenderMode;
@@ -15,8 +17,8 @@ import com.google.gson.JsonParser;
 
 public class Main {
     public static void main(String[] args) {
-        var parser = new JsonParser();
-        var configuration = parser.parse(args[0]).getAsJsonObject();
+        Logger.getRootLogger().setLevel(Level.OFF);
+        var configuration = JsonParser.parseString(args[0]).getAsJsonObject();
         var issueManager = new FakeIssueManager(Path.of(configuration.get("issues").getAsString()));
         var userManager = new FakeUserManager(Path.of(configuration.get("users").getAsString()));
         var attachments = new FakeAttachmentManager(Path.of(configuration.get("attachments").getAsString()));
@@ -24,11 +26,11 @@ public class Main {
         var config = new FakeRendererConfiguration();
         var resolver = new FakeLinkResolver(matcher, issueManager, userManager);
         var component = new FakeIssueLinkRendererComponent(matcher, issueManager);
-        var embedded = new DefaultEmbeddedResourceRenderer(attachments);
+        var embedded = new FakeEmbeddedResourceRenderer(attachments);
         var renderer = new FakeRenderer(resolver, config, component);
         var input = new Scanner(System.in);
         while (input.hasNext()) {
-            var json_in = parser.parse(input.nextLine()).getAsJsonObject();
+            var json_in = JsonParser.parseString(input.nextLine()).getAsJsonObject();
             var type = json_in.get("type").getAsString();
             if (type.equals("configure")) {
                 var issueMap = json_in.get("issue_map").getAsJsonObject();

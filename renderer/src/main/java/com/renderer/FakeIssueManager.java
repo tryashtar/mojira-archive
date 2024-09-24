@@ -1,7 +1,7 @@
 package com.renderer;
 
+import java.io.FileReader;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
@@ -12,6 +12,7 @@ import org.ofbiz.core.entity.GenericEntityException;
 import org.ofbiz.core.entity.GenericValue;
 
 import com.atlassian.jira.event.type.EventDispatchOption;
+import com.atlassian.jira.exception.ArchiveException;
 import com.atlassian.jira.exception.CreateException;
 import com.atlassian.jira.exception.DataAccessException;
 import com.atlassian.jira.exception.RemoveException;
@@ -43,13 +44,12 @@ public class FakeIssueManager implements IssueManager {
 
    public MutableIssue getIssueObject(Long id) throws DataAccessException {
       var path = issueFolder.resolve(id.toString() + ".json");
-      String json;
+      JsonObject data;
       try {
-         json = Files.readString(path);
+         data = JsonParser.parseReader(new FileReader(path.toFile())).getAsJsonObject();
       } catch (IOException ex) {
          return null;
       }
-      var data = new JsonParser().parse(json).getAsJsonObject();
       var key = data.get("key").getAsString();
       var fields = data.get("fields").getAsJsonObject();
       var resolutionField = fields.get("resolution");
@@ -245,6 +245,20 @@ public class FakeIssueManager implements IssueManager {
    }
 
    public Issue updateIssue(ApplicationUser arg0, MutableIssue arg1, EventDispatchOption arg2, boolean arg3) {
+      throw new UnsupportedOperationException();
+   }
+
+   public Issue archiveIssue(ApplicationUser arg0, Issue arg1, EventDispatchOption arg2, boolean arg3)
+         throws ArchiveException {
+      throw new UnsupportedOperationException();
+   }
+
+   public boolean isEditable(Issue arg0, String arg1) {
+      throw new UnsupportedOperationException();
+   }
+
+   public Issue restoreIssue(ApplicationUser arg0, Issue arg1, EventDispatchOption arg2, boolean arg3)
+         throws ArchiveException {
       throw new UnsupportedOperationException();
    }
 }
