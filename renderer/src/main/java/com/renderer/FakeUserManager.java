@@ -1,12 +1,10 @@
 package com.renderer;
 
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.file.Path;
-import java.nio.file.NoSuchFileException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -26,17 +24,34 @@ import com.google.gson.JsonParser;
 
 public class FakeUserManager implements UserManager {
    private final Path userFolder;
+   private JsonObject usernameMap = null;
 
    public FakeUserManager(Path userFolder) {
       this.userFolder = userFolder;
    }
 
+   public void setUsernameMap(JsonObject nameMap) {
+      this.usernameMap = nameMap;
+   }
+
    public ApplicationUser getUserByName(String username) {
+      var id = this.usernameMap.get(username.toLowerCase()).getAsString();
+      return this.getUserByKey(id);
+   }
+
+   public ApplicationUser getUserByNameEvenWhenUnknown(String username) {
+      var id = this.usernameMap.get(username.toLowerCase());
+      if (id == null) {
+         return new FakeUser(username, username);
+      }
+      return this.getUserByKey(id.getAsString());
+   }
+
+   public ApplicationUser getUserByKey(String key) {
       String encoded;
       try {
-         encoded = URLEncoder.encode(username, "UTF-8");
-      }
-      catch (UnsupportedEncodingException ex) {
+         encoded = URLEncoder.encode(key, "UTF-8");
+      } catch (UnsupportedEncodingException ex) {
          return null;
       }
       var path = userFolder.resolve(encoded + ".json");
@@ -44,9 +59,6 @@ public class FakeUserManager implements UserManager {
       try {
          data = JsonParser.parseReader(new FileReader(path.toFile())).getAsJsonObject();
       } catch (IOException ex) {
-         if (ex instanceof NoSuchFileException || ex instanceof FileNotFoundException) {
-            return new FakeUser(username, username);
-         }
          return null;
       }
       var name = data.get("name").getAsString();
@@ -130,19 +142,11 @@ public class FakeUserManager implements UserManager {
       throw new UnsupportedOperationException();
    }
 
-   public ApplicationUser getUserByKey(String arg0) {
-      throw new UnsupportedOperationException();
-   }
-
    public ApplicationUser getUserByKeyEvenWhenUnknown(String arg0) {
       throw new UnsupportedOperationException();
    }
 
    public ApplicationUser getUserObject(String arg0) {
-      throw new UnsupportedOperationException();
-   }
-
-   public ApplicationUser getUserByNameEvenWhenUnknown(String arg0) {
       throw new UnsupportedOperationException();
    }
 

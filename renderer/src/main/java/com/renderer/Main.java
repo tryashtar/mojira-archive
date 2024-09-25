@@ -42,7 +42,9 @@ public class Main {
             var type = json_in.get("type").getAsString();
             if (type.equals("configure")) {
                 var issueMap = json_in.get("issue_map").getAsJsonObject();
+                var userMap = json_in.get("user_map").getAsJsonObject();
                 issueManager.setKeyMap(issueMap);
+                userManager.setUsernameMap(userMap);
             } else if (type.equals("render")) {
                 var markup = json_in.get("markup").getAsString();
                 var issue_id = json_in.get("issue");

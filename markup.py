@@ -14,15 +14,15 @@ def main():
 
 def get_process(dump: mojira.Dump):
    print('Configuring...')
-   relations = tat.read_json(dump.root_folder / 'relations.json')
+   ids = tat.read_json(dump.root_folder / 'ids.json')
    input_args = {'issues':str(dump.tickets_folder),'users':str(dump.users_folder),'attachments':str(dump.attachments_folder)}
    print('Compiling...')
    subprocess.run(['mvn', 'package'], cwd='renderer', check=True, stdout=subprocess.DEVNULL)
    print('Starting...')
    process = subprocess.Popen(['java', '-jar', 'renderer/target/renderer-1.0-SNAPSHOT-shaded.jar', json.dumps(input_args)], encoding='utf-8', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-   issue_map = {k: int(v) for k, v in relations['issues'].items()}
-   attachment_map = {k: {x: int(y) for x, y in v.items()} for k, v in relations['attachments'].items()}
-   process.stdin.write(json.dumps({'type':'configure','issue_map':issue_map,'attachment_map':attachment_map}) + '\n')
+   issue_map = {k: int(v) for k, v in ids['issues'].items()}
+   user_map = {k.lower(): v for k, v in ids['users'].items()}
+   process.stdin.write(json.dumps({'type':'configure','issue_map':issue_map,'user_map':user_map}) + '\n')
    process.stdin.flush()
    return process
 
