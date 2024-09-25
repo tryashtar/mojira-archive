@@ -5,6 +5,9 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.sql.Timestamp;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
@@ -48,6 +51,7 @@ public class FakeAttachmentManager implements AttachmentManager {
       attachmentModel.addField(new ModelField("mimetype", "", "", false, List.of()));
       attachmentModel.addField(new ModelField("filename", "", "", false, List.of()));
       attachmentModel.addField(new ModelField("author", "", "", false, List.of()));
+      attachmentModel.addField(new ModelField("created", "", "", false, List.of()));
       attachmentModel.addField(new ModelField("thumbnailable", "", "", false, List.of()));
    }
 
@@ -68,11 +72,18 @@ public class FakeAttachmentManager implements AttachmentManager {
       value.set("mimetype", data.get("mimeType").getAsString());
       value.set("filename", data.get("filename").getAsString());
       value.set("author", data.get("author").getAsString());
+      value.set("created", parseTime(data.get("created").getAsString()));
       var thumbnail = data.get("thumbnail");
       if (thumbnail != null) {
          value.set("thumbnailable", 1);
       }
       return new Attachment(null, value);
+   }
+
+   public static Timestamp parseTime(String timeStr) {
+      var formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss[.SSS][XXX][X]");
+      var time = OffsetDateTime.parse(timeStr, formatter);
+      return Timestamp.from(time.toInstant());
    }
 
    public boolean attachmentsEnabled() {
@@ -84,7 +95,7 @@ public class FakeAttachmentManager implements AttachmentManager {
    }
 
    public List<ChangeItemBean> convertTemporaryAttachments(ApplicationUser arg0, Issue arg1, List<Long> arg2,
-         TemporaryAttachmentsMonitor arg3) throws AttachmentException {
+         @SuppressWarnings("deprecation") TemporaryAttachmentsMonitor arg3) throws AttachmentException {
       throw new UnsupportedOperationException();
    }
 
@@ -204,7 +215,7 @@ public class FakeAttachmentManager implements AttachmentManager {
    }
 
    public AttachmentsBulkOperationResult<ChangeItemBean> tryConvertTemporaryAttachments(ApplicationUser arg0,
-         Issue arg1, List<Long> arg2, TemporaryAttachmentsMonitor arg3) {
+         Issue arg1, List<Long> arg2, @SuppressWarnings("deprecation") TemporaryAttachmentsMonitor arg3) {
       throw new UnsupportedOperationException();
    }
 
