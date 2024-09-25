@@ -25,7 +25,8 @@ public class Main {
         var attachmentManager = new FakeAttachmentManager(Path.of(configuration.get("attachments").getAsString()));
         var issueManager = new FakeIssueManager(attachmentManager, Path.of(configuration.get("issues").getAsString()));
         var userManager = new FakeUserManager(Path.of(configuration.get("users").getAsString()));
-        var attachmentRenderManager = new RendererAttachmentManager(attachmentManager, null, null);
+        var thumbnailManager = new FakeThumbnailManager();
+        var attachmentRenderManager = new RendererAttachmentManager(attachmentManager, thumbnailManager, null);
         var iconManager = new JiraIconManager();
         var keyMatcher = new FakeKeyMatcher();
         var renderConfig = new FakeRendererConfiguration();

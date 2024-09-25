@@ -71,7 +71,10 @@ public class FakeAttachmentManager implements AttachmentManager {
       value.set("id", Long.parseLong(data.get("id").getAsString()));
       value.set("mimetype", data.get("mimeType").getAsString());
       value.set("filename", data.get("filename").getAsString());
-      value.set("author", data.get("author").getAsString());
+      var author = data.get("author");
+      if (author != null) {
+         value.set("author", author.getAsString());
+      }
       value.set("created", parseTime(data.get("created").getAsString()));
       var thumbnail = data.get("thumbnail");
       if (thumbnail != null) {

@@ -1,13 +1,16 @@
 package com.renderer;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 
 import com.atlassian.jira.issue.fields.renderer.wiki.embedded.ConditionalEmbeddedRenderer;
+import com.atlassian.jira.issue.fields.renderer.wiki.embedded.JiraEmbeddedImageRenderer;
 import com.atlassian.jira.issue.fields.renderer.wiki.embedded.JiraPlaceholderImageRenderer;
 import com.atlassian.renderer.RenderContext;
 import com.atlassian.renderer.attachments.RendererAttachmentManager;
 import com.atlassian.renderer.embedded.DefaultEmbeddedResourceRenderer;
+import com.atlassian.renderer.embedded.EmbeddedImage;
 import com.atlassian.renderer.embedded.EmbeddedResource;
 import com.google.common.collect.ImmutableList;
 
@@ -39,5 +42,15 @@ public class FakeEmbeddedResourceRenderer extends DefaultEmbeddedResourceRendere
             return rendered;
         }
         return null;
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    @Override
+    protected HashMap getRenderMap() {
+        if (this.renderMap == null) {
+            this.renderMap = super.getRenderMap();
+            this.renderMap.put(EmbeddedImage.class, new JiraEmbeddedImageRenderer(this.attachmentManager));
+        }
+        return this.renderMap;
     }
 }
