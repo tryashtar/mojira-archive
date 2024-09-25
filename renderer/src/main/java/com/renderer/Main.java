@@ -8,6 +8,7 @@ import org.apache.log4j.Logger;
 
 import com.atlassian.jira.issue.Issue;
 import com.atlassian.jira.issue.fields.renderer.wiki.JiraIconManager;
+import com.atlassian.jira.issue.fields.renderer.wiki.embedded.RendererAttachmentManager;
 import com.atlassian.renderer.RenderContext;
 import com.atlassian.renderer.RendererConfiguration;
 import com.atlassian.renderer.embedded.EmbeddedResourceRenderer;
@@ -21,17 +22,18 @@ public class Main {
     public static void main(String[] args) {
         Logger.getRootLogger().setLevel(Level.OFF);
         var configuration = JsonParser.parseString(args[0]).getAsJsonObject();
-        var issueManager = new FakeIssueManager(Path.of(configuration.get("issues").getAsString()));
+        var attachmentManager = new FakeAttachmentManager(Path.of(configuration.get("attachments").getAsString()));
+        var issueManager = new FakeIssueManager(attachmentManager, Path.of(configuration.get("issues").getAsString()));
         var userManager = new FakeUserManager(Path.of(configuration.get("users").getAsString()));
-        var attachments = new FakeAttachmentManager(Path.of(configuration.get("attachments").getAsString()));
-        var icons = new JiraIconManager();
-        var matcher = new FakeKeyMatcher();
-        var config = new FakeRendererConfiguration();
-        var resolver = new FakeLinkResolver(matcher, issueManager, userManager);
-        var component = new FakeIssueLinkRendererComponent(matcher, issueManager);
-        var embedded = new FakeEmbeddedResourceRenderer(attachments);
-        var renderer = new FakeRenderer(resolver, config, component, icons);
-        var link_renderer = new V2LinkRenderer(renderer.SubRenderer, icons, config);
+        var attachmentRenderManager = new RendererAttachmentManager(attachmentManager, null, null);
+        var iconManager = new JiraIconManager();
+        var keyMatcher = new FakeKeyMatcher();
+        var renderConfig = new FakeRendererConfiguration();
+        var linkResolver = new FakeLinkResolver(keyMatcher, issueManager, userManager);
+        var issueLinkComponent = new FakeIssueLinkRendererComponent(keyMatcher, issueManager);
+        var embeddedRenderer = new FakeEmbeddedResourceRenderer(attachmentRenderManager);
+        var renderer = new FakeRenderer(linkResolver, renderConfig, issueLinkComponent, iconManager);
+        var link_renderer = new V2LinkRenderer(renderer.SubRenderer, iconManager, renderConfig);
 
         var input = new Scanner(System.in);
         while (input.hasNext()) {
@@ -39,14 +41,12 @@ public class Main {
             var type = json_in.get("type").getAsString();
             if (type.equals("configure")) {
                 var issueMap = json_in.get("issue_map").getAsJsonObject();
-                var attachMap = json_in.get("attachment_map").getAsJsonObject();
                 issueManager.setKeyMap(issueMap);
-                attachments.setAttachmentMap(attachMap);
             } else if (type.equals("render")) {
                 var markup = json_in.get("markup").getAsString();
                 var issue_id = json_in.get("issue");
                 var ticket = issue_id.isJsonNull() ? null : issueManager.getIssueObject(issue_id.getAsLong());
-                var context = makeRenderContext(ticket, link_renderer, embedded, config);
+                var context = makeRenderContext(ticket, link_renderer, embeddedRenderer, renderConfig);
                 var rendered = renderer.render(markup, context);
                 var json_out = new JsonObject();
                 json_out.addProperty("rendered", rendered);

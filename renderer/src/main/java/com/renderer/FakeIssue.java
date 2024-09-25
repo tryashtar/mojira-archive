@@ -2,10 +2,12 @@ package com.renderer;
 
 import java.sql.Timestamp;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import org.ofbiz.core.entity.GenericValue;
+import org.ofbiz.core.entity.model.ModelEntity;
 
 import com.atlassian.jira.bc.project.component.ProjectComponent;
 import com.atlassian.jira.issue.Issue;
@@ -28,11 +30,13 @@ public class FakeIssue implements MutableIssue {
    private final String Key;
    private final String Resolution;
    private final String Summary;
-   public FakeIssue(long id, String key, String resolution, String summary) {
+   private final List<Attachment> Attachments;
+   public FakeIssue(long id, String key, String resolution, String summary, List<Attachment> attachments) {
       this.Id = id;
       this.Key = key;
       this.Resolution = resolution;
       this.Summary = summary;
+      this.Attachments = attachments;
    }
 
    public Long getId() {
@@ -51,6 +55,14 @@ public class FakeIssue implements MutableIssue {
       return this.Resolution == null ? null : new FakeResolution();
    }
 
+   public GenericValue getGenericValue() {
+      return new GenericValue(null, new ModelEntity());
+   }
+
+   public Collection<Attachment> getAttachments() {
+      return this.Attachments;
+   }
+
    public Collection<Version> getAffectedVersions() {
       throw new UnsupportedOperationException();
    }
@@ -64,10 +76,6 @@ public class FakeIssue implements MutableIssue {
    }
 
    public ApplicationUser getAssigneeUser() {
-      throw new UnsupportedOperationException();
-   }
-
-   public Collection<Attachment> getAttachments() {
       throw new UnsupportedOperationException();
    }
 
@@ -116,10 +124,6 @@ public class FakeIssue implements MutableIssue {
    }
 
    public Collection<Version> getFixVersions() {
-      throw new UnsupportedOperationException();
-   }
-
-   public GenericValue getGenericValue() {
       throw new UnsupportedOperationException();
    }
 
@@ -208,8 +212,6 @@ public class FakeIssue implements MutableIssue {
    public String getResolutionId() {
       throw new UnsupportedOperationException();
    }
-
-
 
    public GenericValue getSecurityLevel() {
       throw new UnsupportedOperationException();

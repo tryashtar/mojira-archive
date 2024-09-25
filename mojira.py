@@ -97,12 +97,17 @@ class Dump:
          self.simplify_issue(data)
          self.flush_users(client, overwrite)
       for attachment in issue.fields.attachment:
-         attach_path = self.get_attachment_path(attachment.id)
+         attach_path = self.get_attachment_path(attachment.id, content=False)
+         attach_content = self.get_attachment_path(attachment.id, content=True)
          if overwrite or not attach_path.exists():
             print('\t' + attachment.filename)
-            with open(attach_path, 'wb') as file:
+            with open(attach_content, 'wb') as file:
                for content in attachment.iter_content():
                   file.write(content)
+            with open(attach_path, 'w', encoding='utf-8') as file:
+               attachment_data = attachment.raw
+               self.simplify_field(attachment_data, 'author', 'key')
+               json.dump(attachment_data, file, indent=3)
       with open(issue_path, 'w', encoding='utf-8') as file:
          json.dump(data, file, indent=3)
    
@@ -119,6 +124,7 @@ class Dump:
       self.simplify_user(fields, 'assignee')
       for attachment in fields['attachment']:
          self.simplify_user(attachment, 'author')
+      self.simplify_field(fields, 'attachments')
       for comment in fields['comment']['comments']:
          self.simplify_user(comment, 'author')
          self.simplify_user(comment, 'updateAuthor')
@@ -145,8 +151,10 @@ class Dump:
             if isinstance(field[key][i], dict):
                field[key][i] = field[key][i][simple_key]
    
-   def get_attachment_path(self, attach_id: str) -> pathlib.Path:
-      return self.attachments_folder / attach_id
+   def get_attachment_path(self, attach_id: str, content=False) -> pathlib.Path:
+      if content:
+         return self.attachments_folder / 'content' / attach_id
+      return self.attachments_folder / (attach_id + '.json')
    
    def get_issue_path(self, issue_id: str) -> pathlib.Path:
       return self.tickets_folder / (issue_id + '.json')

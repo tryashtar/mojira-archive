@@ -10,7 +10,7 @@ def main():
    print('Updating...')
    update_tests()
    print('Checking...')
-   check_tests(dump, extended=False, show_passed=False)
+   check_tests(dump, extended=True, show_passed=False)
 
 def get_process(dump: mojira.Dump):
    print('Configuring...')
@@ -37,6 +37,7 @@ def get_tests(dump: mojira.Dump | None):
    tests = tat.read_json('tests.json')
    for test in tests:
       test['source'] = f'index {test['index']}'
+      test['key'] = 11218
       yield test
    if dump is not None:
       for file in tat.get_files(dump.root_folder / 'markup'):

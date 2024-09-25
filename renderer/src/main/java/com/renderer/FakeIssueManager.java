@@ -3,6 +3,7 @@ package com.renderer;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -16,20 +17,25 @@ import com.atlassian.jira.exception.ArchiveException;
 import com.atlassian.jira.exception.CreateException;
 import com.atlassian.jira.exception.DataAccessException;
 import com.atlassian.jira.exception.RemoveException;
+import com.atlassian.jira.issue.AttachmentManager;
 import com.atlassian.jira.issue.Issue;
 import com.atlassian.jira.issue.IssueManager;
 import com.atlassian.jira.issue.MutableIssue;
 import com.atlassian.jira.issue.UpdateIssueRequest;
+import com.atlassian.jira.issue.attachment.Attachment;
 import com.atlassian.jira.user.ApplicationUser;
 import com.atlassian.jira.util.lang.Pair;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 public class FakeIssueManager implements IssueManager {
+   private final AttachmentManager attachmentManager;
    private final Path issueFolder;
    private JsonObject keyMap = null;
 
-   public FakeIssueManager(Path issueFolder) {
+   public FakeIssueManager(AttachmentManager attachments, Path issueFolder) {
+      this.attachmentManager = attachments;
       this.issueFolder = issueFolder;
    }
 
@@ -55,7 +61,14 @@ public class FakeIssueManager implements IssueManager {
       var resolutionField = fields.get("resolution");
       var resolution = resolutionField.isJsonNull() ? null : resolutionField.getAsString();
       var summary = fields.get("summary").getAsString();
-      return new FakeIssue(id, key, resolution, summary);
+      var attachments = new ArrayList<Attachment>();
+      var attachmentList = fields.get("attachment").getAsJsonArray();
+      for (JsonElement atch : attachmentList) {
+         var attach_id = Long.parseLong(atch.getAsString());
+         var attachment = this.attachmentManager.getAttachment(attach_id);
+         attachments.add(attachment);
+      }
+      return new FakeIssue(id, key, resolution, summary, attachments);
    }
 
    public boolean atLeastOneIssueExists() {
