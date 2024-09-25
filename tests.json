@@ -1708,5 +1708,45 @@
       "in": "MCPE-104820",
       "out": "<p><a href=\"https://bugs.mojang.com/browse/MCPE-104820\" title=\"Some items don&#39;t properly register in the inventory until you use one\" class=\"issue-link\" data-issue-key=\"MCPE-104820\"><del>MCPE-104820</del></a></p>",
       "index": 341
+   },
+   {
+      "in": "!",
+      "out": "<p>!</p>",
+      "index": 342
+   },
+   {
+      "in": "!!",
+      "out": "<p>!!</p>",
+      "index": 343
+   },
+   {
+      "in": "!!!",
+      "out": "<p>!!!</p>",
+      "index": 344
+   },
+   {
+      "in": "!!!!",
+      "out": "<p>!!!!</p>",
+      "index": 345
+   },
+   {
+      "in": "! !",
+      "out": "<p>! !</p>",
+      "index": 346
+   },
+   {
+      "in": "!a!",
+      "out": "<p>!a!</p>",
+      "index": 347
+   },
+   {
+      "in": "!a.txt!",
+      "out": "<p><span class=\"error\">Unable to render embedded object: File (a.txt) not found.</span></p>",
+      "index": 348
+   },
+   {
+      "in": "!a.png!",
+      "out": "<p><img src=\"https://bugs.mojang.com/images/icons/attach/noimage.png\" imagetext=\"a.png\" align=\"absmiddle\" border=\"0\" /></p>",
+      "index": 349
    }
 ]
