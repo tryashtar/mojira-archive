@@ -3,14 +3,13 @@ package com.renderer;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import com.atlassian.jira.issue.fields.renderer.wiki.JiraIconManager;
+import com.atlassian.renderer.IconManager;
 import com.atlassian.renderer.RenderContext;
 import com.atlassian.renderer.RendererConfiguration;
 import com.atlassian.renderer.WikiStyleRenderer;
-import com.atlassian.renderer.links.LinkRenderer;
 import com.atlassian.renderer.links.LinkResolver;
 import com.atlassian.renderer.v2.Renderer;
-import com.atlassian.renderer.v2.V2LinkRenderer;
+import com.atlassian.renderer.v2.SubRenderer;
 import com.atlassian.renderer.v2.V2Renderer;
 import com.atlassian.renderer.v2.V2RendererFacade;
 import com.atlassian.renderer.v2.V2SubRenderer;
@@ -44,10 +43,9 @@ import org.apache.commons.lang3.StringUtils;
 public class FakeRenderer {
    public final WikiStyleRenderer Facade;
    public final Renderer Renderer;
-   public final LinkRenderer LinkRenderer;
+   public final SubRenderer SubRenderer;
 
-   public FakeRenderer(LinkResolver resolver, RendererConfiguration config, AbstractRendererComponent issue_link) {
-      var icon_manager = new JiraIconManager();
+   public FakeRenderer(LinkResolver resolver, RendererConfiguration config, AbstractRendererComponent issue_link, IconManager icon_manager) {
       var renderer = new V2Renderer();
       var subrenderer = new V2SubRenderer(renderer);
       var components = new ArrayList<RendererComponent>();
@@ -80,11 +78,11 @@ public class FakeRenderer {
       components.add(new TokenRendererComponent(subrenderer));
 
       renderer.setComponents(components);
-      Renderer = renderer;
-      LinkRenderer = new V2LinkRenderer(subrenderer, icon_manager, config);
+      this.Renderer = renderer;
+      this.SubRenderer = subrenderer;
       var facade = new V2RendererFacade();
       facade.setRenderer(Renderer);
-      Facade = facade;
+      this.Facade = facade;
    }
 
    public String render(String text, RenderContext context) {

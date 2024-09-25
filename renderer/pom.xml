@@ -75,7 +75,13 @@
         <dependency>
             <groupId>com.atlassian.renderer</groupId>
             <artifactId>atlassian-renderer</artifactId>
-            <version>9.0.3</version>
+            <version>9.0.1</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>opensymphony</groupId>
+                    <artifactId>oscore</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.atlassian.jira</groupId>
@@ -111,6 +117,11 @@
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
             <version>2.11.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.opensymphony</groupId>
+            <artifactId>oscore</artifactId>
+            <version>2.3.0-atlassian-3</version>
         </dependency>
     </dependencies>
 </project>

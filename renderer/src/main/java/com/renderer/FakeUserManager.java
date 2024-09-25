@@ -1,5 +1,6 @@
 package com.renderer;
 
+import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -43,7 +44,7 @@ public class FakeUserManager implements UserManager {
       try {
          data = JsonParser.parseReader(new FileReader(path.toFile())).getAsJsonObject();
       } catch (IOException ex) {
-         if (ex instanceof NoSuchFileException) {
+         if (ex instanceof NoSuchFileException || ex instanceof FileNotFoundException) {
             return new FakeUser(username, username);
          }
          return null;

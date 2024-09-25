@@ -3,7 +3,6 @@ package com.renderer;
 import com.atlassian.jira.util.JiraKeyUtils;
 import com.atlassian.jira.util.JiraKeyUtils.KeyMatcher;
 import com.atlassian.renderer.RenderContext;
-import com.atlassian.renderer.util.TextUtils;
 import com.atlassian.renderer.v2.RenderMode;
 import com.atlassian.renderer.v2.components.AbstractRendererComponent;
 import com.atlassian.renderer.v2.components.link.LinkDecorator;
@@ -13,6 +12,8 @@ import org.apache.oro.text.regex.MatchResult;
 
 import com.atlassian.jira.issue.IssueManager;
 import com.atlassian.renderer.links.Link;
+
+import com.opensymphony.util.TextUtils;
 
 public class FakeIssueLinkRendererComponent extends AbstractRendererComponent {
       private final KeyMatcher Matcher;

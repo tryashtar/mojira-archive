@@ -1698,5 +1698,15 @@
       "in": "[~dinnerbone]",
       "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=dinnerbone\" class=\"user-hover\" rel=\"dinnerbone\">[Mojang] Nathan Adams</a></p>",
       "index": 339
+   },
+   {
+      "in": "MC-4",
+      "out": "<p><a href=\"https://bugs.mojang.com/browse/MC-4\" title=\"Item drops sometimes appear at the wrong location\" class=\"issue-link\" data-issue-key=\"MC-4\">MC-4</a></p>",
+      "index": 340
+   },
+   {
+      "in": "MCPE-104820",
+      "out": "<p><a href=\"https://bugs.mojang.com/browse/MCPE-104820\" title=\"Some items don&#39;t properly register in the inventory until you use one\" class=\"issue-link\" data-issue-key=\"MCPE-104820\"><del>MCPE-104820</del></a></p>",
+      "index": 341
    }
 ]
