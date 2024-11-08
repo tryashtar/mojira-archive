@@ -190,9 +190,10 @@ class Dump:
                user_data = value
             else:
                raise
-         self.save_user_data(user_path, user_data, overwrite)
-         avatar_url = user_data['avatarUrls']['48x48']
-         self.save_avatar(client, self.users_avatars_folder, avatar_url)
+         if user_data is not None:
+            self.save_user_data(user_path, user_data, overwrite)
+            avatar_url = user_data['avatarUrls']['48x48']
+            self.save_avatar(client, self.users_avatars_folder, avatar_url)
          self.seen_users.add(key)
       self.new_users = {}
    
@@ -223,11 +224,19 @@ class Dump:
       for path in self.tickets_folder.iterdir():
          yield path.stem
 
-def fetch(dump: Dump, query: str):
+def fetch_issues(dump: Dump, query: str):
    print('Connecting...')
    client = get_client()
    print('Fetching issues...')
    dump.fetch_issues(client, query, overwrite=True)
+   
+def fetch_users(dump: Dump, users: list[str]):
+   print('Connecting...')
+   client = get_client()
+   print('Fetching users...')
+   for user in users:
+      dump.new_users[user] = None
+   dump.flush_users(client, overwrite=True)
 
 def refresh(dump: Dump):
    print('Connecting...')

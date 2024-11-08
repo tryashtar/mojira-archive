@@ -61,7 +61,7 @@ public class Main {
     }
 
     private static RenderContext makeRenderContext(Issue issue, LinkRenderer linkRenderer,
-            EmbeddedResourceRenderer resourceRenderer, RendererConfiguration config) {
+                                                   EmbeddedResourceRenderer resourceRenderer, RendererConfiguration config) {
         var context = new RenderContext();
         context.addParam("jira.issue", issue);
         context.setSiteRoot("https://bugs.mojang.com");

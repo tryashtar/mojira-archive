@@ -181,8 +181,9 @@
    },
    {
       "in": "!quicktime.mov!\n!spaceKey:pageTitle^attachment.mov!\n!quicktime.mov|width=300,height=400!\n!media.wmv|id=media!",
-      "out": "<p><span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;quicktime.mov&#39;</span><br/>\n<span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;attachment.mov&#39;</span><br/>\n<span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;quicktime.mov&#39;</span><br/>\n<span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;media.wmv&#39;</span></p>",
-      "index": 36
+      "key": 11218,
+      "index": 36,
+      "out": "<p><span class=\"error\">Unable to render embedded object: File (quicktime.mov) not found.</span><br/>\n<span class=\"error\">Unable to render embedded object: File (attachment.mov) not found.</span><br/>\n<span class=\"error\">Unable to render embedded object: File (quicktime.mov) not found.</span><br/>\n<span class=\"error\">Unable to render embedded object: File (media.wmv) not found.</span></p>"
    },
    {
       "in": "||heading 1||heading 2||heading 3||\n|col A1|col A2|col A3|\n|col B1|col B2|col B3|",
@@ -1741,12 +1742,237 @@
    },
    {
       "in": "!a.txt!",
-      "out": "<p><span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;a.txt&#39;</span></p>",
-      "index": 348
+      "key": 11218,
+      "index": 348,
+      "out": "<p><span class=\"error\">Unable to render embedded object: File (a.txt) not found.</span></p>"
    },
    {
       "in": "!a.png!",
       "out": "<p><img src=\"https://bugs.mojang.com/images/icons/attach/noimage.png\" imagetext=\"a.png\" align=\"absmiddle\" border=\"0\" /></p>",
       "index": 349
+   },
+   {
+      "in": "!Baby donkey magic.mp4|thumbnail!",
+      "key": 332427,
+      "out": "<p><div class=\"embeddedObject\"><object classid=\"clsid:02BF25D5-8C17-4B23-BC80-D3488ABDDC6B\" codebase=\"https://www.apple.com/qtactivex/qtplugin.cab\" data=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\" height=\"380\" type=\"video/mp4\" width=\"480\" ><param name=\"data\" value=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\"/><param name=\"src\" value=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\"/><param name=\"type\" value=\"video/mp4\"/><embed height=\"380\" pluginspage=\"https://www.apple.com/quicktime/download/\" src=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\" type=\"video/mp4\" width=\"480\" /></object></div></p>",
+      "index": 350
+   },
+   {
+      "in": "!Baby donkey magic.mp4!",
+      "key": 332427,
+      "out": "<p><div class=\"embeddedObject\"><object classid=\"clsid:02BF25D5-8C17-4B23-BC80-D3488ABDDC6B\" codebase=\"https://www.apple.com/qtactivex/qtplugin.cab\" data=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\" height=\"380\" type=\"video/mp4\" width=\"480\" ><param name=\"data\" value=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\"/><param name=\"src\" value=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\"/><param name=\"type\" value=\"video/mp4\"/><embed height=\"380\" pluginspage=\"https://www.apple.com/quicktime/download/\" src=\"https://bugs.mojang.com/secure/attachment/303655/303655_Baby+donkey+magic.mp4\" type=\"video/mp4\" width=\"480\" /></object></div></p>",
+      "index": 351
+   },
+   {
+      "in": "#@!@# Game crashed! Crash report saved to: #@!@#",
+      "key": 332427,
+      "out": "<p>#@<span class=\"error\">Unable to render embedded object: File (@# Game crashed) not found.</span> Crash report saved to: #@!@#</p>",
+      "index": 352
+   },
+   {
+      "in": ">)",
+      "out": "<p>&gt;)</p>",
+      "index": 353
+   },
+   {
+      "in": "[~frodo*2]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=frodo*2\" class=\"user-hover\" rel=\"frodo*2\">Gabriel</a></p>",
+      "index": 354
+   },
+   {
+      "in": "[~SaskiaFerrings]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=SaskiaFerrings\" class=\"user-hover\" rel=\"SaskiaFerrings\">Saskia Ferry Petrovka</a></p>",
+      "index": 355
+   },
+   {
+      "in": "[~bob]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=bob\" class=\"user-hover\" rel=\"bob\">Bob camino</a></p>",
+      "index": 356
+   },
+   {
+      "in": "[~jacob103105]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=jacob103105\" class=\"user-hover\" rel=\"jacob103105\">Jacob Cason Moore </a></p>",
+      "index": 357
+   },
+   {
+      "in": "[~YourWorstNightmare]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=YourWorstNightmare\" class=\"user-hover\" rel=\"YourWorstNightmare\">Your Worst Nightmare</a></p>",
+      "index": 358
+   },
+   {
+      "in": "[~@]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=%40\" class=\"user-hover\" rel=\"@\">9</a></p>",
+      "index": 359
+   },
+   {
+      "in": "[~carlsonhugo]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=carlsonhugo\" class=\"user-hover\" rel=\"carlsonhugo\">NeusVenon</a></p>",
+      "index": 360
+   },
+   {
+      "in": "[~dudumachado204]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=dudumachado204\" class=\"user-hover\" rel=\"dudumachado204\">dudumachado</a></p>",
+      "index": 361
+   },
+   {
+      "in": "[~vikassharma]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=vikassharma\" class=\"user-hover\" rel=\"vikassharma\">Vikas Sharma</a></p>",
+      "index": 362
+   },
+   {
+      "in": "[~CytoDev]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=CytoDev\" class=\"user-hover\" rel=\"CytoDev\">Le Korexx</a></p>",
+      "index": 363
+   },
+   {
+      "in": "[~tryashtar]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=tryashtar\" class=\"user-hover\" rel=\"tryashtar\">[Mod] tryashtar</a></p>",
+      "index": 364
+   },
+   {
+      "in": "[~TRYASHTAR]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=TRYASHTAR\" class=\"user-hover\" rel=\"tryashtar\">[Mod] tryashtar</a></p>",
+      "index": 365
+   },
+   {
+      "in": "[~Tryashtar]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=Tryashtar\" class=\"user-hover\" rel=\"tryashtar\">[Mod] tryashtar</a></p>",
+      "index": 366
+   },
+   {
+      "in": "[~boriscool22]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=boriscool22\" class=\"user-hover\" rel=\"boriscool22\">joshua zulu</a></p>",
+      "index": 367
+   },
+   {
+      "in": "[~Lukeis]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=Lukeis\" class=\"user-hover\" rel=\"Lukeis\">Luke Daniel Romeo</a></p>",
+      "index": 368
+   },
+   {
+      "in": "[~James]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=James\" class=\"user-hover\" rel=\"james\">James Daves</a></p>",
+      "index": 369
+   },
+   {
+      "in": "[~xNEMESISx208]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=xNEMESISx208\" class=\"user-hover\" rel=\"xNEMESISx208\">nemesis souza </a></p>",
+      "index": 370
+   },
+   {
+      "in": "[~ola]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=ola\" class=\"user-hover\" rel=\"ola\">Ola Malka</a></p>",
+      "index": 371
+   },
+   {
+      "in": "[~Jeffrey]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=Jeffrey\" class=\"user-hover\" rel=\"Jeffrey\">Jeffrey Woe</a></p>",
+      "index": 372
+   },
+   {
+      "in": "[~Brent]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=Brent\" class=\"user-hover\" rel=\"brent\">brent</a></p>",
+      "index": 373
+   },
+   {
+      "in": "[~FireFly]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=FireFly\" class=\"user-hover\" rel=\"FireFly\">Tim Rosemeier </a></p>",
+      "index": 374
+   },
+   {
+      "in": "[~rashid]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=rashid\" class=\"user-hover\" rel=\"rashid\">rahid</a></p>",
+      "index": 375
+   },
+   {
+      "in": "[~Sonic]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=Sonic\" class=\"user-hover\" rel=\"sonic\">yayo</a></p>",
+      "index": 376
+   },
+   {
+      "in": "[~awr_*]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=awr_*\" class=\"user-hover\" rel=\"awr_*\">Sollace</a></p>",
+      "index": 377
+   },
+   {
+      "in": "[~???]",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=%3F%3F%3F\" class=\"user-hover\" rel=\"???\">ryan</a></p>",
+      "index": 378
+   },
+   {
+      "in": "[~Jabekul], please do not use the helper/mod message templates. Consider this a warning.",
+      "out": "<p><a href=\"https://bugs.mojang.com/secure/ViewProfile.jspa?name=Jabekul\" class=\"user-hover\" rel=\"Jabekul\">please do not use the helper/mod message templates. Consider this a warning.please do not use the helper/mod message templates. Consider this a warning.</a>, please do not use the helper/mod message templates. Consider this a warning.</p>",
+      "index": 379
+   },
+   {
+      "in": "!Before.png|thumbnail!",
+      "key": 485617,
+      "out": "<p><span class=\"image-wrap\" style=\"\"><a id=\"463452_thumb\" href=\"https://bugs.mojang.com/secure/attachment/463452/463452_Before.png\" title=\"Before.png\" file-preview-type=\"image\" file-preview-id=\"463452\" file-preview-title=\"Before.png\"><img style=\"border: 0px solid black\" role=\"presentation\"/></a></span></p>",
+      "index": 380
+   },
+   {
+      "in": "!Before.png!",
+      "key": 485617,
+      "out": "<p><span class=\"image-wrap\" style=\"\"><img src=\"https://bugs.mojang.com/secure/attachment/463452/463452_Before.png\" style=\"border: 0px solid black\" /></span></p>",
+      "index": 381
+   },
+   {
+      "in": " !image-2023-10-04-10-08-52-526.png|thumbnail!",
+      "key": 543615,
+      "out": "<p> <span class=\"image-wrap\" style=\"\"><a id=\"551394_thumb\" href=\"https://bugs.mojang.com/secure/attachment/551394/551394_image-2023-10-04-10-08-52-526.png\" title=\"image-2023-10-04-10-08-52-526.png\" file-preview-type=\"image\" file-preview-id=\"551394\" file-preview-title=\"image-2023-10-04-10-08-52-526.png\"><img style=\"border: 0px solid black\" role=\"presentation\"/></a></span></p>",
+      "index": 382
+   },
+   {
+      "in": " !image-2023-10-04-10-08-52-526.png!",
+      "key": 543615,
+      "out": "<p> <span class=\"image-wrap\" style=\"\"><img src=\"https://bugs.mojang.com/secure/attachment/551394/551394_image-2023-10-04-10-08-52-526.png\" style=\"border: 0px solid black\" /></span></p>",
+      "index": 383
+   },
+   {
+      "in": " !IMG_4464.jpg|thumbnail! ",
+      "key": 517245,
+      "out": "<p> <span class=\"image-wrap\" style=\"\"><a id=\"509382_thumb\" href=\"https://bugs.mojang.com/secure/attachment/509382/509382_IMG_4464.jpg\" title=\"IMG_4464.jpg\" file-preview-type=\"image\" file-preview-id=\"509382\" file-preview-title=\"IMG_4464.jpg\"><img style=\"border: 0px solid black\" role=\"presentation\"/></a></span> </p>",
+      "index": 384
+   },
+   {
+      "in": " !IMG_4464.jpg! ",
+      "key": 517245,
+      "out": "<p> <span class=\"image-wrap\" style=\"\"><img src=\"https://bugs.mojang.com/secure/attachment/509382/509382_IMG_4464.jpg\" style=\"border: 0px solid black\" /></span> </p>",
+      "index": 385
+   },
+   {
+      "in": "MC-001",
+      "out": "<p><a href=\"https://bugs.mojang.com/browse/MC-1\" title=\"Cracked effect sometimes remains when a zombie is interrupted while attempting to break down a door.\" class=\"issue-link\" data-issue-key=\"MC-1\"><del>MC-001</del></a></p>",
+      "index": 386
+   },
+   {
+      "in": "MCPE-02141",
+      "out": "<p><a href=\"https://bugs.mojang.com/browse/MCPE-2141\" title=\"eating at full health\" class=\"issue-link\" data-issue-key=\"MCPE-2141\"><del>MCPE-02141</del></a></p>",
+      "index": 387
+   },
+   {
+      "in": "MC-1.0",
+      "out": "<p><a href=\"https://bugs.mojang.com/browse/MC-1\" title=\"Cracked effect sometimes remains when a zombie is interrupted while attempting to break down a door.\" class=\"issue-link\" data-issue-key=\"MC-1\"><del>MC-1</del></a>.0</p>",
+      "index": 388
+   },
+   {
+      "in": "This issue doesn't occur in the latest version.\r\n\r\n*\ud83e\udd73\ud83e\udd73\ud83e\udd73\ud83e\udd73*",
+      "out": "<p>This issue doesn't occur in the latest version.</p>\n\n<p>*\ud83e\udd73\ud83e\udd73\ud83e\udd73\ud83e\udd73*</p>",
+      "index": 389
+   },
+   {
+      "in": "*\ud83e\udd73*",
+      "out": "<p><b>\ud83e\udd73</b></p>",
+      "index": 390
+   },
+   {
+      "in": "*\ud83e\udd73\ud83e\udd73\ud83e\udd73\ud83e\udd73*",
+      "out": "<p>*\ud83e\udd73\ud83e\udd73\ud83e\udd73\ud83e\udd73*</p>",
+      "index": 391
+   },
+   {
+      "in": "\n*\ud83e\udd73\ud83e\udd73\ud83e\udd73\ud83e\udd73*",
+      "out": "\n<p>*\ud83e\udd73\ud83e\udd73\ud83e\udd73\ud83e\udd73*</p>",
+      "index": 392
    }
 ]

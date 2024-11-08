@@ -1,10 +1,9 @@
 import mojira
-import pathlib
 import bisect
 import tryashtools as tat
 
 def main():
-   dump = mojira.Dump(pathlib.Path('/d/Archives/Mojira/dump'))
+   dump = mojira.get_dump()
    relations = {}
    ids = {'issues':{},'users':{}}
    def append(path, value):
@@ -25,44 +24,47 @@ def main():
    total = len(files)
    for i,issue in enumerate(files):
       data = tat.read_json(issue)
-      key = data['id']
+      ticket_id = data['id']
       print(f'{i+1} / {total} - {data['key']}')
-      ids['issues'][data['key']] = key
+      ids['issues'][data['key']] = ticket_id
       fields = data['fields']
-      append(['resolutions', fields['resolution']], key)
+      append(['resolutions', fields['resolution']], ticket_id)
       if 'versions' in fields:
          for version in fields['versions']:
-            append(['versions', version, 'affected'], key)
+            append(['versions', version, 'affected'], ticket_id)
       if 'fixVersions' in fields:
          for version in fields['fixVersions']:
-            append(['versions', version, 'fixed'], key)
-      append(['users', fields['creator'], 'created'], key)
-      append(['users', fields['reporter'], 'reported'], key)
+            append(['versions', version, 'fixed'], ticket_id)
+      append(['users', fields['creator'], 'created'], ticket_id)
+      append(['users', fields['reporter'], 'reported'], ticket_id)
       if 'assignee' in fields:
-         append(['users', fields['assignee'], 'assigned'], key)
+         append(['users', fields['assignee'], 'assigned'], ticket_id)
       for comment in fields['comment']['comments']:
-         append(['users', comment.get('author'), 'comments', key], comment['id'])
-         append(['users', comment.get('updateAuthor'), 'edits', key], comment['id'])
+         append(['users', comment.get('author'), 'comments', ticket_id], comment['id'])
+         append(['users', comment.get('updateAuthor'), 'edits', ticket_id], comment['id'])
       for change in data['changelog']['histories']:
-         append(['users', change['author'], 'changes', key], change['id'])
+         append(['users', change['author'], 'changes', ticket_id], change['id'])
+         for item in change['items']:
+            if item['field'] == 'Key':
+               ids['issues'][item['fromString']] = ticket_id
    print('Attachments...')
    files = list(tat.get_files(dump.attachments_folder))
    total = len(files)
    for i,attach in enumerate(files):
       data = tat.read_json(attach)
-      key = data['id']
+      ticket_id = data['id']
       print(f'{i+1} / {total} - {data['filename']}')
-      append(['users', data.get('author'), 'attachments', key], data['id'])
+      append(['users', data.get('author'), 'attachments', ticket_id], data['id'])
    print('Users...')
    users = list(tat.get_files(dump.users_folder, False))
    total = len(users)
    for i,user in enumerate(users):
       data = tat.read_json(user)
-      key = data['key']
+      ticket_id = data['key']
       print(f'{i+1} / {total} - {data['name']}')
-      ids['users'][data['name']] = key
+      ids['users'][data['name']] = ticket_id
       for group in data['groups']['items']:
-         append(['groups', group['name']], key)
+         append(['groups', group['name']], ticket_id)
    print('Writing...')
    tat.write_json(relations, dump.root_folder / 'relations.json', mini=True)
    tat.write_json(ids, dump.root_folder / 'ids.json', mini=True)

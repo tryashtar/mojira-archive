@@ -6,7 +6,7 @@ import urllib.parse
 import tryashtools as tat
 
 def main():
-   dump = mojira.Dump(pathlib.Path('/d/Archives/Mojira/dump'))
+   dump = mojira.get_dump()
    render(dump, pathlib.Path('/d/Archives/Mojira/render'))
 
 def render(dump: mojira.Dump, out_folder: pathlib.Path):

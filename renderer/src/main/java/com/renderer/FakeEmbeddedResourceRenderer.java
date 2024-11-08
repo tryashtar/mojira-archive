@@ -15,7 +15,7 @@ import com.atlassian.renderer.embedded.EmbeddedResource;
 import com.google.common.collect.ImmutableList;
 
 public class FakeEmbeddedResourceRenderer extends DefaultEmbeddedResourceRenderer {
-   private final List<ConditionalEmbeddedRenderer> conditionalRenderers;
+    private final List<ConditionalEmbeddedRenderer> conditionalRenderers;
 
     public FakeEmbeddedResourceRenderer(RendererAttachmentManager attachmentManager) {
         super(attachmentManager);
@@ -26,8 +26,8 @@ public class FakeEmbeddedResourceRenderer extends DefaultEmbeddedResourceRendere
         return ImmutableList.of(new JiraPlaceholderImageRenderer(attachmentManager));
     }
 
-   @Override
-   public String renderResource(EmbeddedResource resource, RenderContext context) {
+    @Override
+    public String renderResource(EmbeddedResource resource, RenderContext context) {
         String rendered = this.renderByConditionalRenderers(resource, context);
         if (rendered != null) {
             return rendered;
@@ -38,13 +38,14 @@ public class FakeEmbeddedResourceRenderer extends DefaultEmbeddedResourceRendere
     private String renderByConditionalRenderers(EmbeddedResource resource, RenderContext context) {
         for (ConditionalEmbeddedRenderer renderer : this.conditionalRenderers) {
             String rendered;
-            if (!renderer.shouldRenderResource(resource, context) || !Objects.nonNull(rendered = renderer.renderResource(resource, context))) continue;
+            if (!renderer.shouldRenderResource(resource, context) || !Objects.nonNull(rendered = renderer.renderResource(resource, context)))
+                continue;
             return rendered;
         }
         return null;
     }
 
-    @SuppressWarnings({ "rawtypes", "unchecked" })
+    @SuppressWarnings({"rawtypes", "unchecked"})
     @Override
     protected HashMap getRenderMap() {
         if (this.renderMap == null) {
