@@ -12,13 +12,13 @@ def check(dump: mojira.Dump):
    print('Users...')
    for path in dump.users_folder.iterdir():
       if not path.is_dir():
-         with open(path, 'r', encoding='utf-8') as path:
-            data = json.load(path)
-            verify_avatar(dump, dump.users_avatars_folder, data['avatarUrls']['48x48'], data['key'])
+         with open(path, 'r', encoding='utf-8') as file:
+            attachment = json.load(file)
+            verify_avatar(dump, dump.users_avatars_folder, attachment['avatarUrls']['48x48'], attachment['key'])
    for path in (dump.users_folder / 'unknown').iterdir():
-      with open(path, 'r', encoding='utf-8') as path:
-         data = json.load(path)
-         verify_avatar(dump, dump.users_avatars_folder, data['avatarUrls']['48x48'], data['key'])
+      with open(path, 'r', encoding='utf-8') as file:
+         attachment = json.load(file)
+         verify_avatar(dump, dump.users_avatars_folder, attachment['avatarUrls']['48x48'], attachment['key'])
    print('Projects...')
    for project in dump.projects.values():
       verify_user(project, 'lead', dump, project['key'])
@@ -29,21 +29,16 @@ def check(dump: mojira.Dump):
       key = ticket['key']
       verify_field(fields, 'issuetype', dump.issue_types, key)
       verify_field(fields, 'resolution', dump.resolutions, key)
-      verify_field(fields, 'versions', dump.versions, key)
-      verify_field(fields, 'fixVersions', dump.versions, key)
+      verify_field(fields, 'versions', dump.projects[fields['project']]['versions'], key)
+      verify_field(fields, 'fixVersions', dump.projects[fields['project']]['versions'], key)
       verify_field(fields, 'status', dump.statuses, key)
       verify_user(fields, 'creator', dump, key)
       verify_user(fields, 'reporter', dump, key)
       verify_user(fields, 'assignee', dump, key)
       for attachment in fields['attachment']:
-         verify_user(attachment, 'author', dump, key)
-         attach_path = dump.get_attachment_path(attachment['id'])
+         attach_path = dump.get_attachment_path(attachment, content=False)
          if not attach_path.exists():
-            print(f'{key}: No attachment {attachment['id']}')
-         else:
-            size = os.path.getsize(attach_path)
-            if size != attachment['size']:
-               print(f'{key}: Attachment {attachment['id']} size mismatch: {size} / {attachment['size']}')
+            print(f'{key}: No attachment {attachment}')
       for comment in fields['comment']['comments']:
          verify_user(comment, 'author', dump, key)
          verify_user(comment, 'updateAuthor', dump, key)
@@ -53,6 +48,20 @@ def check(dump: mojira.Dump):
          verify_ticket(link, 'outwardIssue', dump, key)
       for change in ticket['changelog']['histories']:
          verify_user(change, 'author', dump, key)
+   print('Attachments...')
+   for path in dump.attachments_folder.iterdir():
+      if not path.is_dir():
+         with open(path, 'r', encoding='utf-8') as file:
+            attachment = json.load(file)
+            key = attachment['id']
+            verify_user(attachment, 'author', dump, key)
+            content_path = dump.get_attachment_path(attachment['id'], content=True)
+            if not content_path.exists():
+               print(f'No content {attachment['id']}')
+            else:
+               size = os.path.getsize(content_path)
+               if size != attachment['size']:
+                  print(f'Attachment {attachment['id']} size mismatch: {size} / {attachment['size']}')
 
 def verify_avatar(dump: mojira.Dump, folder: pathlib.Path, url: str, key: str):
    avatarid = dump.get_avatar_id(url)

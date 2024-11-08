@@ -181,7 +181,7 @@
    },
    {
       "in": "!quicktime.mov!\n!spaceKey:pageTitle^attachment.mov!\n!quicktime.mov|width=300,height=400!\n!media.wmv|id=media!",
-      "out": "<p><span class=\"error\">Unable to render embedded object: File (quicktime.mov) not found.</span><br/>\n<span class=\"error\">Unable to render embedded object: File (attachment.mov) not found.</span><br/>\n<span class=\"error\">Unable to render embedded object: File (quicktime.mov) not found.</span><br/>\n<span class=\"error\">Unable to render embedded object: File (media.wmv) not found.</span></p>",
+      "out": "<p><span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;quicktime.mov&#39;</span><br/>\n<span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;attachment.mov&#39;</span><br/>\n<span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;quicktime.mov&#39;</span><br/>\n<span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;media.wmv&#39;</span></p>",
       "index": 36
    },
    {
@@ -1741,7 +1741,7 @@
    },
    {
       "in": "!a.txt!",
-      "out": "<p><span class=\"error\">Unable to render embedded object: File (a.txt) not found.</span></p>",
+      "out": "<p><span class=\"error\">No usable issue stored in the context, unable to resolve filename &#39;a.txt&#39;</span></p>",
       "index": 348
    },
    {

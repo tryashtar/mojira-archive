@@ -2,3 +2,9 @@ __pycache__
 render-tests
 markup-tests
 renderer/target
+.idea
+.vscode
+renderer/.settings
+renderer/.classpath
+renderer/.factorypath
+renderer/.project

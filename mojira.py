@@ -4,11 +4,15 @@ import pathlib
 import json
 import urllib.parse
 import typing
-import datetime
 
 def main():
-   dump = Dump(pathlib.Path('/d/Archives/Mojira/dump'))
+   root_folder = pathlib.Path('/d/Archives/Mojira')
+
+   dump = get_dump()
    refresh(dump)
+
+def get_dump():
+   return Dump(pathlib.Path('/d/Archives/Mojira/dump'))
 
 class Dump:
    def __init__(self, folder: pathlib.Path):
@@ -19,6 +23,7 @@ class Dump:
       self.project_avatars_folder = folder / 'avatars/projects'
       self.users_avatars_folder = folder / 'avatars/users'
       self.new_users = {}
+      self.seen_users = set()
       
       self.fields_path = folder / 'fields.json'
       self.fields = self.load_meta(self.fields_path)
@@ -28,6 +33,8 @@ class Dump:
       self.link_types = self.load_meta(self.link_types_path)
       self.projects_path = folder / 'projects.json'
       self.projects = self.load_meta(self.projects_path)
+      for project in self.projects.values():
+         project['versions'] = self.key_by(project['versions'], 'id')
       self.resolutions_path = folder / 'resolutions.json'
       self.resolutions = self.load_meta(self.resolutions_path)
       self.statuses_path = folder / 'statuses.json'
@@ -38,13 +45,17 @@ class Dump:
       self.save_meta(self.fields, self.fields_path)
       self.save_meta(self.issue_types, self.issue_types_path)
       self.save_meta(self.link_types, self.link_types_path)
+      for project in self.projects.values():
+         project['versions'] = list(project['versions'].values())
       self.save_meta(self.projects, self.projects_path)
+      for project in self.projects.values():
+         project['versions'] = self.key_by(project['versions'], 'id')
       self.save_meta(self.resolutions, self.resolutions_path)
       self.save_meta(self.statuses, self.statuses_path)
       
-   def save_project_avatars(self, client: jira.JIRA, overwrite: bool):
+   def save_project_avatars(self, client: jira.JIRA):
       for project in self.projects.values():
-         self.save_avatar(client, self.project_avatars_folder, project['avatarUrls']['48x48'], overwrite)
+         self.save_avatar(client, self.project_avatars_folder, project['avatarUrls']['48x48'])
    
    def get_avatar_id(self, url: str):
       url_obj = urllib.parse.urlparse(url)
@@ -52,10 +63,10 @@ class Dump:
       avatarid = queries['avatarId'][0]
       return avatarid
    
-   def save_avatar(self, client: jira.JIRA, folder: pathlib.Path, url: str, overwrite: bool):
+   def save_avatar(self, client: jira.JIRA, folder: pathlib.Path, url: str):
       avatarid = self.get_avatar_id(url)
       filepath = folder / avatarid
-      if overwrite or not filepath.exists():
+      if not filepath.exists():
          print('\t' + avatarid)
          folder.mkdir(parents=True, exist_ok=True)
          response = client._session.get(url)
@@ -78,6 +89,8 @@ class Dump:
       for project in project_data:
          self.simplify_user(project, 'lead')
       self.projects = self.key_by(project_data, 'id')
+      for project in self.projects.values():
+         project['versions'] = self.key_by(project['versions'], 'id')
       self.issue_types = self.key_by([p.raw for p in client.issue_types()], 'id')
       self.resolutions = self.key_by([p.raw for p in client.resolutions()], 'id')
       self.statuses = self.key_by([p.raw for p in client.statuses()], 'id')
@@ -99,14 +112,13 @@ class Dump:
       for attachment in issue.fields.attachment:
          attach_path = self.get_attachment_path(attachment.id, content=False)
          attach_content = self.get_attachment_path(attachment.id, content=True)
-         if overwrite or not attach_path.exists():
+         if not attach_path.exists():
             print('\t' + attachment.filename)
             with open(attach_content, 'wb') as file:
                for content in attachment.iter_content():
                   file.write(content)
             with open(attach_path, 'w', encoding='utf-8') as file:
                attachment_data = attachment.raw
-               self.simplify_field(attachment_data, 'author', 'key')
                json.dump(attachment_data, file, indent=3)
       with open(issue_path, 'w', encoding='utf-8') as file:
          json.dump(data, file, indent=3)
@@ -124,7 +136,7 @@ class Dump:
       self.simplify_user(fields, 'assignee')
       for attachment in fields['attachment']:
          self.simplify_user(attachment, 'author')
-      self.simplify_field(fields, 'attachments')
+      self.simplify_field(fields, 'attachment')
       for comment in fields['comment']['comments']:
          self.simplify_user(comment, 'author')
          self.simplify_user(comment, 'updateAuthor')
@@ -138,7 +150,9 @@ class Dump:
    def simplify_user(self, field: dict[str, typing.Any], key: str):
       if field.get(key) is None:
          return
-      self.new_users[field[key]['key']] = field[key]
+      user_key = field[key]['key']
+      if user_key not in self.seen_users:
+         self.new_users[user_key] = field[key]
       self.simplify_field(field, key, 'key')
 
    def simplify_field(self, field: dict[str, typing.Any], key: str, simple_key: str='id'):
@@ -178,7 +192,8 @@ class Dump:
                raise
          self.save_user_data(user_path, user_data, overwrite)
          avatar_url = user_data['avatarUrls']['48x48']
-         self.save_avatar(client, self.users_avatars_folder, avatar_url, overwrite)
+         self.save_avatar(client, self.users_avatars_folder, avatar_url)
+         self.seen_users.add(key)
       self.new_users = {}
    
    def save_user_data(self, path: pathlib.Path, data: dict[str, typing.Any], overwrite: bool):
@@ -201,37 +216,17 @@ class Dump:
 
    def tickets(self) -> typing.Generator[dict[str, typing.Any], None, None]:
       for path in self.tickets_folder.iterdir():
-         with open(path, 'r', encoding='utf-8') as path:
-            yield json.load(path)
+         with open(path, 'r', encoding='utf-8') as file:
+            yield json.load(file)
 
    def ticket_names(self) -> typing.Generator[str, None, None]:
       for path in self.tickets_folder.iterdir():
          yield path.stem
 
-def populate(dump: Dump):
+def fetch(dump: Dump, query: str):
    print('Connecting...')
    client = get_client()
-   print('Fetching metadata...')
-   dump.fetch_metas(client)
-   dump.save_metas()
-   dump.flush_users(client, overwrite=False)
-   print('Finding last stopping point...')
-   last_stop = None
-   for ticket in dump.tickets():
-      created = datetime.datetime.fromisoformat(ticket['fields']['created'])
-      if last_stop is None or created > last_stop:
-         last_stop = created
-   if last_stop is None:
-      query = 'ORDER BY created ASC'
-   else:
-      jira_date = last_stop.strftime('%Y-%m-%d %H:%M')
-   # problem: saved tickets use a fixed timezone, but queries are evaluated with the client's timezone
-   query = f'created >= "{jira_date}" ORDER BY created ASC'
-   print(f'Query: {query}')
-   dump.fetch_issues(client, query, overwrite=False)
-
-def fetch(dump: Dump, query: str):
-   client = get_client()
+   print('Fetching issues...')
    dump.fetch_issues(client, query, overwrite=True)
 
 def refresh(dump: Dump):
@@ -240,7 +235,7 @@ def refresh(dump: Dump):
    print('Fetching metas...')
    dump.fetch_metas(client)
    dump.save_metas()
-   dump.save_project_avatars(client, True)
+   dump.save_project_avatars(client)
    print('Checking issues...')
    issues = get_issues(client, 'ORDER BY updated DESC')
    for issue in issues:
