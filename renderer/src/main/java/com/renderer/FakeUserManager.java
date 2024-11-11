@@ -49,8 +49,8 @@ public class FakeUserManager implements UserManager {
     }
 
     public ApplicationUser getUserByKey(String key) {
-        String encoded;
-        encoded = URLEncoder.encode(key, StandardCharsets.UTF_8);
+        String encoded = URLEncoder.encode(key, StandardCharsets.UTF_8);
+        encoded = encoded.replaceAll("\\*", "%2A");
         var path = userFolder.resolve(encoded + ".json");
         JsonObject data;
         try {
