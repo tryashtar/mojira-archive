@@ -52,19 +52,19 @@ def main():
    total = len(files)
    for i,attach in enumerate(files):
       data = tat.read_json(attach)
-      ticket_id = data['id']
+      attachment_id = data['id']
       print(f'{i+1} / {total} - {data['filename']}')
-      append(['users', data.get('author'), 'attachments', ticket_id], data['id'])
+      append(['users', data.get('author'), 'attachments', attachment_id], data['id'])
    print('Users...')
    users = list(tat.get_files(dump.users_folder, False))
    total = len(users)
    for i,user in enumerate(users):
       data = tat.read_json(user)
-      ticket_id = data['key']
+      user_key = data['key']
       print(f'{i+1} / {total} - {data['name']}')
-      ids['users'][data['name']] = ticket_id
+      ids['users'][data['name']] = user_key
       for group in data['groups']['items']:
-         append(['groups', group['name']], ticket_id)
+         append(['groups', group['name']], user_key)
    print('Writing...')
    tat.write_json(relations, dump.root_folder / 'relations.json', mini=True)
    tat.write_json(ids, dump.root_folder / 'ids.json', mini=True)

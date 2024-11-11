@@ -1,18 +1,43 @@
+import bisect
+
 import jira.client
 import jira.exceptions
 import pathlib
 import json
 import urllib.parse
 import typing
+import tryashtools as tat
 
 def main():
-   root_folder = pathlib.Path('/d/Archives/Mojira')
-
+   caches = get_caches()
    dump = get_dump()
-   refresh(dump)
+   refresh(dump, caches)
+
+def get_root():
+   return pathlib.Path('/d/Archives/Mojira')
+
+def cache_paths():
+   root = get_root()
+   ids = root / 'ids.json'
+   relations = root / 'relations.json'
+   renders = root / 'renders.json'
+   return {'ids':ids,'relations':relations,'renders':renders}
+
+def get_caches():
+   paths = cache_paths()
+   ids = tat.read_json(paths['ids']) if paths['ids'].exists() else {'issues':{},'users':{}}
+   relations = tat.read_json(paths['relations']) if paths['relations'].exists() else {}
+   renders = tat.read_json(paths['renders']) if paths['renders'].exists() else {}
+   return {'ids':ids,'relations':relations,'renders':renders}
+
+def write_caches(caches):
+   paths = cache_paths()
+   tat.write_json(caches['ids'], paths['ids'], mini=True)
+   tat.write_json(caches['relations'], paths['relations'], mini=True)
+   tat.write_json(caches['renders'], paths['renders'], mini=True)
 
 def get_dump():
-   return Dump(pathlib.Path('/d/Archives/Mojira/dump'))
+   return Dump(get_root() / 'dump')
 
 class Dump:
    def __init__(self, folder: pathlib.Path):
@@ -238,7 +263,7 @@ def fetch_users(dump: Dump, users: list[str]):
       dump.new_users[user] = None
    dump.flush_users(client, overwrite=True)
 
-def refresh(dump: Dump):
+def refresh(dump: Dump, caches):
    print('Connecting...')
    client = get_client()
    print('Fetching metas...')
@@ -248,18 +273,76 @@ def refresh(dump: Dump):
    print('Checking issues...')
    issues = get_issues(client, 'ORDER BY updated DESC')
    for issue in issues:
-      existing_date = None
+      existing_data = None
       existing_path = dump.get_issue_path(issue.id)
       if existing_path.exists():
          with open(existing_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            existing_date = data['fields']['updated']
-      if existing_date is None or issue.fields.updated > existing_date:
-         print(f'Updated {issue.fields.updated}, last saved {existing_date}')
+            existing_data = json.load(file)
+      if existing_data is None or issue.fields.updated > existing_data['fields']['updated']:
+         print(f'Updated {issue.fields.updated}, last saved {existing_data['fields']['updated']}')
          dump.save_issue(client, issue, True)
+         update_caches(caches, existing_data, issue.raw)
+         write_caches(caches)
       else:
          print(f'{issue.key} already up-to-date')
-         #break
+         break
+
+def update_caches(caches, old_data, new_data):
+   def navigate(path):
+      block = caches['relations']
+      for i,entry in enumerate(path):
+         if entry is None:
+            entry = ''
+         if entry not in block:
+            if i == len(path) - 1:
+               block[entry] = []
+            else:
+               block[entry] = {}
+         block = block[entry]
+         if i == len(path) - 1:
+            return block
+   def add(path, value):
+      dest = navigate(path)
+      index = bisect.bisect_left(dest, value)
+      if index >= len(dest) or dest[index] != value:
+         bisect.insort(dest, value)
+   def remove(path, value):
+      dest = navigate(path)
+      index = bisect.bisect_left(dest, value)
+      if index < len(dest) and dest[index] == value:
+         del dest[index]
+
+   for (source, fn) in [(old_data, remove), (new_data, add)]:
+      if source is None:
+         continue
+      ticket_id = source['id']
+      if source is old_data:
+         caches['ids']['issues'].pop(source['key'], None)
+      elif source is new_data:
+         caches['ids']['issues'][source['key']] = ticket_id
+      fields = source['fields']
+      fn(['resolutions', fields['resolution']], ticket_id)
+      if 'versions' in fields:
+         for version in fields['versions']:
+            fn(['versions', version, 'affected'], ticket_id)
+      if 'fixVersions' in fields:
+         for version in fields['fixVersions']:
+            fn(['versions', version, 'fixed'], ticket_id)
+      fn(['users', fields['creator'], 'created'], ticket_id)
+      fn(['users', fields['reporter'], 'reported'], ticket_id)
+      if 'assignee' in fields:
+         fn(['users', fields['assignee'], 'assigned'], ticket_id)
+      for comment in fields['comment']['comments']:
+         fn(['users', comment.get('author'), 'comments', ticket_id], comment['id'])
+         fn(['users', comment.get('updateAuthor'), 'edits', ticket_id], comment['id'])
+      for change in source['changelog']['histories']:
+         fn(['users', change['author'], 'changes', ticket_id], change['id'])
+         for item in change['items']:
+            if item['field'] == 'Key':
+               if source is old_data:
+                  caches['ids']['issues'].pop(item['fromString'], None)
+               elif source is new_data:
+                  caches['ids']['issues'][item['fromString']] = ticket_id
 
 def get_client() -> jira.JIRA:
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
