@@ -8,7 +8,7 @@ import subprocess
 import json
 
 def main():
-   dump = mojira.get_dump()
+   dump = mojira.get_archive()
    print('Updating...')
    update_tests()
    print('Checking...')

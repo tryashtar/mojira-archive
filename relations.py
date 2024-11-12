@@ -3,7 +3,7 @@ import bisect
 import tryashtools as tat
 
 def main():
-   dump = mojira.get_dump()
+   dump = mojira.get_archive()
    relations = {}
    ids = {'issues':{},'users':{}}
    def append(path, value):
@@ -29,6 +29,7 @@ def main():
       ids['issues'][data['key']] = ticket_id
       fields = data['fields']
       append(['resolutions', fields['resolution']], ticket_id)
+      append(['projects', fields['project']], ticket_id)
       if 'versions' in fields:
          for version in fields['versions']:
             append(['versions', version, 'affected'], ticket_id)
@@ -47,14 +48,11 @@ def main():
          for item in change['items']:
             if item['field'] == 'Key':
                ids['issues'][item['fromString']] = ticket_id
-   print('Attachments...')
-   files = list(tat.get_files(dump.attachments_folder))
-   total = len(files)
-   for i,attach in enumerate(files):
-      data = tat.read_json(attach)
-      attachment_id = data['id']
-      print(f'{i+1} / {total} - {data['filename']}')
-      append(['users', data.get('author'), 'attachments', attachment_id], data['id'])
+      for attachment in fields['attachment']:
+         path = dump.get_attachment_path(attachment, content=False)
+         attach_data = tat.read_json(path)
+         attachment_id = attach_data['id']
+         append(['users', attach_data.get('author'), 'attachments', ticket_id], attachment_id)
    print('Users...')
    users = list(tat.get_files(dump.users_folder, False))
    total = len(users)

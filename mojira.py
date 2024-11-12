@@ -1,4 +1,5 @@
 import bisect
+import os
 
 import jira.client
 import jira.exceptions
@@ -6,66 +7,57 @@ import pathlib
 import json
 import urllib.parse
 import typing
-import tryashtools as tat
+import orjson
 
 def main():
-   caches = get_caches()
-   dump = get_dump()
-   refresh(dump, caches)
+   archive = get_archive()
+   refresh(archive, dry=True)
 
 def get_root():
    return pathlib.Path('/d/Archives/Mojira')
 
-def cache_paths():
-   root = get_root()
-   ids = root / 'ids.json'
-   relations = root / 'relations.json'
-   renders = root / 'renders.json'
-   return {'ids':ids,'relations':relations,'renders':renders}
+def get_archive():
+   return Archive(get_root())
 
-def get_caches():
-   paths = cache_paths()
-   ids = tat.read_json(paths['ids']) if paths['ids'].exists() else {'issues':{},'users':{}}
-   relations = tat.read_json(paths['relations']) if paths['relations'].exists() else {}
-   renders = tat.read_json(paths['renders']) if paths['renders'].exists() else {}
-   return {'ids':ids,'relations':relations,'renders':renders}
-
-def write_caches(caches):
-   paths = cache_paths()
-   tat.write_json(caches['ids'], paths['ids'], mini=True)
-   tat.write_json(caches['relations'], paths['relations'], mini=True)
-   tat.write_json(caches['renders'], paths['renders'], mini=True)
-
-def get_dump():
-   return Dump(get_root() / 'dump')
-
-class Dump:
+class Archive:
    def __init__(self, folder: pathlib.Path):
       self.root_folder = folder
-      self.attachments_folder = folder / 'attachments'
-      self.tickets_folder = folder / 'tickets'
-      self.users_folder = folder / 'users'
-      self.project_avatars_folder = folder / 'avatars/projects'
-      self.users_avatars_folder = folder / 'avatars/users'
+      self.dump_folder = folder / 'dump'
+      self.attachments_folder = self.dump_folder / 'attachments'
+      self.attachments_content_folder = self.attachments_folder / 'content'
+      self.tickets_folder = self.dump_folder / 'tickets'
+      self.users_folder = self.dump_folder / 'users'
+      self.unknown_users_folder = self.users_folder / 'unknown'
+      self.project_avatars_folder = self.dump_folder / 'avatars/projects'
+      self.users_avatars_folder = self.dump_folder / 'avatars/users'
       self.new_users = {}
       self.seen_users = set()
       
-      self.fields_path = folder / 'fields.json'
+      self.fields_path = self.dump_folder / 'fields.json'
       self.fields = self.load_meta(self.fields_path)
-      self.issue_types_path = folder / 'issue_types.json'
+      self.issue_types_path = self.dump_folder / 'issue_types.json'
       self.issue_types = self.load_meta(self.issue_types_path)
-      self.link_types_path = folder / 'link_types.json'
+      self.link_types_path = self.dump_folder / 'link_types.json'
       self.link_types = self.load_meta(self.link_types_path)
-      self.projects_path = folder / 'projects.json'
+      self.projects_path = self.dump_folder / 'projects.json'
       self.projects = self.load_meta(self.projects_path)
       for project in self.projects.values():
          project['versions'] = self.key_by(project['versions'], 'id')
-      self.resolutions_path = folder / 'resolutions.json'
+      self.resolutions_path = self.dump_folder / 'resolutions.json'
       self.resolutions = self.load_meta(self.resolutions_path)
-      self.statuses_path = folder / 'statuses.json'
+      self.statuses_path = self.dump_folder / 'statuses.json'
       self.statuses = self.load_meta(self.statuses_path)
-   
-   def save_metas(self):
+
+      self.ids_cache_path = self.root_folder / 'ids.json'
+      self.ids_cache = self.load_or(self.ids_cache_path, {'issues':{},'users':{}})
+      self.relations_cache_path = self.root_folder / 'relations.json'
+      self.relations_cache = self.load_or(self.relations_cache_path, {'resolutions':{},'versions':{},'users':{},'groups':{}})
+      self.render_cache_path = self.root_folder / 'renders.json'
+      self.render_cache = self.load_or(self.render_cache_path, {})
+
+   def save_metas(self, dry: bool):
+      if dry:
+         return
       self.root_folder.mkdir(parents=True, exist_ok=True)
       self.save_meta(self.fields, self.fields_path)
       self.save_meta(self.issue_types, self.issue_types_path)
@@ -77,10 +69,20 @@ class Dump:
          project['versions'] = self.key_by(project['versions'], 'id')
       self.save_meta(self.resolutions, self.resolutions_path)
       self.save_meta(self.statuses, self.statuses_path)
-      
-   def save_project_avatars(self, client: jira.JIRA):
+
+   def save_caches(self, dry: bool):
+      if dry:
+         return
+      with open(self.ids_cache_path, 'wb') as file:
+         file.write(orjson.dumps(self.ids_cache))
+      with open(self.relations_cache_path, 'wb') as file:
+         file.write(orjson.dumps(self.relations_cache))
+      with open(self.render_cache_path, 'wb') as file:
+         file.write(orjson.dumps(self.render_cache))
+
+   def save_project_avatars(self, client: jira.JIRA, dry: bool):
       for project in self.projects.values():
-         self.save_avatar(client, self.project_avatars_folder, project['avatarUrls']['48x48'])
+         self.save_avatar(client, self.project_avatars_folder, project['avatarUrls']['48x48'], dry)
    
    def get_avatar_id(self, url: str):
       url_obj = urllib.parse.urlparse(url)
@@ -88,15 +90,16 @@ class Dump:
       avatarid = queries['avatarId'][0]
       return avatarid
    
-   def save_avatar(self, client: jira.JIRA, folder: pathlib.Path, url: str):
+   def save_avatar(self, client: jira.JIRA, folder: pathlib.Path, url: str, dry: bool):
       avatarid = self.get_avatar_id(url)
       filepath = folder / avatarid
       if not filepath.exists():
-         print('\t' + avatarid)
-         folder.mkdir(parents=True, exist_ok=True)
+         print('\tAvatar: ' + avatarid)
          response = client._session.get(url)
-         with open(filepath, 'wb') as file:
-            file.write(response.content)
+         if not dry:
+            folder.mkdir(parents=True, exist_ok=True)
+            with open(filepath, 'wb') as file:
+               file.write(response.content)
    
    def load_meta(self, path: pathlib.Path) -> dict[str, typing.Any]:
       data = self.load_or(path, {})
@@ -121,32 +124,12 @@ class Dump:
       self.statuses = self.key_by([p.raw for p in client.statuses()], 'id')
       self.link_types = self.key_by([p.raw for p in client.issue_link_types()], 'id')
    
-   def fetch_issues(self, client: jira.JIRA, query: str, overwrite: bool):
-      self.attachments_folder.mkdir(parents=True, exist_ok=True)
-      self.tickets_folder.mkdir(parents=True, exist_ok=True)
+   def fetch_issues(self, client: jira.JIRA, query: str, dry: bool):
+      if not dry:
+         self.attachments_folder.mkdir(parents=True, exist_ok=True)
+         self.tickets_folder.mkdir(parents=True, exist_ok=True)
       for issue in get_issues(client, query):
-         self.save_issue(client, issue, overwrite)
-                     
-   def save_issue(self, client: jira.JIRA, issue: jira.Issue, overwrite: bool):
-      issue_path = self.get_issue_path(issue.id)
-      data = issue.raw
-      if overwrite or not issue_path.exists():
-         print(f'{issue.key} / {issue.id}')
-         self.simplify_issue(data)
-         self.flush_users(client, overwrite)
-      for attachment in issue.fields.attachment:
-         attach_path = self.get_attachment_path(attachment.id, content=False)
-         attach_content = self.get_attachment_path(attachment.id, content=True)
-         if not attach_path.exists():
-            print('\t' + attachment.filename)
-            with open(attach_content, 'wb') as file:
-               for content in attachment.iter_content():
-                  file.write(content)
-            with open(attach_path, 'w', encoding='utf-8') as file:
-               attachment_data = attachment.raw
-               json.dump(attachment_data, file, indent=3)
-      with open(issue_path, 'w', encoding='utf-8') as file:
-         json.dump(data, file, indent=3)
+         self.update_issue(client, issue, dry=dry)
    
    def simplify_issue(self, issue: dict[str, typing.Any]):
       fields = issue['fields']
@@ -192,41 +175,70 @@ class Dump:
    
    def get_attachment_path(self, attach_id: str, content=False) -> pathlib.Path:
       if content:
-         return self.attachments_folder / 'content' / attach_id
+         return self.attachments_content_folder / attach_id
       return self.attachments_folder / (attach_id + '.json')
    
    def get_issue_path(self, issue_id: str) -> pathlib.Path:
       return self.tickets_folder / (issue_id + '.json')
    
    def get_user_path(self, key: str, unknown=False) -> pathlib.Path:
-      if unknown:
-         return self.users_folder / 'unknown' / (urllib.parse.quote_plus(key) + '.json')   
-      return self.users_folder / (urllib.parse.quote_plus(key) + '.json')
+      base_folder = self.unknown_users_folder if unknown else self.users_folder
+      return base_folder / (urllib.parse.quote_plus(key) + '.json')
    
-   def flush_users(self, client: jira.JIRA, overwrite: bool):
-      self.users_folder.mkdir(parents=True, exist_ok=True)
+   def flush_users(self, client: jira.JIRA, dry: bool):
       for key,value in self.new_users.items():
-         user_path = self.get_user_path(key, unknown=False)
+         known_path = self.get_user_path(key, unknown=False)
+         unknown_path = self.get_user_path(key, unknown=True)
+         write_path = known_path
          try:
             user_data = get_user(client, key, expand='groups').raw
          except jira.exceptions.JIRAError as exc:
             if exc.text == f'The user with the key \'{key}\' does not exist':
-               user_path = self.get_user_path(key, unknown=True)
                user_data = value
+               write_path = unknown_path
             else:
                raise
          if user_data is not None:
-            self.save_user_data(user_path, user_data, overwrite)
+            old_data = None
+            if known_path.exists():
+               with open(known_path, 'r', encoding='utf-8') as file:
+                  old_data = json.load(file)
+            elif unknown_path.exists():
+               with open(unknown_path, 'r', encoding='utf-8') as file:
+                  old_data = json.load(file)
+            if not dry and unknown_path.exists():
+               os.remove(unknown_path)
+            if not write_path.exists():
+               print(f'\tNew user: {user_data['name']} ({user_data['key']})')
+            elif user_data != old_data:
+               print(f'\tUpdate user: {user_data['name']} ({user_data['key']})')
+            old_name = None if old_data is None else old_data['name']
+            new_name = user_data['name']
+            if old_data is None or old_name != new_name:
+               print(f'\t\tUsername: {old_name} -> {new_name}')
+               self.ids_cache['users'][new_name] = user_data['key']
+               if old_name is not None:
+                  self.ids_cache['users'].pop(old_name, None)
+            old_groups = self.key_by([] if old_data is None else old_data['groups']['items'], 'name').keys()
+            new_groups = self.key_by(user_data['groups']['items'], 'name').keys()
+            added_groups = new_groups - old_groups
+            removed_groups = old_groups - new_groups
+            if len(added_groups) > 0:
+               print(f'\t\tGroups: Added {added_groups}')
+               for name in added_groups:
+                  self.relation_cache_add(['groups', name], user_data['key'])
+            if len(removed_groups) > 0:
+               print(f'\t\tGroups: Removed {removed_groups}')
+               for name in removed_groups:
+                  self.relation_cache_remove(['groups', name], user_data['key'])
+            if not dry:
+               self.users_folder.mkdir(parents=True, exist_ok=True)
+               with open(write_path, 'w', encoding='utf-8') as file:
+                  json.dump(user_data, file, indent=3)
             avatar_url = user_data['avatarUrls']['48x48']
-            self.save_avatar(client, self.users_avatars_folder, avatar_url)
+            self.save_avatar(client, self.users_avatars_folder, avatar_url, dry=dry)
          self.seen_users.add(key)
       self.new_users = {}
-   
-   def save_user_data(self, path: pathlib.Path, data: dict[str, typing.Any], overwrite: bool):
-      if overwrite or not path.exists():
-         print('\t' + data['name'])
-         with open(path, 'w', encoding='utf-8') as file:
-            json.dump(data, file, indent=3)
    
    def key_by(self, items: list[dict[str, typing.Any]], key: str) -> dict[str, dict[str, typing.Any]]:
       result = {}
@@ -249,47 +261,8 @@ class Dump:
       for path in self.tickets_folder.iterdir():
          yield path.stem
 
-def fetch_issues(dump: Dump, query: str):
-   print('Connecting...')
-   client = get_client()
-   print('Fetching issues...')
-   dump.fetch_issues(client, query, overwrite=True)
-   
-def fetch_users(dump: Dump, users: list[str]):
-   print('Connecting...')
-   client = get_client()
-   print('Fetching users...')
-   for user in users:
-      dump.new_users[user] = None
-   dump.flush_users(client, overwrite=True)
-
-def refresh(dump: Dump, caches):
-   print('Connecting...')
-   client = get_client()
-   print('Fetching metas...')
-   dump.fetch_metas(client)
-   dump.save_metas()
-   dump.save_project_avatars(client)
-   print('Checking issues...')
-   issues = get_issues(client, 'ORDER BY updated DESC')
-   for issue in issues:
-      existing_data = None
-      existing_path = dump.get_issue_path(issue.id)
-      if existing_path.exists():
-         with open(existing_path, 'r', encoding='utf-8') as file:
-            existing_data = json.load(file)
-      if existing_data is None or issue.fields.updated > existing_data['fields']['updated']:
-         print(f'Updated {issue.fields.updated}, last saved {existing_data['fields']['updated']}')
-         dump.save_issue(client, issue, True)
-         update_caches(caches, existing_data, issue.raw)
-         write_caches(caches)
-      else:
-         print(f'{issue.key} already up-to-date')
-         break
-
-def update_caches(caches, old_data, new_data):
-   def navigate(path):
-      block = caches['relations']
+   def relation_cache_navigate(self, path):
+      block = self.relations_cache
       for i,entry in enumerate(path):
          if entry is None:
             entry = ''
@@ -301,48 +274,170 @@ def update_caches(caches, old_data, new_data):
          block = block[entry]
          if i == len(path) - 1:
             return block
-   def add(path, value):
-      dest = navigate(path)
+
+   def relation_cache_add(self, path, value):
+      dest = self.relation_cache_navigate(path)
       index = bisect.bisect_left(dest, value)
       if index >= len(dest) or dest[index] != value:
          bisect.insort(dest, value)
-   def remove(path, value):
-      dest = navigate(path)
+
+   def relation_cache_remove(self, path, value):
+      dest = self.relation_cache_navigate(path)
       index = bisect.bisect_left(dest, value)
       if index < len(dest) and dest[index] == value:
          del dest[index]
 
-   for (source, fn) in [(old_data, remove), (new_data, add)]:
-      if source is None:
-         continue
-      ticket_id = source['id']
-      if source is old_data:
-         caches['ids']['issues'].pop(source['key'], None)
-      elif source is new_data:
-         caches['ids']['issues'][source['key']] = ticket_id
-      fields = source['fields']
-      fn(['resolutions', fields['resolution']], ticket_id)
-      if 'versions' in fields:
-         for version in fields['versions']:
-            fn(['versions', version, 'affected'], ticket_id)
-      if 'fixVersions' in fields:
-         for version in fields['fixVersions']:
-            fn(['versions', version, 'fixed'], ticket_id)
-      fn(['users', fields['creator'], 'created'], ticket_id)
-      fn(['users', fields['reporter'], 'reported'], ticket_id)
-      if 'assignee' in fields:
-         fn(['users', fields['assignee'], 'assigned'], ticket_id)
-      for comment in fields['comment']['comments']:
-         fn(['users', comment.get('author'), 'comments', ticket_id], comment['id'])
-         fn(['users', comment.get('updateAuthor'), 'edits', ticket_id], comment['id'])
-      for change in source['changelog']['histories']:
-         fn(['users', change['author'], 'changes', ticket_id], change['id'])
-         for item in change['items']:
-            if item['field'] == 'Key':
-               if source is old_data:
-                  caches['ids']['issues'].pop(item['fromString'], None)
-               elif source is new_data:
-                  caches['ids']['issues'][item['fromString']] = ticket_id
+   def update_issue(self, client: jira.JIRA, issue: jira.Issue, dry: bool):
+      existing_data = None
+      issue_path = self.get_issue_path(issue.id)
+      if issue_path.exists():
+         with open(issue_path, 'r', encoding='utf-8') as file:
+            existing_data = json.load(file)
+      if existing_data is None or issue.fields.updated > existing_data['fields']['updated']:
+         if existing_data is None:
+            print(f'New ticket {issue.key} ({issue.id})')
+            print(f'\tDate {issue.fields.updated}')
+         else:
+            print(f'Updated ticket {issue.key} ({issue.id})')
+            print(f'\tDate {existing_data['fields']['updated']} -> {issue.fields.updated}')
+         data = issue.raw
+         self.simplify_issue(data)
+         self.flush_users(client, dry=dry)
+         for attachment in issue.fields.attachment:
+            attach_path = self.get_attachment_path(attachment.id, content=False)
+            attach_content = self.get_attachment_path(attachment.id, content=True)
+            # attachments never change
+            if not attach_path.exists():
+               print(f'\tNew attachment: {attachment.filename} ({attachment.key})')
+               self.relation_cache_add(['users', attachment.raw['author'], 'attachments', issue.id], attachment.id)
+               if not dry:
+                  with open(attach_content, 'wb') as file:
+                     for content in attachment.iter_content():
+                        file.write(content)
+                  with open(attach_path, 'w', encoding='utf-8') as file:
+                     attachment_data = attachment.raw
+                     json.dump(attachment_data, file, indent=3)
+         if not dry:
+            with open(issue_path, 'w', encoding='utf-8') as file:
+               json.dump(data, file, indent=3)
+
+         def navigate_dict(dictionary: dict, path: list[str]):
+            for entry in path:
+               dictionary = dictionary.get(entry)
+               if dictionary is None:
+                  return None
+            return dictionary
+
+         def update_cache(value_path: list[str], name: str, insert_path: typing.Callable[[typing.Any], list[str]], insert: str):
+            old_value = None if existing_data is None else navigate_dict(existing_data, value_path)
+            new_value = navigate_dict(data, value_path)
+            if existing_data is None or old_value != new_value:
+               print(f'\t{name}: {old_value} -> {new_value}')
+               self.relation_cache_remove(insert_path(old_value), insert)
+               self.relation_cache_add(insert_path(new_value), insert)
+
+         def update_cache_list(value_path: list[str], name: str, insert_path: typing.Callable[[typing.Any], list[str]], insert: str):
+            old_values = set([] if existing_data is None else navigate_dict(existing_data, value_path))
+            new_values = set(navigate_dict(data, value_path))
+            added = new_values - old_values
+            removed = old_values - new_values
+            if len(added) > 0:
+               print(f'\t{name}: Added {added}')
+               for val in added:
+                  self.relation_cache_add(insert_path(val), insert)
+            if len(removed) > 0:
+               print(f'\t{name}: Removed {removed}')
+               for val in removed:
+                  self.relation_cache_remove(insert_path(val), insert)
+
+         old_key = None if existing_data is None else existing_data['key']
+         new_key = data['key']
+         if existing_data is None or old_key != new_key:
+            print(f'\tKey: {old_key} -> {new_key}')
+            self.ids_cache['issues'][new_key] = issue.id
+            if old_key is not None:
+               self.ids_cache['issues'].pop(old_key, None)
+         update_cache(['fields', 'resolution'], 'Resolution', lambda x: ['resolutions', x], issue.id)
+         update_cache(['fields', 'project'], 'Project', lambda x: ['projects', x], issue.id)
+         update_cache(['fields', 'creator'], 'Creator', lambda x: ['created', x], issue.id)
+         update_cache(['fields', 'reporter'], 'Reporter', lambda x: ['reported', x], issue.id)
+         update_cache(['fields', 'assignee'], 'Assignee', lambda x: ['assigned', x], issue.id)
+         update_cache_list(['fields', 'versions'], 'Affected', lambda x: ['affected', x], issue.id)
+         update_cache_list(['fields', 'fixVersions'], 'Fixed', lambda x: ['fixed', x], issue.id)
+         old_comments = self.key_by([] if existing_data is None else navigate_dict(existing_data, ['fields', 'comment', 'comments']), 'id')
+         new_comments = self.key_by(navigate_dict(data, ['fields', 'comment', 'comments']), 'id')
+         added_comments = new_comments.keys() - old_comments.keys()
+         removed_comments = old_comments.keys() - new_comments.keys()
+         shared_comments = set.intersection(set(new_comments.keys()), set(old_comments.keys()))
+         if len(added_comments) > 0:
+            print(f'\tComments: Added {added_comments}')
+            for key in added_comments:
+               comment = new_comments[key]
+               self.relation_cache_add(['users', comment.get('author'), 'comments', issue.id], key)
+               self.relation_cache_add(['users', comment.get('updateAuthor'), 'edits', issue.id], key)
+         if len(removed_comments) > 0:
+            print(f'\tComments: Removed {removed_comments}')
+            for key in removed_comments:
+               comment = old_comments[key]
+               self.relation_cache_remove(['users', comment.get('author'), 'comments', issue.id], key)
+               self.relation_cache_remove(['users', comment.get('updateAuthor'), 'edits', issue.id], key)
+         for key in shared_comments:
+            old_comment = old_comments[key]
+            new_comment = old_comments[key]
+            # possibly impossible for author to change, updateAuthor can though
+            if old_comment.get('author') != new_comment.get('author'):
+               print(f'\tComment {key} author: {old_comment.get('author')} -> {new_comment.get('author')}')
+               self.relation_cache_add(['users', new_comment.get('author'), 'comments', issue.id], key)
+               self.relation_cache_remove(['users', old_comment.get('author'), 'comments', issue.id], key)
+            if old_comment.get('updateAuthor') != new_comment.get('updateAuthor'):
+               print(f'\tComment {key} author: {old_comment.get('updateAuthor')} -> {new_comment.get('updateAuthor')}')
+               self.relation_cache_add(['users', new_comment.get('updateAuthor'), 'edits', issue.id], key)
+               self.relation_cache_remove(['users', old_comment.get('updateAuthor'), 'edits', issue.id], key)
+         # assume history is append-only (entries are never removed or modified)
+         old_history = self.key_by([] if existing_data is None else navigate_dict(existing_data, ['changelog', 'histories']), 'id')
+         new_history = self.key_by(navigate_dict(data, ['changelog', 'histories']), 'id')
+         added_history = new_history.keys() - old_history.keys()
+         if len(added_history) > 0:
+            print(f'\tHistory: Added {added_history}')
+            for key in added_history:
+               change = new_history[key]
+               self.relation_cache_add(['users', change['author'], 'changes', issue.id], key)
+               for item in change['items']:
+                  if item['field'] == 'Key':
+                     self.ids_cache['issues'][item['fromString']] = issue.id
+         return True
+      else:
+         print(f'Ticket {issue.key} ({issue.id}) already up-to-date')
+         return False
+
+def fetch_issues(dump: Archive, query: str, dry: bool):
+   print('Connecting...')
+   client = get_client()
+   print('Fetching issues...')
+   dump.fetch_issues(client, query, dry=dry)
+   
+def fetch_users(dump: Archive, users: list[str], dry: bool):
+   print('Connecting...')
+   client = get_client()
+   print('Fetching users...')
+   for user in users:
+      dump.new_users[user] = None
+   dump.flush_users(client, dry=dry)
+
+def refresh(dump: Archive, dry: bool):
+   print('Connecting...')
+   client = get_client()
+   print('Fetching metas...')
+   dump.fetch_metas(client)
+   dump.save_metas(dry=dry)
+   dump.save_project_avatars(client, dry=dry)
+   print('Checking issues...')
+   issues = get_issues(client, 'ORDER BY updated DESC')
+   for issue in issues:
+      result = dump.update_issue(client, issue, dry=dry)
+      dump.save_caches(dry=dry)
+      if not result:
+         break
 
 def get_client() -> jira.JIRA:
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
