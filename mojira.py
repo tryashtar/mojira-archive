@@ -48,12 +48,19 @@ class Archive:
       self.statuses_path = self.dump_folder / 'statuses.json'
       self.statuses = self.load_meta(self.statuses_path)
 
-      self.ids_cache_path = self.root_folder / 'ids.json'
-      self.ids_cache = self.load_or(self.ids_cache_path, {'issues':{},'users':{}})
-      self.relations_cache_path = self.root_folder / 'relations.json'
-      self.relations_cache = self.load_or(self.relations_cache_path, {'resolutions':{},'versions':{},'users':{},'groups':{}})
-      self.render_cache_path = self.root_folder / 'renders.json'
-      self.render_cache = self.load_or(self.render_cache_path, {})
+      self.caches_folder = self.root_folder / 'caches'
+      self.ids_cache = {
+         'issues': self.load_or(self.caches_folder / 'issue_keys.json', {}),
+         'users': self.load_or(self.caches_folder / 'user_keys.json', {})
+      }
+      self.relations_cache = {
+         'groups': self.load_or(self.caches_folder / 'groups.json', {}),
+         'projects': self.load_or(self.caches_folder / 'projects.json', {}),
+         'resolutions': self.load_or(self.caches_folder / 'resolutions.json', {}),
+         'users': self.load_or(self.caches_folder / 'users.json', {}),
+         'versions': self.load_or(self.caches_folder / 'versions.json', {})
+      }
+      self.render_cache = self.load_or(self.caches_folder / 'renders.json', {})
 
    def save_metas(self, dry: bool):
       if dry:
@@ -73,11 +80,21 @@ class Archive:
    def save_caches(self, dry: bool):
       if dry:
          return
-      with open(self.ids_cache_path, 'wb') as file:
-         file.write(orjson.dumps(self.ids_cache))
-      with open(self.relations_cache_path, 'wb') as file:
-         file.write(orjson.dumps(self.relations_cache))
-      with open(self.render_cache_path, 'wb') as file:
+      with open(self.caches_folder / 'issue_keys.json', 'wb') as file:
+         file.write(orjson.dumps(self.ids_cache['issues']))
+      with open(self.caches_folder / 'user_keys.json', 'wb') as file:
+         file.write(orjson.dumps(self.ids_cache['users']))
+      with open(self.caches_folder / 'groups.json', 'wb') as file:
+         file.write(orjson.dumps(self.relations_cache['groups']))
+      with open(self.caches_folder / 'projects.json', 'wb') as file:
+         file.write(orjson.dumps(self.relations_cache['projects']))
+      with open(self.caches_folder / 'resolutions.json', 'wb') as file:
+         file.write(orjson.dumps(self.relations_cache['resolutions']))
+      with open(self.caches_folder / 'users.json', 'wb') as file:
+         file.write(orjson.dumps(self.relations_cache['users']))
+      with open(self.caches_folder / 'versions.json', 'wb') as file:
+         file.write(orjson.dumps(self.relations_cache['versions']))
+      with open(self.caches_folder / 'renders.json', 'wb') as file:
          file.write(orjson.dumps(self.render_cache))
 
    def save_project_avatars(self, client: jira.JIRA, dry: bool):
@@ -296,10 +313,10 @@ class Archive:
       if existing_data is None or issue.fields.updated > existing_data['fields']['updated']:
          if existing_data is None:
             print(f'New ticket {issue.key} ({issue.id})')
-            print(f'\tDate {issue.fields.updated}')
+            print(f'\tDate: {issue.fields.updated}')
          else:
             print(f'Updated ticket {issue.key} ({issue.id})')
-            print(f'\tDate {existing_data['fields']['updated']} -> {issue.fields.updated}')
+            print(f'\tDate: {existing_data['fields']['updated']} -> {issue.fields.updated}')
          data = issue.raw
          self.simplify_issue(data)
          self.flush_users(client, dry=dry)

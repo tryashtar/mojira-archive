@@ -64,8 +64,13 @@ def main():
       for group in data['groups']['items']:
          append(['groups', group['name']], user_key)
    print('Writing...')
-   tat.write_json(relations, dump.root_folder / 'relations.json', mini=True)
-   tat.write_json(ids, dump.root_folder / 'ids.json', mini=True)
+   tat.write_json(ids['issues'], dump.caches_folder / 'issue_keys.json', mini=True)
+   tat.write_json(ids['users'], dump.caches_folder / 'user_keys.json', mini=True)
+   tat.write_json(relations['groups'], dump.caches_folder / 'groups.json', mini=True)
+   tat.write_json(relations['projects'], dump.caches_folder / 'projects.json', mini=True)
+   tat.write_json(relations['resolutions'], dump.caches_folder / 'resolutions.json', mini=True)
+   tat.write_json(relations['users'], dump.caches_folder / 'users.json', mini=True)
+   tat.write_json(relations['versions'], dump.caches_folder / 'versions.json', mini=True)
 
 if __name__ == '__main__':
    main()
