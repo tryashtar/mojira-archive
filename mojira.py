@@ -308,7 +308,7 @@ class Archive:
             attach_content = self.get_attachment_path(attachment.id, content=True)
             # attachments never change
             if not attach_path.exists():
-               print(f'\tNew attachment: {attachment.filename} ({attachment.key})')
+               print(f'\tNew attachment: {attachment.filename} ({attachment.id})')
                self.relation_cache_add(['users', attachment.raw['author'], 'attachments', issue.id], attachment.id)
                if not dry:
                   with open(attach_content, 'wb') as file:
@@ -337,8 +337,10 @@ class Archive:
                self.relation_cache_add(insert_path(new_value), insert)
 
          def update_cache_list(value_path: list[str], name: str, insert_path: typing.Callable[[typing.Any], list[str]], insert: str):
-            old_values = set([] if existing_data is None else navigate_dict(existing_data, value_path))
-            new_values = set(navigate_dict(data, value_path))
+            old_values = None if existing_data is None else navigate_dict(existing_data, value_path)
+            new_values = navigate_dict(data, value_path)
+            old_values = set([] if old_values is None else old_values)
+            new_values = set([] if new_values is None else new_values)
             added = new_values - old_values
             removed = old_values - new_values
             if len(added) > 0:
