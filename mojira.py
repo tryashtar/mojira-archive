@@ -109,14 +109,20 @@ class Archive:
    
    def save_avatar(self, client: jira.JIRA, folder: pathlib.Path, url: str, dry: bool):
       avatarid = self.get_avatar_id(url)
-      filepath = folder / avatarid
+      response = client._session.get(url)
+      data = response.content
+      if data.startswith(b'<svg') or data.startswith(b'<?xml'):
+         filepath = folder / (avatarid + '.svg')
+      elif data.startswith(b'\x89PNG\x0d\x0a\x1a\x0a'):
+         filepath = folder / (avatarid + '.png')
+      else:
+         raise ValueError(data)
       if not filepath.exists():
          print('\tAvatar: ' + avatarid)
-         response = client._session.get(url)
          if not dry:
             folder.mkdir(parents=True, exist_ok=True)
             with open(filepath, 'wb') as file:
-               file.write(response.content)
+               file.write(data)
    
    def load_meta(self, path: pathlib.Path) -> dict[str, typing.Any]:
       data = self.load_or(path, {})
@@ -190,10 +196,12 @@ class Archive:
             if isinstance(field[key][i], dict):
                field[key][i] = field[key][i][simple_key]
    
-   def get_attachment_path(self, attach_id: str, content=False) -> pathlib.Path:
-      if content:
-         return self.attachments_content_folder / attach_id
+   def get_attachment_path(self, attach_id: str) -> pathlib.Path:
       return self.attachments_folder / (attach_id + '.json')
+   
+   def get_attachment_content_path(self, attach_id: str, file_name: str) -> pathlib.Path:
+      extension = os.path.splitext(file_name)[1]
+      return self.attachments_content_folder / (attach_id + extension)
 
    def get_issue_data(self, issue_id: str):
       path = self.get_issue_path(issue_id)
@@ -339,13 +347,13 @@ class Archive:
          self.simplify_issue(data)
          self.flush_users(client, dry=dry)
          for attachment in issue.fields.attachment:
-            attach_path = self.get_attachment_path(attachment.id, content=False)
-            attach_content = self.get_attachment_path(attachment.id, content=True)
+            attach_path = self.get_attachment_path(attachment.id)
             # attachments never change
             if not attach_path.exists():
                print(f'\tNew attachment: {attachment.filename} ({attachment.id})')
                self.relation_cache_add(['users', attachment.raw['author'], 'attachments', issue.id], attachment.id)
                if not dry:
+                  attach_content = self.get_attachment_content_path(attachment.id, attachment.filename)
                   with open(attach_content, 'wb') as file:
                      for content in attachment.iter_content():
                         file.write(content)
