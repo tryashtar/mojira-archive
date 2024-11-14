@@ -194,7 +194,25 @@ class Archive:
       if content:
          return self.attachments_content_folder / attach_id
       return self.attachments_folder / (attach_id + '.json')
-   
+
+   def get_issue_data(self, issue_id: str):
+      path = self.get_issue_path(issue_id)
+      if not path.exists():
+         return None
+      with open(path, 'r', encoding='utf-8') as file:
+         return json.load(file)
+
+   def get_user_data(self, user_key: str):
+      known = self.get_user_path(user_key, unknown=False)
+      unknown = self.get_user_path(user_key, unknown=False)
+      if known.exists():
+         with open(known, 'r', encoding='utf-8') as file:
+            return json.load(file)
+      elif unknown.exists():
+         with open(known, 'r', encoding='utf-8') as file:
+            return json.load(file)
+      return None
+
    def get_issue_path(self, issue_id: str) -> pathlib.Path:
       return self.tickets_folder / (issue_id + '.json')
    
