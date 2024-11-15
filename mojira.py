@@ -473,6 +473,10 @@ def refresh(dump: Archive, dry: bool):
    print('Connecting...')
    client = get_client()
    print('Fetching metas...')
+   css = client._session.get('https://launchermeta.mojang.com/mc/jira/mojira.css')
+   if not dry:
+      with open(dump.dump_folder / 'assets/mojira.css', 'wb') as css_file:
+         css_file.write(css.content)
    dump.fetch_metas(client)
    dump.save_metas(dry=dry)
    dump.save_project_avatars(client, dry=dry)

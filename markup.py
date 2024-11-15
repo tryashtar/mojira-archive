@@ -18,7 +18,7 @@ def get_process(dump: mojira.Archive):
    print('Configuring...')
    input_args = {'issues':str(dump.tickets_folder),'users':str(dump.users_folder),'attachments':str(dump.attachments_folder)}
    print('Compiling...')
-   subprocess.run(['mvn', 'package'], cwd='renderer', check=True, stdout=subprocess.DEVNULL)
+   #subprocess.run(['mvn', 'package'], cwd='renderer', check=True, stdout=subprocess.DEVNULL)
    print('Starting...')
    process = subprocess.Popen(['java', '-jar', 'renderer/target/renderer-1.0-SNAPSHOT-shaded.jar', json.dumps(input_args)], encoding='utf-8', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
    issue_map = {k: int(v) for k, v in dump.ids_cache['issues'].items()}
