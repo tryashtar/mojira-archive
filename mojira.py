@@ -1,17 +1,15 @@
-import bisect
 import os
-
 import jira.client
 import jira.exceptions
 import pathlib
 import json
 import urllib.parse
+import urllib.request
 import typing
-import orjson
 
 def main():
    archive = get_archive()
-   refresh(archive, dry=True)
+   refresh(archive, dry=False)
 
 def get_root():
    return pathlib.Path('/d/Archives/Mojira')
@@ -58,7 +56,12 @@ class Archive:
          'projects': self.load_or(self.caches_folder / 'projects.json', {}),
          'resolutions': self.load_or(self.caches_folder / 'resolutions.json', {}),
          'users': self.load_or(self.caches_folder / 'users.json', {}),
-         'versions': self.load_or(self.caches_folder / 'versions.json', {})
+         'versions': self.load_or(self.caches_folder / 'versions.json', {}),
+         'labels': self.load_or(self.caches_folder / 'labels.json', {}),
+         'categories': self.load_or(self.caches_folder / 'categories.json', {}),
+         'confirmation': self.load_or(self.caches_folder / 'confirmation.json', {}),
+         'priority': self.load_or(self.caches_folder / 'priority.json', {}),
+         'area': self.load_or(self.caches_folder / 'area.json', {})
       }
       self.render_cache = self.load_or(self.caches_folder / 'renders.json', {})
 
@@ -76,26 +79,6 @@ class Archive:
          project['versions'] = self.key_by(project['versions'], 'id')
       self.save_meta(self.resolutions, self.resolutions_path)
       self.save_meta(self.statuses, self.statuses_path)
-
-   def save_caches(self, dry: bool):
-      if dry:
-         return
-      with open(self.caches_folder / 'issue_keys.json', 'wb') as file:
-         file.write(orjson.dumps(self.ids_cache['issues']))
-      with open(self.caches_folder / 'user_keys.json', 'wb') as file:
-         file.write(orjson.dumps(self.ids_cache['users']))
-      with open(self.caches_folder / 'groups.json', 'wb') as file:
-         file.write(orjson.dumps(self.relations_cache['groups']))
-      with open(self.caches_folder / 'projects.json', 'wb') as file:
-         file.write(orjson.dumps(self.relations_cache['projects']))
-      with open(self.caches_folder / 'resolutions.json', 'wb') as file:
-         file.write(orjson.dumps(self.relations_cache['resolutions']))
-      with open(self.caches_folder / 'users.json', 'wb') as file:
-         file.write(orjson.dumps(self.relations_cache['users']))
-      with open(self.caches_folder / 'versions.json', 'wb') as file:
-         file.write(orjson.dumps(self.relations_cache['versions']))
-      with open(self.caches_folder / 'renders.json', 'wb') as file:
-         file.write(orjson.dumps(self.render_cache))
 
    def save_project_avatars(self, client: jira.JIRA, dry: bool):
       for project in self.projects.values():
@@ -255,25 +238,6 @@ class Archive:
                print(f'\tNew user: {user_data['name']} ({user_data['key']})')
             elif user_data != old_data:
                print(f'\tUpdate user: {user_data['name']} ({user_data['key']})')
-            old_name = None if old_data is None else old_data['name']
-            new_name = user_data['name']
-            if old_data is None or old_name != new_name:
-               print(f'\t\tUsername: {old_name} -> {new_name}')
-               self.ids_cache['users'][new_name] = user_data['key']
-               if old_name is not None:
-                  self.ids_cache['users'].pop(old_name, None)
-            old_groups = self.key_by([] if old_data is None else old_data['groups']['items'], 'name').keys()
-            new_groups = self.key_by(user_data['groups']['items'], 'name').keys()
-            added_groups = new_groups - old_groups
-            removed_groups = old_groups - new_groups
-            if len(added_groups) > 0:
-               print(f'\t\tGroups: Added {added_groups}')
-               for name in added_groups:
-                  self.relation_cache_add(['groups', name], user_data['key'])
-            if len(removed_groups) > 0:
-               print(f'\t\tGroups: Removed {removed_groups}')
-               for name in removed_groups:
-                  self.relation_cache_remove(['groups', name], user_data['key'])
             if not dry:
                self.users_folder.mkdir(parents=True, exist_ok=True)
                with open(write_path, 'w', encoding='utf-8') as file:
@@ -304,32 +268,6 @@ class Archive:
       for path in self.tickets_folder.iterdir():
          yield path.stem
 
-   def relation_cache_navigate(self, path):
-      block = self.relations_cache
-      for i,entry in enumerate(path):
-         if entry is None:
-            entry = ''
-         if entry not in block:
-            if i == len(path) - 1:
-               block[entry] = []
-            else:
-               block[entry] = {}
-         block = block[entry]
-         if i == len(path) - 1:
-            return block
-
-   def relation_cache_add(self, path, value):
-      dest = self.relation_cache_navigate(path)
-      index = bisect.bisect_left(dest, value)
-      if index >= len(dest) or dest[index] != value:
-         bisect.insort(dest, value)
-
-   def relation_cache_remove(self, path, value):
-      dest = self.relation_cache_navigate(path)
-      index = bisect.bisect_left(dest, value)
-      if index < len(dest) and dest[index] == value:
-         del dest[index]
-
    def update_issue(self, client: jira.JIRA, issue: jira.Issue, dry: bool):
       existing_data = None
       issue_path = self.get_issue_path(issue.id)
@@ -351,7 +289,6 @@ class Archive:
             # attachments never change
             if not attach_path.exists():
                print(f'\tNew attachment: {attachment.filename} ({attachment.id})')
-               self.relation_cache_add(['users', attachment.raw['author'], 'attachments', issue.id], attachment.id)
                if not dry:
                   attach_content = self.get_attachment_content_path(attachment.id, attachment.filename)
                   with open(attach_content, 'wb') as file:
@@ -363,93 +300,6 @@ class Archive:
          if not dry:
             with open(issue_path, 'w', encoding='utf-8') as file:
                json.dump(data, file, indent=3)
-
-         def navigate_dict(dictionary: dict, path: list[str]):
-            for entry in path:
-               dictionary = dictionary.get(entry)
-               if dictionary is None:
-                  return None
-            return dictionary
-
-         def update_cache(value_path: list[str], name: str, insert_path: typing.Callable[[typing.Any], list[str]], insert: str):
-            old_value = None if existing_data is None else navigate_dict(existing_data, value_path)
-            new_value = navigate_dict(data, value_path)
-            if existing_data is None or old_value != new_value:
-               print(f'\t{name}: {old_value} -> {new_value}')
-               self.relation_cache_remove(insert_path(old_value), insert)
-               self.relation_cache_add(insert_path(new_value), insert)
-
-         def update_cache_list(value_path: list[str], name: str, insert_path: typing.Callable[[typing.Any], list[str]], insert: str):
-            old_values = None if existing_data is None else navigate_dict(existing_data, value_path)
-            new_values = navigate_dict(data, value_path)
-            old_values = set([] if old_values is None else old_values)
-            new_values = set([] if new_values is None else new_values)
-            added = new_values - old_values
-            removed = old_values - new_values
-            if len(added) > 0:
-               print(f'\t{name}: Added {added}')
-               for val in added:
-                  self.relation_cache_add(insert_path(val), insert)
-            if len(removed) > 0:
-               print(f'\t{name}: Removed {removed}')
-               for val in removed:
-                  self.relation_cache_remove(insert_path(val), insert)
-
-         old_key = None if existing_data is None else existing_data['key']
-         new_key = data['key']
-         if existing_data is None or old_key != new_key:
-            print(f'\tKey: {old_key} -> {new_key}')
-            self.ids_cache['issues'][new_key] = issue.id
-            if old_key is not None:
-               self.ids_cache['issues'].pop(old_key, None)
-         update_cache(['fields', 'resolution'], 'Resolution', lambda x: ['resolutions', x], issue.id)
-         update_cache(['fields', 'project'], 'Project', lambda x: ['projects', x], issue.id)
-         update_cache(['fields', 'creator'], 'Creator', lambda x: ['created', x], issue.id)
-         update_cache(['fields', 'reporter'], 'Reporter', lambda x: ['reported', x], issue.id)
-         update_cache(['fields', 'assignee'], 'Assignee', lambda x: ['assigned', x], issue.id)
-         update_cache_list(['fields', 'versions'], 'Affected', lambda x: ['affected', x], issue.id)
-         update_cache_list(['fields', 'fixVersions'], 'Fixed', lambda x: ['fixed', x], issue.id)
-         old_comments = self.key_by([] if existing_data is None else navigate_dict(existing_data, ['fields', 'comment', 'comments']), 'id')
-         new_comments = self.key_by(navigate_dict(data, ['fields', 'comment', 'comments']), 'id')
-         added_comments = new_comments.keys() - old_comments.keys()
-         removed_comments = old_comments.keys() - new_comments.keys()
-         shared_comments = set.intersection(set(new_comments.keys()), set(old_comments.keys()))
-         if len(added_comments) > 0:
-            print(f'\tComments: Added {added_comments}')
-            for key in added_comments:
-               comment = new_comments[key]
-               self.relation_cache_add(['users', comment.get('author'), 'comments', issue.id], key)
-               self.relation_cache_add(['users', comment.get('updateAuthor'), 'edits', issue.id], key)
-         if len(removed_comments) > 0:
-            print(f'\tComments: Removed {removed_comments}')
-            for key in removed_comments:
-               comment = old_comments[key]
-               self.relation_cache_remove(['users', comment.get('author'), 'comments', issue.id], key)
-               self.relation_cache_remove(['users', comment.get('updateAuthor'), 'edits', issue.id], key)
-         for key in shared_comments:
-            old_comment = old_comments[key]
-            new_comment = old_comments[key]
-            # possibly impossible for author to change, updateAuthor can though
-            if old_comment.get('author') != new_comment.get('author'):
-               print(f'\tComment {key} author: {old_comment.get('author')} -> {new_comment.get('author')}')
-               self.relation_cache_add(['users', new_comment.get('author'), 'comments', issue.id], key)
-               self.relation_cache_remove(['users', old_comment.get('author'), 'comments', issue.id], key)
-            if old_comment.get('updateAuthor') != new_comment.get('updateAuthor'):
-               print(f'\tComment {key} author: {old_comment.get('updateAuthor')} -> {new_comment.get('updateAuthor')}')
-               self.relation_cache_add(['users', new_comment.get('updateAuthor'), 'edits', issue.id], key)
-               self.relation_cache_remove(['users', old_comment.get('updateAuthor'), 'edits', issue.id], key)
-         # assume history is append-only (entries are never removed or modified)
-         old_history = self.key_by([] if existing_data is None else navigate_dict(existing_data, ['changelog', 'histories']), 'id')
-         new_history = self.key_by(navigate_dict(data, ['changelog', 'histories']), 'id')
-         added_history = new_history.keys() - old_history.keys()
-         if len(added_history) > 0:
-            print(f'\tHistory: Added {added_history}')
-            for key in added_history:
-               change = new_history[key]
-               self.relation_cache_add(['users', change['author'], 'changes', issue.id], key)
-               for item in change['items']:
-                  if item['field'] == 'Key':
-                     self.ids_cache['issues'][item['fromString']] = issue.id
          return True
       else:
          print(f'Ticket {issue.key} ({issue.id}) already up-to-date')
@@ -473,10 +323,8 @@ def refresh(dump: Archive, dry: bool):
    print('Connecting...')
    client = get_client()
    print('Fetching metas...')
-   css = client._session.get('https://launchermeta.mojang.com/mc/jira/mojira.css')
    if not dry:
-      with open(dump.dump_folder / 'assets/mojira.css', 'wb') as css_file:
-         css_file.write(css.content)
+      urllib.request.urlretrieve('https://launchermeta.mojang.com/mc/jira/mojira.css', dump.dump_folder / 'assets/mojira.css')
    dump.fetch_metas(client)
    dump.save_metas(dry=dry)
    dump.save_project_avatars(client, dry=dry)
@@ -484,7 +332,6 @@ def refresh(dump: Archive, dry: bool):
    issues = get_issues(client, 'ORDER BY updated DESC')
    for issue in issues:
       result = dump.update_issue(client, issue, dry=dry)
-      dump.save_caches(dry=dry)
       if not result:
          break
 

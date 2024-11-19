@@ -36,10 +36,21 @@ def main():
       if 'fixVersions' in fields:
          for version in fields['fixVersions']:
             append(['versions', version, 'fixed'], ticket_id)
+      for label in fields['labels']:
+         append(['labels', label], ticket_id)
+      if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
+         append(['area', fields['customfield_12800']['id']], ticket_id)
+      if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
+         append(['priority', fields['customfield_12200']['id']], ticket_id)
+      if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
+         for entry in fields['customfield_11901']:
+            append(['categories', entry['id']], ticket_id)
+      if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
+         append(['confirmation', fields['customfield_10500']['id']], ticket_id)
       append(['users', fields['creator'], 'created'], ticket_id)
       append(['users', fields['reporter'], 'reported'], ticket_id)
       if 'assignee' in fields:
-         append(['users', fields['assignee'], 'assigned'], ticket_id)
+         append(['users', fields.get('assignee'), 'assigned'], ticket_id)
       for comment in fields['comment']['comments']:
          append(['users', comment.get('author'), 'comments', ticket_id], comment['id'])
          append(['users', comment.get('updateAuthor'), 'edits', ticket_id], comment['id'])
@@ -49,7 +60,7 @@ def main():
             if item['field'] == 'Key':
                ids['issues'][item['fromString']] = ticket_id
       for attachment in fields['attachment']:
-         path = dump.get_attachment_path(attachment, content=False)
+         path = dump.get_attachment_path(attachment)
          attach_data = tat.read_json(path)
          attachment_id = attach_data['id']
          append(['users', attach_data.get('author'), 'attachments', ticket_id], attachment_id)
@@ -71,6 +82,11 @@ def main():
    tat.write_json(relations['resolutions'], dump.caches_folder / 'resolutions.json', mini=True)
    tat.write_json(relations['users'], dump.caches_folder / 'users.json', mini=True)
    tat.write_json(relations['versions'], dump.caches_folder / 'versions.json', mini=True)
+   tat.write_json(relations['labels'], dump.caches_folder / 'labels.json', mini=True)
+   tat.write_json(relations['categories'], dump.caches_folder / 'categories.json', mini=True)
+   tat.write_json(relations['confirmation'], dump.caches_folder / 'confirmation.json', mini=True)
+   tat.write_json(relations['priority'], dump.caches_folder / 'priority.json', mini=True)
+   tat.write_json(relations['area'], dump.caches_folder / 'area.json', mini=True)
 
 if __name__ == '__main__':
    main()
