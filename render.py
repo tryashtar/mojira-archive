@@ -16,7 +16,8 @@ def main():
    markup_proc = markup.get_process(archive)
    with open(out_folder / 'issues/MC-4.html', 'w', encoding='utf-8') as file:
       render_issue(archive, archive.get_issue_data('11242'), file, markup_proc)
-   #render(archive, out_folder, markup_proc)
+   print('Now the rest')
+   render(archive, out_folder, markup_proc)
 
 def render(archive: mojira.Archive, out_folder: pathlib.Path, markup_proc):
    with open(out_folder / 'index.html', 'w', encoding='utf-8') as index:
@@ -61,7 +62,7 @@ def render_user(archive: mojira.Archive, user_key: str | None, depth: int):
    else:
       img = ''
    depth_str = '../' * depth
-   return f'<a class="user-hover user-avatar" rel="{escape(username)}" href="{depth_str}users/{escape(urllib.parse.quote_plus(username))}.html"><span class="username"><span class="aui-avatar aui-avatar-small">{img}</span>{escape(display_name)}</span></a>'
+   return f'<a class="user-hover" rel="{escape(username)}" href="{depth_str}users/{escape(urllib.parse.quote_plus(username))}.html"><span class="username"><span class="aui-avatar aui-avatar-small">{img}</span>{escape(display_name)}</span></a>'
 
 def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str):
    avatar_id = archive.get_avatar_id(url)
@@ -147,8 +148,16 @@ def render_version_list(archive: mojira.Archive, project, versions, depth: int):
 
 def render_version(version, depth: int):
    depth_str = '../' * depth
-   return f'<a href="{depth_str}versions/{version['id']}.html">{version['name']}</a>'
-   
+   return f'<a href="{depth_str}versions/{escape(version['name'])}.html">{escape(version['name'])}</a>'
+
+def render_ticket_link(ticket, depth: int):
+   depth_str = '../' * depth
+   linkpart = f'<a href="{depth_str}issues/{ticket['key']}.html">{ticket['key']}</a>'
+   summarypart = ticket['fields']['summary']
+   if ticket['fields']['resolution'] is not None:
+      return f'<s>{linkpart}</s> {summarypart}'
+   else:
+      return f'{linkpart} {summarypart}'
 
 def render_issue(archive: mojira.Archive, issue, file, markup_proc):
    key = issue['key']
@@ -174,7 +183,8 @@ def render_issue(archive: mojira.Archive, issue, file, markup_proc):
       file.write(f'<dt>Resolved</dt><dd>{render_date(issue['fields']['resolutiondate'])}</dd>')
    file.write('</div>')
    file.write('<div class="field-section"><dl>')
-   file.write(f'<dt>Confirmation Status</dt><dd>{escape(issue['fields']['customfield_10500']['value'])}</dd>')
+   if issue['fields'].get('customfield_10500') is not None:
+      file.write(f'<dt>Confirmation Status</dt><dd>{escape(issue['fields']['customfield_10500']['value'])}</dd>')
    file.write(f'<dt>Resolution</dt><dd>{render_resolution(archive, issue['fields']['resolution'], depth=1)}</dd>')
    file.write(f'<dt>Created</dt><dd>{render_date(issue['fields']['created'])}</dd>')
    file.write(f'<dt>Updated</dt><dd>{render_date(issue['fields']['updated'])}</dd>')
@@ -185,23 +195,51 @@ def render_issue(archive: mojira.Archive, issue, file, markup_proc):
    fixed_list = render_version_list(archive, archive.projects[issue['fields']['project']], issue['fields']['fixVersions'], depth=1)
    file.write(f'<dt>Affects Versions</dt><dd>{version_list}</dd>')
    file.write(f'<dt>Fixed Versions</dt><dd>{fixed_list}</dd>')
-   file.write(f'<dt>Labels</dt><dd>{' '.join([escape(x) for x in issue['fields']['labels']])}</dd>')
-   file.write(f'<dt>Category</dt><dd>{' '.join([escape(x['value']) for x in issue['fields']['customfield_11901']])}</dd>')
-   file.write(f'<dt>Area</dt><dd>{escape(issue['fields']['customfield_12800']['value'])}</dd>')
-   file.write(f'<dt>Mojang Priority</dt><dd>{escape(issue['fields']['customfield_12200']['value'])}</dd>')
+   file.write(f'<dt>Labels</dt><dd>{'-' if len(issue['fields']['labels']) == 1 else ', '.join([f'<a href="../labels/{escape(x)}.html"><code>{escape(x)}</code></a>' for x in issue['fields']['labels']])}</dd>')
+   if issue['fields'].get('customfield_11901') is not None:
+      file.write(f'<dt>Category</dt><dd>{'-' if len(issue['fields']['customfield_11901']) == 1 else ', '.join([f'<a href="../category/{escape(x['value'])}.html">{escape(x['value'])}</a>' for x in issue['fields']['customfield_11901']])}</dd>')
+   if issue['fields'].get('customfield_12800') is not None:
+      area_val = issue['fields']['customfield_12800']['value']
+      file.write(f'<dt>Area</dt><dd><a href="../area/{area_val}.html">{escape(area_val)}</a></dd>')
+   if issue['fields'].get('customfield_12200') is not None:
+      prio_val = issue['fields']['customfield_12200']['value']
+      file.write(f'<dt>Mojang Priority</dt><dd><a href="../priority/{prio_val}.html">{escape(prio_val)}</a></dd>')
    file.write('</dl></div><hr/>')
    desc = issue['fields']['description']
    if desc is not None:
       rendered_summary = markup.convert(markup_proc, desc, issue['id'])
       file.write(f'<div class="description">{rendered_summary}</div>')
-   file.write('<hr/><div class="comment-section">')
+   file.write('<hr/><div class="links">')
+   link_types = {}
+   issue_links = issue['fields']['issuelinks']
+   for link in issue_links:
+      identity = (link['type'], 'inwardIssue' in link)
+      if identity not in link_types:
+         link_types[identity] = []
+      link_types[identity].append(link)
+   for (ltype,inward),links in link_types.items():
+      link_desc = (archive.link_types[ltype])['inward' if inward else 'outward']
+      if len(links) <= 5:
+         num = 'issue' if len(links) == 1 else 'issues'
+         file.write(f'<span class="subtle">{escape(link_desc)}:</span> {len(links)} {num}<ul class="link-list">')
+         for link in links:
+            relevant_ticket = archive.get_issue_data(link['inwardIssue' if inward else 'outwardIssue'])
+            file.write(f'<li>{render_ticket_link(relevant_ticket, depth=1)}</li>')
+         file.write('</ul>')
+      else:
+         file.write(f'<details><summary><span class="subtle">{escape(link_desc)}:</span> {len(links)} issues</summary><ul class="link-list">')
+         for link in links:
+            relevant_ticket = archive.get_issue_data(link['inwardIssue' if inward else 'outwardIssue'])
+            file.write(f'<li>{render_ticket_link(relevant_ticket, depth=1)}</li>')
+         file.write('</ul></details>')
+   file.write('</div><hr/><div class="comment-section">')
    for comment in issue['fields']['comment']['comments']:
       render_comment(archive, issue, comment, file, markup_proc)
    file.write('</div></body></html>')
 
 def render_comment(archive, issue, comment, file, markup_proc):
    file.write('<div class="comment">')
-   file.write(f'<details open><summary>{render_user(archive, comment['author'], depth=1)} - <span class="subtle">{render_date(comment['created'])}</span></summary><div class="comment-content">')
+   file.write(f'<details open><summary>{render_user(archive, comment.get('author'), depth=1)} - <span class="subtle">{render_date(comment['created'])}</span></summary><div class="comment-content">')
    rendered_text = markup.convert(markup_proc, comment['body'], issue['id'])
    file.write(rendered_text)
    file.write('</div></details></div>')

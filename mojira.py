@@ -333,7 +333,7 @@ def refresh(dump: Archive, dry: bool):
    for issue in issues:
       result = dump.update_issue(client, issue, dry=dry)
       if not result:
-         break
+         pass
 
 def get_client() -> jira.JIRA:
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
