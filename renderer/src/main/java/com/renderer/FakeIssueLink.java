@@ -24,7 +24,7 @@ public class FakeIssueLink extends Link {
             if (issue != null) {
                 this.title = issue.getSummary();
                 this.issueKey = issue.getKey();
-                this.url = context.getBaseUrl() + "/browse/" + this.issueKey;
+                this.url = context.getBaseUrl() + "/issues/" + this.issueKey + ".html";
                 if (issue.getResolution() != null) {
                     this.linkBody = "-" + (linkTitle == null ? key : linkTitle) + "-";
                 } else {

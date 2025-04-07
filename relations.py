@@ -1,3 +1,13 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "tryashtools",
+#     "jira",
+#     "pyyaml"
+# ]
+# [tool.uv.sources]
+# tryashtools = { git = "https://github.com/tryashtar/tryashtools" }
+# ///
 import mojira
 import bisect
 import tryashtools as tat

@@ -1,12 +1,15 @@
-import dictdiffer
 import tryashtools as tat
+import mojira
 
-files = ['groups.json', 'issue_keys.json', 'projects.json', 'resolutions.json', 'user_keys.json', 'users.json', 'versions.json']
-for file in files:
-   print(file)
-   f1 = tat.read_json(f'/d/Archives/Mojira/caches-full/{file}')
-   f2 = tat.read_json(f'/d/Archives/Mojira/caches-incremental/{file}')
-   diffs = dictdiffer.diff(f1, f2)
-   for diff in diffs:
-      print(diff)
-   print()
+most_dupes = 0
+archive = mojira.get_archive()
+for issue in archive.tickets():
+   my_dupes = 0
+   for entry in issue['changelog']['histories']:
+      for change in entry['items']:
+         if change['field'] == 'Link' and ((change['toString'] is not None and 'duplicate' in change['toString']) or (change['fromString'] is not None and 'duplicate' in change['fromString'])):
+            my_dupes += 1
+   if my_dupes > most_dupes:
+      most_dupes = my_dupes
+      print(issue['key'], my_dupes)
+   

@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "jira",
+# ]
+# ///
 import os
 import jira.client
 import jira.exceptions
@@ -322,18 +328,24 @@ def fetch_users(dump: Archive, users: list[str], dry: bool):
 def refresh(dump: Archive, dry: bool):
    print('Connecting...')
    client = get_client()
-   print('Fetching metas...')
-   if not dry:
-      urllib.request.urlretrieve('https://launchermeta.mojang.com/mc/jira/mojira.css', dump.dump_folder / 'assets/mojira.css')
-   dump.fetch_metas(client)
-   dump.save_metas(dry=dry)
-   dump.save_project_avatars(client, dry=dry)
-   print('Checking issues...')
-   issues = get_issues(client, 'ORDER BY updated DESC')
-   for issue in issues:
-      result = dump.update_issue(client, issue, dry=dry)
-      if not result:
-         pass
+   while True:
+      try:
+         print('Fetching metas...')
+         if not dry:
+            urllib.request.urlretrieve('https://launchermeta.mojang.com/mc/jira/mojira.css', dump.dump_folder / 'assets/mojira.css')
+         dump.fetch_metas(client)
+         dump.save_metas(dry=dry)
+         dump.save_project_avatars(client, dry=dry)
+         print('Checking issues...')
+         issues = get_issues(client, 'ORDER BY updated DESC')
+         for i,issue in enumerate(issues):
+            result = dump.update_issue(client, issue, dry=dry)
+            if not result:
+               pass
+            if i >= 99:
+               break
+      except Exception as e:
+         print(e)
 
 def get_client() -> jira.JIRA:
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:

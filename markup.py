@@ -14,11 +14,11 @@ def main():
    print('Checking...')
    check_tests(dump, extended=True, show_passed=False)
 
-def get_process(dump: mojira.Archive):
+def get_process(dump: mojira.Archive, root: str):
    print('Configuring...')
-   input_args = {'issues':str(dump.tickets_folder),'users':str(dump.users_folder),'attachments':str(dump.attachments_folder)}
+   input_args = {'issues':str(dump.tickets_folder),'users':str(dump.users_folder),'attachments':str(dump.attachments_folder),'root':root}
    print('Compiling...')
-   #subprocess.run(['mvn', 'package'], cwd='renderer', check=True, stdout=subprocess.DEVNULL)
+   subprocess.run(['mvn', 'package'], cwd='renderer', check=True, stdout=subprocess.DEVNULL)
    print('Starting...')
    process = subprocess.Popen(['java', '-jar', 'renderer/target/renderer-1.0-SNAPSHOT-shaded.jar', json.dumps(input_args)], encoding='utf-8', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
    issue_map = {k: int(v) for k, v in dump.ids_cache['issues'].items()}
@@ -52,7 +52,7 @@ def check_tests(dump: mojira.Archive, extended=False, show_passed=True):
    failed = 0
    passed = 0
    ids = tat.read_json(dump.root_folder / 'ids.json')
-   process = get_process(dump, ids)
+   process = get_process(dump, '.')
    file_tests = pathlib.Path('tests.json')
    folder_tests = pathlib.Path('/d/Archives/Mojira/markup-tests/tickets') if extended else None
    tests = get_tests(file_tests, folder_tests)

@@ -13,7 +13,7 @@ def main():
       render_index(archive, index)
    with open(out_folder / 'projects/MC.html', 'w', encoding='utf-8') as file:
       render_project(archive, archive.projects['10400'], file)
-   markup_proc = markup.get_process(archive)
+   markup_proc = markup.get_process(archive, '..')
    with open(out_folder / 'issues/MC-4.html', 'w', encoding='utf-8') as file:
       render_issue(archive, archive.get_issue_data('11242'), file, markup_proc)
    print('Now the rest')
@@ -58,7 +58,7 @@ def render_user(archive: mojira.Archive, user_key: str | None, depth: int):
    avatar_url = user_data['avatarUrls']['48x48']
    avatar_path = get_avatar_path(archive, archive.users_avatars_folder, avatar_url)
    if avatar_path is not None:
-      img = f'<img src="{avatar_path}"/>'
+      img = f'<img src="{avatar_path}" width="16" height="16"/>'
    else:
       img = ''
    depth_str = '../' * depth
@@ -79,7 +79,7 @@ def render_project_key(archive: mojira.Archive, project, depth: int):
    avatar_url = project['avatarUrls']['48x48']
    avatar_path = get_avatar_path(archive, archive.project_avatars_folder, avatar_url)
    if avatar_path is not None:
-      img = f'<img src="{avatar_path}"/>'
+      img = f'<img src="{avatar_path}" width="32" height="32"/>'
    else:
       img = ''
    depth_str = '../' * depth
@@ -191,13 +191,15 @@ def render_issue(archive: mojira.Archive, issue, file, markup_proc):
    file.write('</dl></div>')
    file.write('</div></div></div>')
    file.write('<div class="details"><dl>')
-   version_list = render_version_list(archive, archive.projects[issue['fields']['project']], issue['fields']['versions'], depth=1)
-   fixed_list = render_version_list(archive, archive.projects[issue['fields']['project']], issue['fields']['fixVersions'], depth=1)
-   file.write(f'<dt>Affects Versions</dt><dd>{version_list}</dd>')
-   file.write(f'<dt>Fixed Versions</dt><dd>{fixed_list}</dd>')
-   file.write(f'<dt>Labels</dt><dd>{'-' if len(issue['fields']['labels']) == 1 else ', '.join([f'<a href="../labels/{escape(x)}.html"><code>{escape(x)}</code></a>' for x in issue['fields']['labels']])}</dd>')
+   if 'versions' in issue['fields']:
+      version_list = render_version_list(archive, archive.projects[issue['fields']['project']], issue['fields']['versions'], depth=1)
+      file.write(f'<dt>Affects Versions</dt><dd>{version_list}</dd>')
+   if 'fixVersions' in issue['fields']:
+      fixed_list = render_version_list(archive, archive.projects[issue['fields']['project']], issue['fields']['fixVersions'], depth=1)
+      file.write(f'<dt>Fixed Versions</dt><dd>{fixed_list}</dd>')
+   file.write(f'<dt>Labels</dt><dd>{'-' if len(issue['fields']['labels']) == 0 else ', '.join([f'<a href="../labels/{escape(x)}.html"><code>{escape(x)}</code></a>' for x in issue['fields']['labels']])}</dd>')
    if issue['fields'].get('customfield_11901') is not None:
-      file.write(f'<dt>Category</dt><dd>{'-' if len(issue['fields']['customfield_11901']) == 1 else ', '.join([f'<a href="../category/{escape(x['value'])}.html">{escape(x['value'])}</a>' for x in issue['fields']['customfield_11901']])}</dd>')
+      file.write(f'<dt>Category</dt><dd>{'-' if len(issue['fields']['customfield_11901']) == 0 else ', '.join([f'<a href="../category/{escape(x['value'])}.html">{escape(x['value'])}</a>' for x in issue['fields']['customfield_11901']])}</dd>')
    if issue['fields'].get('customfield_12800') is not None:
       area_val = issue['fields']['customfield_12800']['value']
       file.write(f'<dt>Area</dt><dd><a href="../area/{area_val}.html">{escape(area_val)}</a></dd>')

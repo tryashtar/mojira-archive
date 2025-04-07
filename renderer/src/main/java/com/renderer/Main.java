@@ -19,13 +19,15 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 public class Main {
+    private static String siteRoot = null;
     public static void main(String[] args) {
         Logger.getRootLogger().setLevel(Level.OFF);
         var configuration = JsonParser.parseString(args[0]).getAsJsonObject();
+        siteRoot = configuration.get("root").getAsString();
         var attachmentManager = new FakeAttachmentManager(Path.of(configuration.get("attachments").getAsString()));
         var issueManager = new FakeIssueManager(attachmentManager, Path.of(configuration.get("issues").getAsString()));
         var userManager = new FakeUserManager(Path.of(configuration.get("users").getAsString()));
-        var thumbnailManager = new FakeThumbnailManager();
+        var thumbnailManager = new FakeThumbnailManager(siteRoot);
         var attachmentRenderManager = new RendererAttachmentManager(attachmentManager, thumbnailManager, null);
         var iconManager = new JiraIconManager();
         var keyMatcher = new FakeKeyMatcher();
@@ -64,12 +66,12 @@ public class Main {
                                                    EmbeddedResourceRenderer resourceRenderer, RendererConfiguration config) {
         var context = new RenderContext();
         context.addParam("jira.issue", issue);
-        context.setSiteRoot("https://bugs.mojang.com");
+        context.setSiteRoot(siteRoot);
         context.setImagePath(context.getSiteRoot() + "/images");
         context.setLinkRenderer(linkRenderer);
         context.setEmbeddedResourceRenderer(resourceRenderer);
         context.setCharacterEncoding(config.getCharacterEncoding());
-        context.setBaseUrl("https://bugs.mojang.com");
+        context.setBaseUrl(siteRoot);
         context.pushRenderMode(RenderMode.ALL_WITH_NO_MACRO_ERRORS);
         context.addParam("com.atlassian.renderer.v2.components.macro.render.consider.variable.format", true);
         return context;

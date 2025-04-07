@@ -14,6 +14,12 @@ import com.atlassian.jira.user.ApplicationUser;
 import com.atlassian.jira.util.io.InputStreamConsumer;
 
 public class FakeThumbnailManager implements ThumbnailManager {
+    private final String siteRoot;
+
+    public FakeThumbnailManager(String siteRoot) {
+        this.siteRoot = siteRoot;
+    }
+
     public boolean isThumbnailable(Attachment attachment) throws GenericEntityException {
         return attachment.isThumbnailable();
     }
@@ -48,7 +54,7 @@ public class FakeThumbnailManager implements ThumbnailManager {
             }
 
             public String getImageURL() {
-                return "https://bugs.mojang.com/secure/thumbnail/" + getAttachmentId() + "/_thumb_" + getAttachmentId()
+                return siteRoot + "/secure/thumbnail/" + getAttachmentId() + "/_thumb_" + getAttachmentId()
                         + ".png";
             }
 
