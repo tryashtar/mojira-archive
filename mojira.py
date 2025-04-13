@@ -342,15 +342,13 @@ def refresh(dump: Archive, dry: bool):
             result = dump.update_issue(client, issue, dry=dry)
             if not result:
                pass
-            if i >= 99:
-               break
       except Exception as e:
          print(e)
 
 def get_client() -> jira.JIRA:
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
       key = file.read()
-   client = jira.JIRA('https://bugs.mojang.com', token_auth=key)
+   client = jira.JIRA('https://bugs-legacy.mojang.com', token_auth=key)
    return client
 
 def get_user(client: jira.JIRA, key: str, expand: str | None) -> jira.User:
