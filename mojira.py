@@ -18,7 +18,7 @@ def main():
    refresh(archive, dry=False)
 
 def get_root():
-   return pathlib.Path('/d/Archives/Mojira')
+   return pathlib.Path('/d/Archives/Mojira/NEW')
 
 def get_archive():
    return Archive(get_root())
@@ -91,7 +91,13 @@ class Archive:
          self.save_avatar(client, self.project_avatars_folder, project['avatarUrls']['48x48'], dry)
    
    def get_avatar_id(self, url: str):
+      if '/universal_avatar/' in url:
+         return url.split('/')[-1]
+      if 'atl-paas.net' in url:
+         return url.split('/')[-2]
       url_obj = urllib.parse.urlparse(url)
+      if 'gravatar.com' in url:
+         return url_obj.path.split('/')[-1]
       queries = urllib.parse.parse_qs(url_obj.query)
       avatarid = queries['avatarId'][0]
       return avatarid
@@ -104,6 +110,8 @@ class Archive:
          filepath = folder / (avatarid + '.svg')
       elif data.startswith(b'\x89PNG\x0d\x0a\x1a\x0a'):
          filepath = folder / (avatarid + '.png')
+      elif data.startswith(b'\xff\xd8'):
+         filepath = folder / (avatarid + '.jpg')
       else:
          raise ValueError(data)
       if not filepath.exists():
@@ -170,10 +178,10 @@ class Archive:
    def simplify_user(self, field: dict[str, typing.Any], key: str):
       if field.get(key) is None:
          return
-      user_key = field[key]['key']
+      user_key = field[key]['accountId']
       if user_key not in self.seen_users:
          self.new_users[user_key] = field[key]
-      self.simplify_field(field, key, 'key')
+      self.simplify_field(field, key, 'accountId')
 
    def simplify_field(self, field: dict[str, typing.Any], key: str, simple_key: str='id'):
       if key not in field:
@@ -241,9 +249,9 @@ class Archive:
             if not dry and unknown_path.exists():
                os.remove(unknown_path)
             if not write_path.exists():
-               print(f'\tNew user: {user_data['name']} ({user_data['key']})')
+               print(f'\tNew user: {user_data['displayName']} ({user_data['accountId']})')
             elif user_data != old_data:
-               print(f'\tUpdate user: {user_data['name']} ({user_data['key']})')
+               print(f'\tUpdate user: {user_data['displayName']} ({user_data['accountId']})')
             if not dry:
                self.users_folder.mkdir(parents=True, exist_ok=True)
                with open(write_path, 'w', encoding='utf-8') as file:
@@ -329,7 +337,6 @@ def refresh(dump: Archive, dry: bool):
    print('Connecting...')
    client = get_client()
    while True:
-      try:
          print('Fetching metas...')
          if not dry:
             urllib.request.urlretrieve('https://launchermeta.mojang.com/mc/jira/mojira.css', dump.dump_folder / 'assets/mojira.css')
@@ -342,20 +349,18 @@ def refresh(dump: Archive, dry: bool):
             result = dump.update_issue(client, issue, dry=dry)
             if not result:
                pass
-      except Exception as e:
-         print(e)
 
 def get_client() -> jira.JIRA:
-   with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
-      key = file.read()
-   client = jira.JIRA('https://bugs-legacy.mojang.com', token_auth=key)
+   with open('/d/Documents/Sensitive/new mojira key.txt', 'r', encoding='utf-8') as file:
+      email,password = file.read().splitlines()
+   client = jira.JIRA('https://mojira.atlassian.net', basic_auth=(email, password))
    return client
 
 def get_user(client: jira.JIRA, key: str, expand: str | None) -> jira.User:
    user = jira.User(
       client._options,
       client._session,
-      _query_param="key"
+      _query_param="accountId"
    )
    params = {}
    if expand is not None:
