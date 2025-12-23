@@ -3,7 +3,6 @@ import pathlib
 import html
 import datetime
 import urllib.parse
-import tryashtools as tat
 import markup
 
 def main():
@@ -34,12 +33,13 @@ def render(archive: mojira.Archive, out_folder: pathlib.Path, markup_proc):
       tickets = archive.relations_cache['projects'][project_id]
       for ticket_id in tickets:
          ticket_data = archive.get_issue_data(ticket_id)
+         assert ticket_data is not None
          file_path = out_folder / 'issues' / (ticket_data['key'] + '.html')
          with open(file_path, 'w', encoding='utf-8') as file:
             render_issue(archive, ticket_data, file, markup_proc)
 
 def render_index(archive: mojira.Archive, file):
-   file.write('<!DOCTYPE html><html><head><link rel="stylesheet" href="style.css"/><link rel="stylesheet" href="../dump/assets/mojira.css"/><title>Mojira Archive</title></head><body><h1>Mojira Archive</h1><table><tr><th>Project</th><th>Name</th><th>Issues</th><th>Versions</th></tr>')
+   file.write('<!DOCTYPE html><html><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link rel="stylesheet" href="style.css"/><link rel="stylesheet" href="../dump/assets/mojira.css"/><title>Mojira Archive</title></head><body><h1>Mojira Archive</h1><table><tr><th>Project</th><th>Name</th><th>Issues</th><th>Versions</th></tr>')
    for project_id,project in archive.projects.items():
       tickets = archive.relations_cache['projects'][project_id]
       versions = project['versions']
@@ -87,7 +87,7 @@ def render_project_key(archive: mojira.Archive, project, depth: int):
 
 def get_sorter():
    return '''const getCellValue = (tr, idx) => tr.children[idx].innerText || tr.children[idx].textContent;
-const comparer = (idx, asc) => (a, b) => ((v1, v2) => 
+const comparer = (idx, asc) => (a, b) => ((v1, v2) =>
     v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
     )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
 document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {
@@ -106,7 +106,7 @@ def render_date(date_str):
 def render_project(archive, project, file):
    project_key = project['key']
    project_name = project['name']
-   file.write('<!DOCTYPE html><html><head><link rel="stylesheet" href="../style.css"/><link rel="stylesheet" href="../../dump/assets/mojira.css"/>')
+   file.write('<!DOCTYPE html><html><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link rel="stylesheet" href="../style.css"/><link rel="stylesheet" href="../../dump/assets/mojira.css"/>')
    file.write(f'<title>[{escape(project_key)}] {escape(project_name)}</title>')
    file.write('</head><body>')
    file.write(f'<h1><a href="../index.html">Projects</a> / <a href="https://bugs.mojang.com/projects/{project_key}/summary">{escape(project_key)}</a></h1><h2>{escape(project_name)}</h2>')
@@ -163,7 +163,7 @@ def render_issue(archive: mojira.Archive, issue, file, markup_proc):
    key = issue['key']
    print(key)
    summary = issue['fields']['summary']
-   file.write('<!DOCTYPE html><html><head><link rel="stylesheet" href="../style.css"/><link rel="stylesheet" href="../../dump/assets/mojira.css"/><title>')
+   file.write('<!DOCTYPE html><html><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link rel="stylesheet" href="../style.css"/><link rel="stylesheet" href="../../dump/assets/mojira.css"/><title>')
    file.write(f'[{escape(key)}] {escape(summary)}')
    file.write('</title></head><body class="flush">')
    file.write('<div class="title"><div class="flex">')

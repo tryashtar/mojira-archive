@@ -1,8 +1,6 @@
 import pathlib
-import typing
 import jira
 import mojira
-import tryashtools as tat
 import html
 import subprocess
 import json
@@ -21,6 +19,7 @@ def get_process(dump: mojira.Archive, root: str):
    subprocess.run(['mvn', 'package'], cwd='renderer', check=True, stdout=subprocess.DEVNULL)
    print('Starting...')
    process = subprocess.Popen(['java', '-jar', 'renderer/target/renderer-1.0-SNAPSHOT-shaded.jar', json.dumps(input_args)], encoding='utf-8', stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+   assert process.stdin is not None
    issue_map = {k: int(v) for k, v in dump.ids_cache['issues'].items()}
    user_map = {k.lower(): v for k, v in dump.ids_cache['users'].items()}
    process.stdin.write(json.dumps({'type':'configure','issue_map':issue_map,'user_map':user_map}) + '\n')
@@ -28,30 +27,36 @@ def get_process(dump: mojira.Archive, root: str):
    return process
 
 def convert(process: subprocess.Popen, markup: str, key: int | None):
+   assert process.stdin is not None
    process.stdin.write((json.dumps({'type':'render','markup':markup,'issue':key}) + '\n'))
    process.stdin.flush()
+   assert process.stdout is not None
    output_text = process.stdout.readline()
    output = json.loads(output_text)
    return output['rendered']
 
 def get_tests(test_file: pathlib.Path | None, folder: pathlib.Path | None):
    if test_file is not None:
-      tests = tat.read_json(test_file)
+      with open(test_file, 'r', encoding='utf-8') as file:
+         tests = json.load(file)
       for test in tests:
          test['source'] = f'index {test['index']}'
          yield {'markup':test['in'], 'rendered':test['out'], 'key':test.get('key'), 'source':f'test index {test['index']}'}
    if folder is not None:
-      for file in tat.get_files(folder):
-         name = tat.base_name(file)
-         key = int(name)
-         markup_data = tat.read_json(file)
-         for i,entry in enumerate(markup_data):
-            yield {'markup':entry['markup'], 'rendered':entry['rendered'], 'key':key, 'source':f'markup {name} index {i}','file':file}
+      for path in folder.iterdir():
+         if path.is_file():
+            name = path.stem
+            key = int(name)
+            with open(path, 'r', encoding='utf-8') as file:
+               markup_data = json.load(file)
+            for i,entry in enumerate(markup_data):
+               yield {'markup':entry['markup'], 'rendered':entry['rendered'], 'key':key, 'source':f'markup {name} index {i}','file':file}
 
 def check_tests(dump: mojira.Archive, extended=False, show_passed=True):
    failed = 0
    passed = 0
-   ids = tat.read_json(dump.root_folder / 'ids.json')
+   #with open(dump.root_folder / 'ids.json', 'r', encoding='utf-8') as file:
+   #   ids = json.load(file)
    process = get_process(dump, '.')
    file_tests = pathlib.Path('tests.json')
    folder_tests = pathlib.Path('/d/Archives/Mojira/markup-tests/tickets') if extended else None
@@ -96,12 +101,14 @@ def render_from_jira(client: jira.JIRA, markup: str, key: str | None):
       if '-' not in str(key):
          key = client.issue(key).key
       post_data['issueKey'] = key
+   assert client._session is not None
    result = client._session.post('https://bugs.mojang.com/rest/api/1.0/render', json=post_data)
    return result.content.decode('utf-8')
 
 def update_tests():
    client = None
-   tests = tat.read_json('tests.json')
+   with open('tests.json', 'r', encoding='utf-8') as file:
+      tests = json.load(file)
    i = 0
    for test in tests:
       if 'out' not in test:
@@ -109,11 +116,13 @@ def update_tests():
          if client is None:
             client = mojira.get_client()
          test['out'] = render_from_jira(client, test['in'], test.get('key'))
-      tat.write_text(f'<!DOCTYPE html><html><head><link rel="stylesheet" href="wiki.css"></head><div style="background-color:#DDD;display:inline-block">\n\n<pre>{html.escape(test['in'])}</pre>\n\n</div><br/><br/><div class="wiki-edit" style="background-color:#CCC;display:inline-block"><div class="wiki-edit-content">\n\n{test['out']}\n\n</div></div></html>', f'markup-tests/{i}.html')
+      with open(f'markup-tests/{i}.html', 'w', encoding='utf-8') as file:
+         file.write(f'<!DOCTYPE html><html><head><link rel="stylesheet" href="wiki.css"></head><div style="background-color:#DDD;display:inline-block">\n\n<pre>{html.escape(test['in'])}</pre>\n\n</div><br/><br/><div class="wiki-edit" style="background-color:#CCC;display:inline-block"><div class="wiki-edit-content">\n\n{test['out']}\n\n</div></div></html>')
       test['index'] = i
       i += 1
    if client is not None:
-      tat.write_json(tests, 'tests.json')
+      with open('tests.json', 'w', encoding='utf-8') as file:
+         json.dump(tests, file)
 
 if __name__ == '__main__':
    main()

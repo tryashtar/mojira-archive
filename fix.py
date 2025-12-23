@@ -1,4 +1,3 @@
-import tryashtools as tat
 import mojira
 
 most_dupes = 0
@@ -12,4 +11,3 @@ for issue in archive.tickets():
    if my_dupes > most_dupes:
       most_dupes = my_dupes
       print(issue['key'], my_dupes)
-   

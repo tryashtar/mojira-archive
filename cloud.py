@@ -1,23 +1,15 @@
-# /// script
-# requires-python = ">=3.13"
-# dependencies = [
-#     "tryashtools",
-#     "jira",
-#     "pyyaml"
-# ]
-# [tool.uv.sources]
-# tryashtools = { git = "https://github.com/tryashtar/tryashtools" }
-# ///
-import jira.client
+import jira
 import mojira
-import tryashtools as tat
 import re
+import json
 
-credentials = tat.read_lines('/d/Documents/Sensitive/mojira key.txt')
+with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
+   credentials = [x.rstrip('\n') for x in file.readlines()]
 client = jira.JIRA('https://mojira-sandbox-381.atlassian.net', basic_auth=(credentials[0], credentials[1]))
 
 dump = mojira.get_archive()
-ticket_ids = tat.read_json('/d/Archives/Mojira/caches/issue_keys.json')
+with open('/d/Archives/Mojira/caches/issue_keys.json', 'r', encoding='utf-8') as file:
+   ticket_ids = json.load(file)
 
 print('Starting')
 results = {}
@@ -45,4 +37,5 @@ for i,ticket in enumerate(mojira.get_issues(client, 'ORDER BY created ASC')):
          if ticket.key not in results:
             results[ticket.key] = []
          results[ticket.key].append(comment.raw)
-tat.write_json(results, '/d/Archives/Mojira/dump/secret_comments.json')
+with open('/d/Archives/Mojira/dump/secret_comments.json', 'w', encoding='utf-8') as file:
+   json.dump(results, file)

@@ -1,10 +1,3 @@
-# /// script
-# requires-python = ">=3.13"
-# dependencies = [
-#     "jira",
-# ]
-# ///
-import os
 import jira.client
 import jira.exceptions
 import pathlib
@@ -36,7 +29,7 @@ class Archive:
       self.users_avatars_folder = self.dump_folder / 'avatars/users'
       self.new_users = {}
       self.seen_users = set()
-      
+
       self.fields_path = self.dump_folder / 'fields.json'
       self.fields = self.load_meta(self.fields_path)
       self.issue_types_path = self.dump_folder / 'issue_types.json'
@@ -89,7 +82,7 @@ class Archive:
    def save_project_avatars(self, client: jira.JIRA, dry: bool):
       for project in self.projects.values():
          self.save_avatar(client, self.project_avatars_folder, project['avatarUrls']['48x48'], dry)
-   
+
    def get_avatar_id(self, url: str):
       if '/universal_avatar/' in url:
          return url.split('/')[-1]
@@ -101,17 +94,26 @@ class Archive:
       queries = urllib.parse.parse_qs(url_obj.query)
       avatarid = queries['avatarId'][0]
       return avatarid
-   
+
    def save_avatar(self, client: jira.JIRA, folder: pathlib.Path, url: str, dry: bool):
+      if url.startswith('avatar-management'):
+         url = 'https://' + url
       avatarid = self.get_avatar_id(url)
+      svgpath = folder / (avatarid + '.svg')
+      pngpath = folder / (avatarid + '.png')
+      jpgpath = folder / (avatarid + '.jpg')
+      if svgpath.exists() or pngpath.exists() or jpgpath.exists():
+         return
+      print(f'Saving avatar {url}')
+      assert client._session is not None
       response = client._session.get(url)
       data = response.content
       if data.startswith(b'<svg') or data.startswith(b'<?xml'):
-         filepath = folder / (avatarid + '.svg')
+         filepath = svgpath
       elif data.startswith(b'\x89PNG\x0d\x0a\x1a\x0a'):
-         filepath = folder / (avatarid + '.png')
+         filepath = pngpath
       elif data.startswith(b'\xff\xd8'):
-         filepath = folder / (avatarid + '.jpg')
+         filepath = jpgpath
       else:
          raise ValueError(data)
       if not filepath.exists():
@@ -120,16 +122,16 @@ class Archive:
             folder.mkdir(parents=True, exist_ok=True)
             with open(filepath, 'wb') as file:
                file.write(data)
-   
+
    def load_meta(self, path: pathlib.Path) -> dict[str, typing.Any]:
       data = self.load_or(path, {})
       data = self.key_by(data, 'id')
       return data
-   
+
    def save_meta(self, data: dict[str, typing.Any], path: pathlib.Path):
       with open(path, 'w', encoding='utf-8') as file:
          json.dump(list(data.values()), file, indent=3)
-   
+
    def fetch_metas(self, client: jira.JIRA):
       projects = [client.project(x.id, expand='description,lead,url') for x in client.projects()]
       self.fields = self.key_by(client.fields(), 'id')
@@ -143,14 +145,14 @@ class Archive:
       self.resolutions = self.key_by([p.raw for p in client.resolutions()], 'id')
       self.statuses = self.key_by([p.raw for p in client.statuses()], 'id')
       self.link_types = self.key_by([p.raw for p in client.issue_link_types()], 'id')
-   
+
    def fetch_issues(self, client: jira.JIRA, query: str, dry: bool):
       if not dry:
          self.attachments_folder.mkdir(parents=True, exist_ok=True)
          self.tickets_folder.mkdir(parents=True, exist_ok=True)
       for issue in get_issues(client, query):
          self.update_issue(client, issue, dry=dry)
-   
+
    def simplify_issue(self, issue: dict[str, typing.Any]):
       fields = issue['fields']
       self.simplify_field(fields, 'issuetype')
@@ -192,12 +194,12 @@ class Archive:
          for i in range(len(field[key])):
             if isinstance(field[key][i], dict):
                field[key][i] = field[key][i][simple_key]
-   
+
    def get_attachment_path(self, attach_id: str) -> pathlib.Path:
       return self.attachments_folder / (attach_id + '.json')
-   
+
    def get_attachment_content_path(self, attach_id: str, file_name: str) -> pathlib.Path:
-      extension = os.path.splitext(file_name)[1]
+      extension = pathlib.PurePath(file_name).suffix
       return self.attachments_content_folder / (attach_id + extension)
 
    def get_issue_data(self, issue_id: str):
@@ -220,11 +222,11 @@ class Archive:
 
    def get_issue_path(self, issue_id: str) -> pathlib.Path:
       return self.tickets_folder / (issue_id + '.json')
-   
+
    def get_user_path(self, key: str, unknown=False) -> pathlib.Path:
       base_folder = self.unknown_users_folder if unknown else self.users_folder
       return base_folder / (urllib.parse.quote_plus(key) + '.json')
-   
+
    def flush_users(self, client: jira.JIRA, dry: bool):
       for key,value in self.new_users.items():
          known_path = self.get_user_path(key, unknown=False)
@@ -247,7 +249,7 @@ class Archive:
                with open(unknown_path, 'r', encoding='utf-8') as file:
                   old_data = json.load(file)
             if not dry and unknown_path.exists():
-               os.remove(unknown_path)
+               unknown_path.unlink()
             if not write_path.exists():
                print(f'\tNew user: {user_data['displayName']} ({user_data['accountId']})')
             elif user_data != old_data:
@@ -260,7 +262,7 @@ class Archive:
             self.save_avatar(client, self.users_avatars_folder, avatar_url, dry=dry)
          self.seen_users.add(key)
       self.new_users = {}
-   
+
    def key_by(self, items: list[dict[str, typing.Any]], key: str) -> dict[str, dict[str, typing.Any]]:
       result = {}
       for item in items:
@@ -324,7 +326,7 @@ def fetch_issues(dump: Archive, query: str, dry: bool):
    client = get_client()
    print('Fetching issues...')
    dump.fetch_issues(client, query, dry=dry)
-   
+
 def fetch_users(dump: Archive, users: list[str], dry: bool):
    print('Connecting...')
    client = get_client()
@@ -357,6 +359,7 @@ def get_client() -> jira.JIRA:
    return client
 
 def get_user(client: jira.JIRA, key: str, expand: str | None) -> jira.User:
+   assert client._session is not None
    user = jira.User(
       client._options,
       client._session,
