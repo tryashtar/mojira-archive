@@ -11,7 +11,7 @@ def main():
    refresh(archive, dry=False)
 
 def get_root():
-   return pathlib.Path('/d/Archives/Mojira/NEW')
+   return pathlib.Path('/d/Archives/Mojira')
 
 def get_archive():
    return Archive(get_root())

@@ -6,4 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "jira>=3.10.5",
+    "tryashtools",
 ]
+
+[tool.uv.sources]
+tryashtools = { git = "https://github.com/tryashtar/tryashtools" }
