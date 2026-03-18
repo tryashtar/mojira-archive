@@ -1,68 +1,109 @@
+import dataclasses
+from jiratypes import Project
 import mojira
 import pathlib
-import html
 import datetime
 import urllib.parse
 import markup
+from web import HtmlFile, append_row, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
+
+@dataclasses.dataclass
+class Website:
+   root: pathlib.Path
+   project_list: HtmlFile
+   project_folder: pathlib.PurePath
+   ticket_folder: pathlib.PurePath
+   user_folder: pathlib.PurePath
+   archive: mojira.Archive
+
+def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
+   file = make_file(path, title)
+   file.page.head.append(file.page.soup.new_tag('link', rel='icon', type='image/x-icon', href=relative_link(root, file.path, pathlib.PurePath('dump/assets/favicon.ico'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('dump/assets/mojira.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('render/style.css'))))
+   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(root, file.path, pathlib.PurePath('render/script.js'))))
+   return file
+
+def save_file(website: Website, file: HtmlFile):
+   write_html(website.root / file.path, file.page)
 
 def main():
+   print('Starting...')
+   root = mojira.get_root()
    archive = mojira.get_archive()
-   out_folder = pathlib.Path('/d/Archives/Mojira/render')
-   with open(out_folder / 'index.html', 'w', encoding='utf-8') as index:
-      render_index(archive, index)
-   with open(out_folder / 'projects/MC.html', 'w', encoding='utf-8') as file:
-      render_project(archive, archive.projects['10400'], file)
-   markup_proc = markup.get_process(archive, '..')
-   with open(out_folder / 'issues/MC-4.html', 'w', encoding='utf-8') as file:
-      render_issue(archive, archive.get_issue_data('11242'), file, markup_proc)
-   print('Now the rest')
-   render(archive, out_folder, markup_proc)
-
-def render(archive: mojira.Archive, out_folder: pathlib.Path, markup_proc):
-   with open(out_folder / 'index.html', 'w', encoding='utf-8') as index:
-      render_index(archive, index)
-   for project_id,project in archive.projects.items():
+   website = Website(
+      root=root,
+      project_list=make_jira_file(root, pathlib.PurePath('render/index.html'), 'Mojira Archive'),
+      project_folder=pathlib.PurePath('render/projects'),
+      ticket_folder=pathlib.PurePath('render/issues'),
+      user_folder=pathlib.PurePath('render/users'),
+      archive=archive
+   )
+   print('Rendering...')
+   make_projects(website, website.project_list)
+   save_file(website, website.project_list)
+   for project_id, project in archive.projects.items():
       project_key = project['key']
       print(project_key)
-      file_path = out_folder / 'projects' / (project_key + '.html')
-      with open(file_path, 'w', encoding='utf-8') as file:
-         render_project(archive, project, file)
-   for project_id,project in archive.projects.items():
+      file = create_project_page(website, project)
+      save_file(website, file)
+   for project_id, project in archive.projects.items():
       project_key = project['key']
       print(project_key)
       tickets = archive.relations_cache['projects'][project_id]
       for ticket_id in tickets:
          ticket_data = archive.get_issue_data(ticket_id)
          assert ticket_data is not None
-         file_path = out_folder / 'issues' / (ticket_data['key'] + '.html')
-         with open(file_path, 'w', encoding='utf-8') as file:
-            render_issue(archive, ticket_data, file, markup_proc)
+         file = create_issue_page(website, ticket)
+         save_file(website, file)
 
-def render_index(archive: mojira.Archive, file):
-   file.write('<!DOCTYPE html><html><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link rel="stylesheet" href="style.css"/><link rel="stylesheet" href="../dump/assets/mojira.css"/><title>Mojira Archive</title></head><body><h1>Mojira Archive</h1><table><tr><th>Project</th><th>Name</th><th>Issues</th><th>Versions</th></tr>')
-   for project_id,project in archive.projects.items():
-      tickets = archive.relations_cache['projects'][project_id]
+def make_projects(website: Website, file: HtmlFile):
+   soup = file.page.soup
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   content.append(new_content_tag(soup, 'div', [
+      new_content_tag(soup, 'h1', 'Mojira Archive')
+   ], attrs={'class': 'title'}))
+   table = make_table(soup, ['Project', 'Name', 'Issues', 'Versions'])
+   for project_id, project in website.archive.projects.items():
+      tickets = website.archive.relations_cache['projects'][project_id]
       versions = project['versions']
-      file.write(f'<tr><td>{render_project_key(archive, project, depth=0)}</td><td>{escape(project['name'])}</td><td>{len(tickets)}</td><td>{len(versions)}</td></tr>')
-   js = get_sorter()
-   file.write(f'</table></body><script>{js}</script></html>')
+      project_key = project_link(website, file, project)
+      append_row(soup, table, [project_key, project['name'], str(len(tickets)), str(len(versions))])
+   content.append(table)
+   file.page.body.append(content)
 
-def render_user(archive: mojira.Archive, user_key: str | None, depth: int):
-   if user_key is None:
-      return '-'
-   user_data = archive.get_user_data(user_key)
-   if user_data is None:
-      return f'{escape(user_key)}'
-   username = user_data['name']
-   display_name = user_data['displayName']
-   avatar_url = user_data['avatarUrls']['48x48']
-   avatar_path = get_avatar_path(archive, archive.users_avatars_folder, avatar_url)
-   if avatar_path is not None:
-      img = f'<img src="{avatar_path}" width="16" height="16"/>'
-   else:
-      img = ''
-   depth_str = '../' * depth
-   return f'<a class="user-hover" rel="{escape(username)}" href="{depth_str}users/{escape(urllib.parse.quote_plus(username))}.html"><span class="username"><span class="aui-avatar aui-avatar-small">{img}</span>{escape(display_name)}</span></a>'
+def create_project_page(website: Website, project: Project):
+   project_key = project['key']
+   project_name = project['name']
+   full_title = f'[{project_key}] {project_name}'
+   file = make_jira_file(website.root, website.project_folder / (project_key + '.html'), full_title)
+   soup = file.page.soup
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   content.append(new_content_tag(soup, 'div', [
+      new_content_tag(soup, 'h1', [
+         new_content_tag(soup, 'a', 'Projects', attrs={'href': relative_link(website.root, file.path, website.project_list.path)}),
+         ' / ',
+         new_content_tag(soup, 'a', project_key, attrs={'href': f'https://bugs.mojang.com/projects/{project_key}/summary'}),
+      ])
+   ], attrs={'class': 'title'}))
+   lead = user_link(website, file, project['lead'])
+   content.append(lead)
+   desc = new_content_tag(soup, 'div', [project['description']], attrs={'class': 'project-desc'})
+   content.append(desc)
+   table = make_table(soup, ['Issues', 'Summary', 'Reporter', 'Created'])
+   project_tickets = website.archive.relations_cache['projects'][project['id']]
+   for i, issue_key in enumerate(project_tickets):
+      if i % 1000 == 0 or i == len(project_tickets) - 1:
+         print(f'{i + 1} / {len(project_tickets)}')
+      data = website.archive.get_issue_data(issue_key)
+      assert data is not None
+      reporter = user_link(website, file, data['fields']['reporter'])
+      date = render_date(data['fields']['created'])
+      link = new_content_tag(soup, 'a', data['key'], attrs={'href': relative_link(website.root, file.path, website.ticket_folder / (data['key'] + '.html'))})
+      append_row(soup, table, [link, data['fields']['summary'], reporter, date])
+   content.append(table)
+   file.page.body.append(content)
+   return file
 
 def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str):
    avatar_id = archive.get_avatar_id(url)
@@ -74,52 +115,39 @@ def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str):
       return avatar_file
    return None
 
-def render_project_key(archive: mojira.Archive, project, depth: int):
+def project_link(website: Website, file: HtmlFile, project: Project):
    key = project['key']
    avatar_url = project['avatarUrls']['48x48']
-   avatar_path = get_avatar_path(archive, archive.project_avatars_folder, avatar_url)
-   if avatar_path is not None:
-      img = f'<img src="{avatar_path}" width="32" height="32"/>'
-   else:
-      img = ''
-   depth_str = '../' * depth
-   return f'<a href="{depth_str}projects/{key}.html"><span class="project-key"><span class="project-avatar">{img}</span>{escape(key)}</span></a>'
+   avatar_path = get_avatar_path(website.archive, website.archive.project_avatars_folder, avatar_url)
+   return new_content_tag(file.page.soup, 'a', [
+      new_content_tag(file.page.soup, 'span', [
+         new_content_tag(file.page.soup, 'span', [
+            file.page.soup.new_tag('img', attrs={'src': str(relative_path(website.root, file.path, avatar_path)), 'width': '32', 'height': '32'})
+         ], attrs={'class': 'project-avatar'}),
+         key
+      ], attrs={'class':'project-key'})
+   ], attrs={'href': relative_link(website.root, file.path, website.project_folder / (key + '.html'))})
 
-def get_sorter():
-   return '''const getCellValue = (tr, idx) => tr.children[idx].innerText || tr.children[idx].textContent;
-const comparer = (idx, asc) => (a, b) => ((v1, v2) =>
-    v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
-    )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
-document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {
-    const table = th.closest('table');
-    Array.from(table.querySelectorAll('tr:nth-child(n+2)'))
-        .sort(comparer(Array.from(th.parentNode.children).indexOf(th), this.asc = !this.asc))
-        .forEach(tr => table.appendChild(tr) );
-})));'''
+def user_link(website: Website, file: HtmlFile, user_key: str | None):
+   if user_key is None:
+      return '-'
+   user_data = website.archive.get_user_data(user_key)
+   if user_data is None:
+      return user_key
+   display_name = user_data['displayName']
+   avatar_url = user_data['avatarUrls']['48x48']
+   avatar_path = get_avatar_path(website.archive, website.archive.users_avatars_folder, avatar_url)
+   return new_content_tag(file.page.soup, 'a', [
+      new_content_tag(file.page.soup, 'span', [
+         new_content_tag(file.page.soup, 'span', [
+            file.page.soup.new_tag('img', attrs={'src': str(relative_path(website.root, file.path, avatar_path)), 'width': '16', 'height': '16'})
+         ], attrs={'class': 'aui-avatar aui-avatar-small'}),
+         display_name
+      ], attrs={'class':'username'})
+   ], attrs={'class':'user-hover', 'href': relative_link(website.root, file.path, website.user_folder / (urllib.parse.quote_plus(user_key) + '.html'))})
 
-def escape(text):
-   return html.escape(text).replace('\n','<br/>')
-
-def render_date(date_str):
+def render_date(date_str: str):
    return datetime.datetime.fromisoformat(date_str).strftime('%Y-%m-%d %H:%M')
-
-def render_project(archive, project, file):
-   project_key = project['key']
-   project_name = project['name']
-   file.write('<!DOCTYPE html><html><head><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link rel="stylesheet" href="../style.css"/><link rel="stylesheet" href="../../dump/assets/mojira.css"/>')
-   file.write(f'<title>[{escape(project_key)}] {escape(project_name)}</title>')
-   file.write('</head><body>')
-   file.write(f'<h1><a href="../index.html">Projects</a> / <a href="https://bugs.mojang.com/projects/{project_key}/summary">{escape(project_key)}</a></h1><h2>{escape(project_name)}</h2>')
-   file.write(f'{render_user(archive, project['lead'], depth=1)}')
-   file.write(f'<div class="project-desc">{project['description']}</div>')
-   file.write('<table><tr><th>Issue</th><th>Summary</th><th>Reporter</th><th>Created</th></tr>')
-   #for issue in issues:
-   #   data = tat.read_json(archive.get_issue_path(issue))
-   #   reporter = user_display(archive, data['fields']['reporter'])
-   #   date = date_display(data['fields']['created'])
-   #   file.write(f'<tr><td><a href="{project['key']}/{data['key']}.html">{escape(data['key'])}</a></td><td>{escape(data['fields']['summary'])}</td><td>{reporter}</td><td>{date}</td></tr>')
-   js = get_sorter()
-   file.write(f'</table></body><script>{js}</script></html>')
 
 def render_resolution(archive: mojira.Archive, resolution, depth: int):
    if resolution is None:
@@ -167,15 +195,15 @@ def render_issue(archive: mojira.Archive, issue, file, markup_proc):
    file.write(f'[{escape(key)}] {escape(summary)}')
    file.write('</title></head><body class="flush">')
    file.write('<div class="title"><div class="flex">')
-   file.write(f'<div class="summary"><h1>{render_project_key(archive, archive.projects[issue['fields']['project']], depth=1)} / <a href="https://bugs.mojang.com/browse/{key}">{escape(key)}</a></h1><h2>{escape(summary)}</h2></div>')
-   reporter = render_user(archive, issue['fields'].get('reporter'), depth=1)
-   creator = render_user(archive, issue['fields'].get('creator'), depth=1)
+   file.write(f'<div class="summary"><h1>{project_link(archive, archive.projects[issue['fields']['project']], depth=1)} / <a href="https://bugs.mojang.com/browse/{key}">{escape(key)}</a></h1><h2>{escape(summary)}</h2></div>')
+   reporter = user_link(archive, issue['fields'].get('reporter'), depth=1)
+   creator = user_link(archive, issue['fields'].get('creator'), depth=1)
    file.write('<div class="fields"><div class="field-section"><dl>')
    file.write(f'<dt>Reporter</dt><dd>{reporter}</dd>')
    if issue['fields'].get('reporter') != issue['fields'].get('creator'):
       file.write(f'<dt>Creator</dt><dd>{creator}</dd>')
    if issue['fields'].get('assignee') is not None:
-      assignee = render_user(archive, issue['fields'].get('assignee'), depth=1)
+      assignee = user_link(archive, issue['fields'].get('assignee'), depth=1)
       file.write(f'<dt>Assignee</dt><dd>{assignee}</dd>')
    file.write(f'<dt>Votes</dt><dd>{issue['fields']['votes']['votes']}</dd>')
    file.write(f'<dt>Watchers</dt><dd>{issue['fields']['watches']['watchCount']}</dd>')
@@ -241,7 +269,7 @@ def render_issue(archive: mojira.Archive, issue, file, markup_proc):
 
 def render_comment(archive, issue, comment, file, markup_proc):
    file.write('<div class="comment">')
-   file.write(f'<details open><summary>{render_user(archive, comment.get('author'), depth=1)} - <span class="subtle">{render_date(comment['created'])}</span></summary><div class="comment-content">')
+   file.write(f'<details open><summary>{user_link(archive, comment.get('author'), depth=1)} - <span class="subtle">{render_date(comment['created'])}</span></summary><div class="comment-content">')
    rendered_text = markup.convert(markup_proc, comment['body'], issue['id'])
    file.write(rendered_text)
    file.write('</div></details></div>')

@@ -5,6 +5,7 @@ import json
 import urllib.parse
 import urllib.request
 import typing
+from jiratypes import IdsCache, Issue, Project, RelationsCache, Resolution, Status, User
 
 def main():
    archive = get_archive()
@@ -37,20 +38,21 @@ class Archive:
       self.link_types_path = self.dump_folder / 'link_types.json'
       self.link_types = self.load_meta(self.link_types_path)
       self.projects_path = self.dump_folder / 'projects.json'
-      self.projects = self.load_meta(self.projects_path)
-      for project in self.projects.values():
+      loaded_projects = self.load_meta(self.projects_path)
+      for project in loaded_projects.values():
          project['versions'] = self.key_by(project['versions'], 'id')
+      self.projects: dict[str, Project] = loaded_projects
       self.resolutions_path = self.dump_folder / 'resolutions.json'
-      self.resolutions = self.load_meta(self.resolutions_path)
+      self.resolutions: dict[str, Resolution] = self.load_meta(self.resolutions_path)
       self.statuses_path = self.dump_folder / 'statuses.json'
-      self.statuses = self.load_meta(self.statuses_path)
+      self.statuses: dict[str, Status] = self.load_meta(self.statuses_path)
 
       self.caches_folder = self.root_folder / 'caches'
-      self.ids_cache = {
+      self.ids_cache: IdsCache = {
          'issues': self.load_or(self.caches_folder / 'issue_keys.json', {}),
          'users': self.load_or(self.caches_folder / 'user_keys.json', {})
       }
-      self.relations_cache = {
+      self.relations_cache: RelationsCache = {
          'groups': self.load_or(self.caches_folder / 'groups.json', {}),
          'projects': self.load_or(self.caches_folder / 'projects.json', {}),
          'resolutions': self.load_or(self.caches_folder / 'resolutions.json', {}),
@@ -71,10 +73,11 @@ class Archive:
       self.save_meta(self.fields, self.fields_path)
       self.save_meta(self.issue_types, self.issue_types_path)
       self.save_meta(self.link_types, self.link_types_path)
-      for project in self.projects.values():
+      save_projects: dict = self.projects
+      for project in save_projects.values():
          project['versions'] = list(project['versions'].values())
       self.save_meta(self.projects, self.projects_path)
-      for project in self.projects.values():
+      for project in save_projects.values():
          project['versions'] = self.key_by(project['versions'], 'id')
       self.save_meta(self.resolutions, self.resolutions_path)
       self.save_meta(self.statuses, self.statuses_path)
@@ -138,12 +141,18 @@ class Archive:
       project_data = [p.raw for p in projects]
       for project in project_data:
          self.simplify_user(project, 'lead')
-      self.projects = self.key_by(project_data, 'id')
-      for project in self.projects.values():
+      loaded_projects = self.key_by(project_data, 'id')
+      for project in loaded_projects.values():
          project['versions'] = self.key_by(project['versions'], 'id')
+      assert loaded_projects is dict[str, Project]
+      self.projects = loaded_projects
       self.issue_types = self.key_by([p.raw for p in client.issue_types()], 'id')
-      self.resolutions = self.key_by([p.raw for p in client.resolutions()], 'id')
-      self.statuses = self.key_by([p.raw for p in client.statuses()], 'id')
+      loaded_resolutions = self.key_by([p.raw for p in client.resolutions()], 'id')
+      assert loaded_resolutions is dict[str, Resolution]
+      self.resolutions = loaded_resolutions
+      loaded_statuses = self.key_by([p.raw for p in client.statuses()], 'id')
+      assert loaded_statuses is dict[str, Status]
+      self.statuses = loaded_statuses
       self.link_types = self.key_by([p.raw for p in client.issue_link_types()], 'id')
 
    def fetch_issues(self, client: jira.JIRA, query: str, dry: bool):
@@ -202,14 +211,14 @@ class Archive:
       extension = pathlib.PurePath(file_name).suffix
       return self.attachments_content_folder / (attach_id + extension)
 
-   def get_issue_data(self, issue_id: str):
+   def get_issue_data(self, issue_id: str) -> Issue | None:
       path = self.get_issue_path(issue_id)
       if not path.exists():
          return None
       with open(path, 'r', encoding='utf-8') as file:
          return json.load(file)
 
-   def get_user_data(self, user_key: str):
+   def get_user_data(self, user_key: str) -> User | None:
       known = self.get_user_path(user_key, unknown=False)
       unknown = self.get_user_path(user_key, unknown=False)
       if known.exists():
