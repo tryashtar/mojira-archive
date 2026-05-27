@@ -19,14 +19,6 @@ class ArchiveMetas:
       self.statuses: dict[str, Status] = {}
       self.projects: dict[str, Project] = {}
 
-   def clear(self):
-      self.fields.clear()
-      self.issue_types.clear()
-      self.link_types.clear()
-      self.resolutions.clear()
-      self.statuses.clear()
-      self.projects.clear()
-
    def load(self, folder: pathlib.Path):
       load_one(self.fields, folder / self.fields_path)
       load_one(self.issue_types, folder / self.issue_types_path)
@@ -82,7 +74,7 @@ class Archive:
       self.project_avatars_folder = self.folder / 'avatars/projects'
       self.users_avatars_folder = self.folder / 'avatars/users'
 
-   def issue_names(self) -> typing.Generator[str, None, None]:
+   def issue_ids(self) -> typing.Generator[str, None, None]:
       for path in self.issues_folder.iterdir():
          yield path.stem
 
@@ -100,6 +92,15 @@ class Archive:
          return None
       with open(path, 'r', encoding='utf-8') as file:
          return json.load(file)
+
+   def user_keys(self) -> typing.Generator[str, None, None]:
+      for path in self.users_folder.iterdir():
+         yield urllib.parse.unquote_plus(path.stem)
+
+   def users(self) -> typing.Generator[User, None, None]:
+      for path in self.users_folder.iterdir():
+         with open(path, 'r', encoding='utf-8') as file:
+            yield json.load(file)
 
    def get_user_path(self, user_key: str, unknown=False) -> pathlib.Path:
       base_folder = self.unknown_users_folder if unknown else self.users_folder
@@ -127,6 +128,13 @@ class Archive:
 
    def get_attachment_data_path(self, attach_id: str) -> pathlib.Path:
       return self.attachments_folder / (attach_id + '.json')
+
+   def get_attachment_data(self, attach_id: str) -> Attach | None:
+      path = self.get_attachment_data_path(attach_id)
+      if not path.exists():
+         return None
+      with open(path, 'r', encoding='utf-8') as file:
+         return json.load(file)
 
    def get_attachment_content_path(self, attach_id: str, file_name: str) -> pathlib.Path:
       extension = pathlib.PurePath(file_name).suffix

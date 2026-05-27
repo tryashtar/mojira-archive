@@ -9,7 +9,7 @@ from jiratypes import Project, User
 from mojira import Archive, ArchiveMetas, key_by
 
 def main():
-   archive = Archive(pathlib.Path('/d/Archives/Mojira'))
+   archive = Archive(pathlib.Path('/d/Archives/Mojira/data'))
    metas = ArchiveMetas()
    users = FetchedUsers()
    with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:

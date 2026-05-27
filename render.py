@@ -15,6 +15,7 @@ class Website:
    ticket_folder: pathlib.PurePath
    user_folder: pathlib.PurePath
    archive: mojira.Archive
+   metas: mojira.ArchiveMetas
 
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
@@ -29,20 +30,23 @@ def save_file(website: Website, file: HtmlFile):
 
 def main():
    print('Starting...')
-   root = mojira.get_root()
-   archive = mojira.get_archive()
+   root = pathlib.Path('/d/Archives/Mojira')
+   archive = mojira.Archive(folder=root / 'data')
+   metas = mojira.ArchiveMetas()
+   metas.load(archive.folder)
    website = Website(
       root=root,
       project_list=make_jira_file(root, pathlib.PurePath('render/index.html'), 'Mojira Archive'),
       project_folder=pathlib.PurePath('render/projects'),
       ticket_folder=pathlib.PurePath('render/issues'),
       user_folder=pathlib.PurePath('render/users'),
-      archive=archive
+      archive=archive,
+      metas=metas
    )
    print('Rendering...')
    make_projects(website, website.project_list)
    save_file(website, website.project_list)
-   for project_id, project in archive.projects.items():
+   for project_id, project in metas.projects.items():
       project_key = project['key']
       print(project_key)
       file = create_project_page(website, project)

@@ -43,31 +43,13 @@ IdsCache = typing.TypedDict('IdsCache', {
    'users': dict[str, str]
 })
 
-UserRelations = typing.TypedDict('UserRelations', {
-   'created': list[str],
-   'reported': list[str],
-   'assigned': list[str],
-   'comments': list[str],
-   'edits': list[str],
-   'changes': list[str]
+UserGroup = typing.TypedDict('UserGroup', {
+   'name': str
 })
 
-VersionRelations = typing.TypedDict('VersionRelations', {
-   'affected': list[str],
-   'fixed': list[str]
-})
-
-RelationsCache = typing.TypedDict('RelationsCache', {
-   'groups': dict[str, list[str]],
-   'projects': dict[str, list[str]],
-   'resolutions': dict[str, list[str]],
-   'users': dict[str, UserRelations],
-   'versions': dict[str, VersionRelations],
-   'labels': dict[str, list[str]],
-   'categories': dict[str, list[str]],
-   'confirmation': dict[str, list[str]],
-   'priority': dict[str, list[str]],
-   'area': dict[str, list[str]]
+UserGroups = typing.TypedDict('UserGroups', {
+   'size': int,
+   'items': list[UserGroup]
 })
 
 User = typing.TypedDict('User', {
@@ -76,7 +58,36 @@ User = typing.TypedDict('User', {
    'displayName': str,
    'active': bool,
    'deleted': bool,
-   'avatarUrls': AvatarUrls
+   'avatarUrls': AvatarUrls,
+   'groups': UserGroups
+})
+
+Attachment = typing.TypedDict('Attachment', {
+   'id': str,
+   'filename': str,
+   'author': typing.NotRequired[str],
+   'created': str,
+   'size': int,
+   'mimeType': str
+})
+
+CustomField = typing.TypedDict('CustomField', {
+   'id': str,
+   'value': str
+})
+
+Comment = typing.TypedDict('Comment', {
+   'id': str,
+   'author': typing.NotRequired[str],
+   'updateAuthor': typing.NotRequired[str],
+   'body': str,
+   'created': str,
+   'updated': str
+})
+
+CommentField = typing.TypedDict('CommentField', {
+   'comments': list[Comment],
+   'total': int
 })
 
 IssueFields = typing.TypedDict('IssueFields', {
@@ -84,7 +95,8 @@ IssueFields = typing.TypedDict('IssueFields', {
    'description': str,
    'issuetype': str,
    'project': str,
-   'fixVersions': list[str],
+   'versions': typing.NotRequired[list[str]],
+   'fixVersions': typing.NotRequired[list[str]],
    'resolution': str,
    'resolutiondate': str,
    'updated': str,
@@ -92,11 +104,38 @@ IssueFields = typing.TypedDict('IssueFields', {
    'labels': list[str],
    'status': str,
    'creator': str,
-   'reporter': str
+   'reporter': str,
+   'attachment': list[str],
+   'customfield_12800': typing.NotRequired[CustomField | None],
+   'customfield_12200': typing.NotRequired[CustomField | None],
+   'customfield_11901': typing.NotRequired[list[CustomField] | None],
+   'customfield_10500': typing.NotRequired[CustomField | None],
+   'comment': CommentField
+})
+
+RevisionChange = typing.TypedDict('RevisionChange', {
+   'field': str,
+   'from': str | None,
+   'to': str | None,
+   'fromString': str | None,
+   'toString': str | None
+})
+
+Revision = typing.TypedDict('Revision', {
+   'id': str,
+   'author': str,
+   'created': str,
+   'items': list[RevisionChange]
+})
+
+Changelog = typing.TypedDict('Changelog', {
+   'total': int,
+   'histories': list[Revision]
 })
 
 Issue = typing.TypedDict('Issue', {
    'id': str,
    'key': str,
    'fields': IssueFields,
+   'changelog': Changelog
 })
