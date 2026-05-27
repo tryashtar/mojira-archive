@@ -22,8 +22,21 @@ Project = typing.TypedDict('Project', {
    'avatarUrls': AvatarUrls
 })
 
-Resolution = typing.TypedDict('Resolution', {})
-Status = typing.TypedDict('Status', {})
+Resolution = typing.TypedDict('Resolution', {
+   'id': str
+})
+Status = typing.TypedDict('Status', {
+   'id': str
+})
+Field = typing.TypedDict('Field', {
+   'id': str
+})
+IssueType = typing.TypedDict('IssueType', {
+   'id': str
+})
+LinkType = typing.TypedDict('LinkType', {
+   'id': str
+})
 
 IdsCache = typing.TypedDict('IdsCache', {
    'issues': dict[str, str],
@@ -74,6 +87,7 @@ IssueFields = typing.TypedDict('IssueFields', {
    'fixVersions': list[str],
    'resolution': str,
    'resolutiondate': str,
+   'updated': str,
    'created': str,
    'labels': list[str],
    'status': str,

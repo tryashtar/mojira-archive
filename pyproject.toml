@@ -8,8 +8,4 @@ dependencies = [
     "beautifulsoup4>=4.14.3",
     "jira>=3.10.5",
     "pillow>=12.1.1",
-    "tryashtools",
 ]
-
-[tool.uv.sources]
-tryashtools = { git = "https://github.com/tryashtar/tryashtools" }
