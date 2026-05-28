@@ -31,6 +31,14 @@ def main():
                   out_path.parent.mkdir(parents=True, exist_ok=True)
                   with open(out_path, 'w', encoding='utf-8') as file:
                      file.write(markup)
+      for comment in issue['fields']['comment']['comments']:
+         out_path = markup_out / issue['id'] / 'comments' / (comment['id'] + '.html')
+         if not out_path.exists():
+            print(f'{issue['id']} / {issue['key']} comment {comment['id']}')
+            markup = convert(process, comment['body'], int(issue['id']))
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, 'w', encoding='utf-8') as file:
+               file.write(markup)
 
 def get_process(archive: mojira.Archive, rels: relations.Relations, root: str):
    print('Configuring...')

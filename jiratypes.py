@@ -3,11 +3,11 @@ import typing
 Version = typing.TypedDict('Version', {
    'id': str,
    'name': str,
-   'description': str,
+   'description': typing.NotRequired[str],
    'archived': bool,
    'released': bool,
-   'startDate': str,
-   'releaseDate': str
+   'startDate': typing.NotRequired[str],
+   'releaseDate': typing.NotRequired[str]
 })
 
 AvatarUrls = typing.TypedDict('AvatarUrls', {'48x48': str})
@@ -23,19 +23,29 @@ Project = typing.TypedDict('Project', {
 })
 
 Resolution = typing.TypedDict('Resolution', {
-   'id': str
+   'id': str,
+   'name': str,
+   'description': str
 })
 Status = typing.TypedDict('Status', {
-   'id': str
+   'id': str,
+   'name': str,
+   'description': str
 })
 Field = typing.TypedDict('Field', {
-   'id': str
+   'id': str,
+   'name': str
 })
 IssueType = typing.TypedDict('IssueType', {
-   'id': str
+   'id': str,
+   'name': str,
+   'description': str
 })
 LinkType = typing.TypedDict('LinkType', {
-   'id': str
+   'id': str,
+   'name': str,
+   'inward': str,
+   'outward': str
 })
 
 IdsCache = typing.TypedDict('IdsCache', {
@@ -90,6 +100,16 @@ CommentField = typing.TypedDict('CommentField', {
    'total': int
 })
 
+VotesField = typing.TypedDict('VotesField', {
+   'votes': int,
+   'hasVoted': bool
+})
+
+WatchesField = typing.TypedDict('WatchesField', {
+   'watchCount': int,
+   'isWatching': bool
+})
+
 IssueFields = typing.TypedDict('IssueFields', {
    'summary': str,
    'description': str | None,
@@ -97,20 +117,23 @@ IssueFields = typing.TypedDict('IssueFields', {
    'project': str,
    'versions': typing.NotRequired[list[str]],
    'fixVersions': typing.NotRequired[list[str]],
-   'resolution': str,
-   'resolutiondate': str,
+   'resolution': str | None,
+   'resolutiondate': str | None,
    'updated': str,
    'created': str,
    'labels': list[str],
    'status': str,
    'creator': str,
    'reporter': str,
+   'assignee': typing.NotRequired[str | None],
    'attachment': list[str],
    'customfield_12800': typing.NotRequired[CustomField | None],
    'customfield_12200': typing.NotRequired[CustomField | None],
    'customfield_11901': typing.NotRequired[list[CustomField] | None],
    'customfield_10500': typing.NotRequired[CustomField | None],
-   'comment': CommentField
+   'comment': CommentField,
+   'votes': VotesField,
+   'watches': WatchesField,
 })
 
 RevisionChange = typing.TypedDict('RevisionChange', {

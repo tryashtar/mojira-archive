@@ -5,13 +5,18 @@ import bisect
 import dataclasses
 import json
 
+IssueRelations = typing.TypedDict('IssueRelations', {
+   'comments': list[str],
+   'edits': list[str],
+   'changes': list[str],
+   'attachments': list[str],
+})
+
 UserRelations = typing.TypedDict('UserRelations', {
    'created': list[str],
    'reported': list[str],
    'assigned': list[str],
-   'comments': list[str],
-   'edits': list[str],
-   'changes': list[str]
+   'issues': dict[str, IssueRelations]
 })
 
 VersionRelations = typing.TypedDict('VersionRelations', {
@@ -87,19 +92,54 @@ def save_one(data: dict, path: pathlib.Path):
    with open(path, 'w', encoding='utf-8') as file:
       json.dump(data, file,separators=(',', ':'))
 
-def append(start: dict[str, typing.Any], path: list[str | None], value):
-   block = start
-   for i, entry in enumerate(path):
-      if entry is None:
-         entry = ''
-      if entry not in block:
-         if i == len(path) - 1:
-            block[entry] = []
-         else:
-            block[entry] = {}
-      block = block[entry]
-      if i == len(path) - 1:
-         bisect.insort(block, value)
+def append(data: dict[str, list[str]], key: str | None, value: str):
+   if key is None:
+      key = ''
+   if key not in data:
+      data[key] = []
+   bisect.insort(data[key], value)
+
+def append_user(data: dict[str, UserRelations], user: str | None, subkey: str, value: str):
+   if user is None:
+      user = ''
+   if user not in data:
+      data[user] = {
+         'created': [],
+         'reported': [],
+         'assigned': [],
+         'issues': {}
+      }
+   bisect.insort(data[user][subkey], value)
+
+def append_user_issue(data: dict[str, UserRelations], user: str | None, issue: str, subkey: str, value: str):
+   if user is None:
+      user = ''
+   if user not in data:
+      data[user] = {
+         'created': [],
+         'reported': [],
+         'assigned': [],
+         'issues': {}
+      }
+   issues = data[user]['issues']
+   if issue not in issues:
+      issues[issue] = {
+         'comments': [],
+         'edits': [],
+         'changes': [],
+         'attachments': []
+      }
+   bisect.insort(issues[issue][subkey], value)
+
+def append_version(data: dict[str, VersionRelations], key: str | None, subkey: str, value: str):
+   if key is None:
+      key = ''
+   if key not in data:
+      data[key] = {
+         'affected': [],
+         'fixed': [],
+      }
+   bisect.insort(data[key][subkey], value)
 
 def create_relations(archive: mojira.Archive) -> Relations:
    relations = Relations()
@@ -113,41 +153,41 @@ def create_relations(archive: mojira.Archive) -> Relations:
          print(f'{i+1} / {total} - {issue['key']}')
       relations.issue_keys[issue['key']] = issue_id
       fields = issue['fields']
-      append(relations.resolutions, [fields['resolution']], issue_id)
-      append(relations.projects, [fields['project']], issue_id)
+      append(relations.resolutions, fields['resolution'], issue_id)
+      append(relations.projects, fields['project'], issue_id)
       if 'versions' in fields:
          for version in fields['versions']:
-            append(relations.versions, [version, 'affected'], issue_id)
+            append_version(relations.versions, version, 'affected', issue_id)
       if 'fixVersions' in fields:
          for version in fields['fixVersions']:
-            append(relations.versions, [version, 'fixed'], issue_id)
+            append_version(relations.versions, version, 'fixed', issue_id)
       for label in fields['labels']:
-         append(relations.labels, [label], issue_id)
+         append(relations.labels, label, issue_id)
       if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
-         append(relations.area, [fields['customfield_12800']['id']], issue_id)
+         append(relations.area, fields['customfield_12800']['id'], issue_id)
       if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
-         append(relations.priority, [fields['customfield_12200']['id']], issue_id)
+         append(relations.priority, fields['customfield_12200']['id'], issue_id)
       if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
          for entry in fields['customfield_11901']:
-            append(relations.categories, [entry['id']], issue_id)
+            append(relations.categories, entry['id'], issue_id)
       if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
-         append(relations.confirmation, [fields['customfield_10500']['id']], issue_id)
-      append(relations.users, [fields['creator'], 'created'], issue_id)
-      append(relations.users, [fields['reporter'], 'reported'], issue_id)
+         append(relations.confirmation, fields['customfield_10500']['id'], issue_id)
+      append_user(relations.users, fields['creator'], 'created', issue_id)
+      append_user(relations.users, fields['reporter'], 'reported', issue_id)
       if 'assignee' in fields:
-         append(relations.users, [fields.get('assignee'), 'assigned'], issue_id)
+         append_user(relations.users, fields['assignee'], 'assigned', issue_id)
       for comment in fields['comment']['comments']:
-         append(relations.users, [comment.get('author'), 'comments', issue_id], comment['id'])
-         append(relations.users, [comment.get('updateAuthor'), 'edits', issue_id], comment['id'])
+         append_user_issue(relations.users, comment.get('author'), issue_id, 'comments', comment['id'])
+         append_user_issue(relations.users, comment.get('updateAuthor'), issue_id, 'edits', comment['id'])
       for change in issue['changelog']['histories']:
-         append(relations.users, [change['author'], 'changes', issue_id], change['id'])
+         append_user_issue(relations.users, change['author'], issue_id, 'changes', change['id'])
          for item in change['items']:
             if item['field'] == 'Key' and item['fromString'] is not None:
                relations.issue_keys[item['fromString']] = issue_id
       for attachment in fields['attachment']:
          data = archive.get_attachment_data(attachment)
          assert data is not None
-         append(relations.users, [data.get('author'), 'attachments', issue_id], attachment)
+         append_user_issue(relations.users, data.get('author'), issue_id, 'attachments', attachment)
    print('Users...')
    user_keys = list(archive.user_keys())
    total = len(user_keys)
@@ -158,7 +198,7 @@ def create_relations(archive: mojira.Archive) -> Relations:
          print(f'{i+1} / {total} - {user['name']}')
       relations.user_keys[user['name']] = user_key
       for group in user['groups']['items']:
-         append(relations.groups, [group['name']], user_key)
+         append(relations.groups, group['name'], user_key)
    return relations
 
 def main():
