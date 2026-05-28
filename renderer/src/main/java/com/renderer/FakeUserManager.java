@@ -2,7 +2,6 @@ package com.renderer;
 
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;

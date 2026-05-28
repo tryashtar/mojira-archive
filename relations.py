@@ -26,7 +26,7 @@ class Relations:
    groups: dict[str, list[str]]
    projects: dict[str, list[str]]
    resolutions: dict[str, list[str]]
-   users: dict[str | None, UserRelations]
+   users: dict[str, UserRelations]
    versions: dict[str, VersionRelations]
    labels: dict[str, list[str]]
    categories: dict[str, list[str]]
@@ -85,9 +85,9 @@ def load_one(data: dict, path: pathlib.Path):
 def save_one(data: dict, path: pathlib.Path):
    path.parent.mkdir(parents=True, exist_ok=True)
    with open(path, 'w', encoding='utf-8') as file:
-      json.dump(data, file)
+      json.dump(data, file,separators=(',', ':'))
 
-def append(start: dict, path: list, value):
+def append(start: dict[str, typing.Any], path: list[str | None], value):
    block = start
    for i, entry in enumerate(path):
       if entry is None:
@@ -165,7 +165,7 @@ def main():
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
    relations = create_relations(archive)
    print('Writing...')
-   relations.save(pathlib.Path('/d/Archives/Mojira/cache'))
+   relations.save(pathlib.Path('/d/Archives/Mojira/relations'))
 
 if __name__ == '__main__':
    main()

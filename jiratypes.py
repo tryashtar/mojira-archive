@@ -92,7 +92,7 @@ CommentField = typing.TypedDict('CommentField', {
 
 IssueFields = typing.TypedDict('IssueFields', {
    'summary': str,
-   'description': str,
+   'description': str | None,
    'issuetype': str,
    'project': str,
    'versions': typing.NotRequired[list[str]],

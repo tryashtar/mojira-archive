@@ -2,7 +2,7 @@ import pathlib
 import json
 import urllib.parse
 import typing
-from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, User
+from jiratypes import Attachment, Field, Issue, IssueType, LinkType, Project, Resolution, Status, User
 
 class ArchiveMetas:
    def __init__(self):
@@ -95,7 +95,8 @@ class Archive:
 
    def user_keys(self) -> typing.Generator[str, None, None]:
       for path in self.users_folder.iterdir():
-         yield urllib.parse.unquote_plus(path.stem)
+         if path.is_file():
+            yield urllib.parse.unquote_plus(path.stem)
 
    def users(self) -> typing.Generator[User, None, None]:
       for path in self.users_folder.iterdir():
@@ -129,7 +130,7 @@ class Archive:
    def get_attachment_data_path(self, attach_id: str) -> pathlib.Path:
       return self.attachments_folder / (attach_id + '.json')
 
-   def get_attachment_data(self, attach_id: str) -> Attach | None:
+   def get_attachment_data(self, attach_id: str) -> Attachment | None:
       path = self.get_attachment_data_path(attach_id)
       if not path.exists():
          return None
