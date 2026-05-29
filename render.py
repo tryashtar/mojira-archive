@@ -1,4 +1,5 @@
 import dataclasses
+import typing
 from jiratypes import Issue, Project, Version
 import mojira
 import relations
@@ -16,11 +17,15 @@ class Website:
    project_folder: pathlib.PurePath
    issues_folder: pathlib.PurePath
    users_folder: pathlib.PurePath
+   labels_folder: pathlib.PurePath
+   categories_folder: pathlib.PurePath
+   areas_folder: pathlib.PurePath
+   priorities_folder: pathlib.PurePath
    resolutions_folder: pathlib.PurePath
    archive: mojira.Archive
    metas: mojira.ArchiveMetas
    relations: relations.Relations
-   markup_folder: pathlib.Path
+   markup_source: markup.MarkupSource
 
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
@@ -41,17 +46,22 @@ def main():
    metas.load(archive.folder)
    rels = relations.Relations()
    rels.load(root / 'relations')
+   markup_source = markup.MarkupSource(root / 'markup')
    website = Website(
       root=root,
       project_list=make_jira_file(root, pathlib.PurePath('web/index.html'), 'Mojira Archive'),
       project_folder=pathlib.PurePath('web/projects'),
       issues_folder=pathlib.PurePath('web/issues'),
       users_folder=pathlib.PurePath('web/users'),
-      resolutions_folder=pathlib.PurePath('web/resolutions'),
+      labels_folder=pathlib.PurePath('web/fields/labels'),
+      resolutions_folder=pathlib.PurePath('web/fields/resolutions'),
+      categories_folder=pathlib.PurePath('web/fields/categories'),
+      areas_folder=pathlib.PurePath('web/fields/areas'),
+      priorities_folder=pathlib.PurePath('web/fields/priorities'),
       archive=archive,
       metas=metas,
       relations=rels,
-      markup_folder=root / 'markup'
+      markup_source=markup_source
    )
    print('Rendering...')
    make_project_list(website, website.project_list)
@@ -63,13 +73,19 @@ def main():
       save_file(website, home)
       versions = create_project_versions_page(website, project)
       save_file(website, versions)
+      for version in project['versions'].values():
+         print(version['name'])
+         page = create_version_page(website, project, version)
+         save_file(website, page)
       issues = create_project_issues_page(website, project)
       save_file(website, issues)
    for project_id, project in metas.projects.items():
       project_key = project['key']
       print(project_key)
       issues = rels.projects[project_id]
-      for issue_id in issues:
+      for i, issue_id in enumerate(issues):
+         if len(issues) >= 1000 and (i % 1000 == 0 or i == len(issues) - 1):
+            print(f'{i + 1} / {len(issues)}')
          issue = archive.get_issue_data(issue_id)
          assert issue is not None
          file = create_issue_page(website, issue)
@@ -81,17 +97,7 @@ def make_project_list(website: Website, file: HtmlFile):
    content.append(new_content_tag(soup, 'div', [
       new_content_tag(soup, 'h1', 'Mojira Archive')
    ], attrs={'class': 'title'}))
-   table = make_table(soup, ['Project', 'Name', 'Issues', 'Versions'])
-   for project_id, project in website.metas.projects.items():
-      issues = website.relations.projects[project_id]
-      versions = project['versions']
-      project_key = project_link(website, file, project)
-      append_row(soup, table, [
-         project_key,
-         project['name'],
-         new_content_tag(soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'issues.html')}),
-         new_content_tag(soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions.html')}),
-      ])
+   table = render_projects_table(website, file, website.metas.projects.values())
    content.append(table)
    file.page.body.append(content)
 
@@ -136,17 +142,7 @@ def create_project_versions_page(website: Website, project: Project) -> HtmlFile
    soup = file.page.soup
    content = soup.new_tag('div', attrs={'class': 'content'})
    content.append(render_project_title(soup, website, file, project))
-   table = make_table(soup, ['Name', 'Description', 'Date', 'Affected Issues', 'Fixed Issues'])
-   versions = project['versions']
-   for version_key, version in versions.items():
-      rel_ver = website.relations.versions.get(version_key, {})
-      append_row(soup, table, [
-         version['name'],
-         version['description'] if 'description' in version else '',
-         render_date(version['releaseDate']) if 'releaseDate' in version else '',
-         str(len(rel_ver['affected'])) if 'affected' in rel_ver else '',
-         str(len(rel_ver['fixed'])) if 'fixed' in rel_ver else '',
-      ])
+   table = render_versions_table(website, file, project, project['versions'].values())
    content.append(table)
    file.page.body.append(content)
    return file
@@ -159,26 +155,92 @@ def create_project_issues_page(website: Website, project: Project) -> HtmlFile:
    soup = file.page.soup
    content = soup.new_tag('div', attrs={'class': 'content'})
    content.append(render_project_title(soup, website, file, project))
-   table = make_table(soup, ['Issue', 'Summary', 'Reporter', 'Created'])
-   issues = website.relations.projects[project['id']]
+   table = render_issues_table(website, file, website.relations.projects[project['id']])
+   content.append(table)
+   file.page.body.append(content)
+   return file
+
+def create_version_page(website: Website, project: Project, version: Version) -> HtmlFile:
+   full_title = f'[{project['key']}] {version['name']}'
+   rels = website.relations.versions.get(version['id'], {'affected':[], 'fixed':[]})
+   file = make_jira_file(website.root, website.project_folder / project['key'] / 'versions' / (urllib.parse.quote_plus(version['name']) + '.html'), full_title)
+   soup = file.page.soup
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   header = new_content_tag(soup, 'h1', [
+      new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.project_list.path)}),
+      ' / ',
+      project_link(website, file, project),
+      ' / ',
+      version_link(website, file, project, version)
+   ])
+   content.append(header)
+   fields = make_desc_list(soup)
+   if 'description' in version:
+      append_desc_item(soup, fields, 'Description', version['description'])
+   if 'releaseDate' in version:
+      append_desc_item(soup, fields, 'Date', render_date(version['releaseDate']))
+   append_desc_item(soup, fields, 'Status', 'Archived' if version['archived'] else ('Active' if version['released'] else 'Unreleased'))
+   append_desc_item(soup, fields, 'Affected Issues', str(len(rels['affected'])))
+   append_desc_item(soup, fields, 'Fixed Issues', str(len(rels['fixed'])))
+   content.append(fields)
+   affected_table = render_issues_table(website, file, rels['affected'])
+   content.append('Affected:')
+   content.append(affected_table)
+   fixes_table = render_issues_table(website, file, rels['fixed'])
+   content.append('Fixes:')
+   content.append(fixes_table)
+   file.page.body.append(content)
+   return file
+
+def render_projects_table(website: Website, file: HtmlFile, projects: typing.Iterable[Project]) -> bs4.Tag:
+   table = make_table(file.page.soup, ['Project', 'Name', 'Issues', 'Versions'])
+   table.attrs['class'] = 'projects-table sortable'
+   for project in projects:
+      issues = website.relations.projects[project['id']]
+      versions = project['versions']
+      project_key = project_link(website, file, project)
+      append_row(file.page.soup, table, [
+         project_key,
+         project['name'],
+         new_content_tag(file.page.soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'issues.html')}),
+         new_content_tag(file.page.soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions.html')}),
+      ])
+   return table
+
+def render_versions_table(website: Website, file: HtmlFile, project: Project, versions: typing.Iterable[Version]) -> bs4.Tag:
+   table = make_table(file.page.soup, ['Name', 'Description', 'Date', 'Affected Issues', 'Fixed Issues'])
+   table.attrs['class'] = 'versions-table sortable'
+   for version in versions:
+      rel_ver = website.relations.versions.get(version['id'], {'affected':[], 'fixed':[]})
+      append_row(file.page.soup, table, [
+         version_link(website, file, project, version),
+         version['description'] if 'description' in version else '',
+         render_date(version['releaseDate']) if 'releaseDate' in version else '',
+         str(len(rel_ver['affected'])),
+         str(len(rel_ver['fixed'])),
+      ])
+   return table
+
+def render_issues_table(website: Website, file: HtmlFile, issues: list[str]) -> bs4.Tag:
+   table = make_table(file.page.soup, ['Issue', 'Summary', 'Reporter', 'Created'])
+   table.attrs['class'] = 'issues-table sortable'
    for i, issue_key in enumerate(issues):
-      if i % 1000 == 0 or i == len(issues) - 1:
+      if len(issues) >= 1000 and (i % 1000 == 0 or i == len(issues) - 1):
          print(f'{i + 1} / {len(issues)}')
       issue = website.archive.get_issue_data(issue_key)
       assert issue is not None
       reporter = user_link(website, file, issue['fields']['reporter'])
       date = render_datetime(issue['fields']['created'])
-      link = new_content_tag(soup, 'a', issue['key'], attrs={'href': relative_link(website.root, file.path, website.issues_folder / (issue['key'] + '.html'))})
-      append_row(soup, table, [link, issue['fields']['summary'], reporter, date])
-   content.append(table)
-   file.page.body.append(content)
-   return file
+      link = new_content_tag(file.page.soup, 'a', issue['key'], attrs={'href': relative_link(website.root, file.path, website.issues_folder / (issue['key'] + '.html'))})
+      append_row(file.page.soup, table, [link, issue['fields']['summary'], reporter, date])
+   return table
 
-def create_issue_page(website: Website, issue: Issue):
+def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    key = issue['key']
    fields = issue['fields']
    summary = fields['summary']
    full_title = f'[{key}] {summary}'
+   project = website.metas.projects[fields['project']]
    file = make_jira_file(website.root, website.issues_folder / (key + '.html'), full_title)
    soup = file.page.soup
    content = soup.new_tag('div', attrs={'class': 'content'})
@@ -186,9 +248,9 @@ def create_issue_page(website: Website, issue: Issue):
    header = new_content_tag(soup, 'h1', [
       new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.project_list.path)}),
       ' / ',
-      project_link(website, file, website.metas.projects[fields['project']]),
+      project_link(website, file, project),
       ' / ',
-      new_content_tag(soup, 'a', key, attrs={'href': f'https://bugs.mojang.com/browse/{key}'})
+      issue_link(website, file, issue)
    ])
    summary_div.append(header)
    summary_div.append(new_content_tag(soup, 'h2', summary))
@@ -214,37 +276,30 @@ def create_issue_page(website: Website, issue: Issue):
    fields_div.append(new_content_tag(soup, 'div', fields2, attrs={'class': 'field-section'}))
    content.append(fields_div)
    details = make_desc_list(soup)
-   if 'versions' in issue['fields']:
-      append_desc_item(soup, details, 'Affects Versions', render_version_list())
-   if 'fixVersions' in issue['fields']:
-      append_desc_item(soup, details, 'Fixed Versions', render_version_list())
-
-   details_div = new_content_tag(soup, 'div', fields2, attrs={'class': 'details'})
+   if 'versions' in fields:
+      versions = list(map(lambda x: project['versions'][x], fields['versions']))
+      append_desc_item(soup, details, 'Affects Versions', render_version_list(website, file, project, versions))
+   if 'fixVersions' in fields:
+      versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
+      append_desc_item(soup, details, 'Fixed Versions', render_version_list(website, file, project, versions))
+   labels_list = inline_list(soup, map(lambda x: new_content_tag(soup, 'a', x, attrs={'href': relative_link(website.root, file.path, website.labels_folder / (urllib.parse.quote_plus(x) + '.html'))}), fields['labels']))
+   append_desc_item(soup, details, 'Labels', '-' if len(fields['labels']) == 0 else labels_list)
+   if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
+      category_list = inline_list(soup, map(lambda x: field_link(website, file, website.categories_folder, x['value']), fields['customfield_11901']))
+      append_desc_item(soup, details, 'Category', '-' if len(fields['customfield_11901']) == 0 else category_list)
+   if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
+      append_desc_item(soup, details, 'Area', field_link(website, file, website.areas_folder, fields['customfield_12800']['value']))
+   if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
+      append_desc_item(soup, details, 'Mojang Priority', field_link(website, file, website.priorities_folder, fields['customfield_12200']['value']))
+   details_div = new_content_tag(soup, 'div', details, attrs={'class': 'details'})
    content.append(details_div)
+   content.append(soup.new_tag('hr'))
+   if fields['description'] is not None:
+      desc = website.markup_source.get_issue_description(issue['id'])
+      content.append(new_content_tag(soup, 'div', desc, attrs={'class': 'description'}))
    file.page.body.append(content)
    return file
 
-   file.write('<div class="details"><dl>')
-   if 'versions' in issue['fields']:
-      version_list = render_version_list(archive, archive.projects[issue['fields']['project']], issue['fields']['versions'], depth=1)
-      file.write(f'<dt>Affects Versions</dt><dd>{version_list}</dd>')
-   if 'fixVersions' in issue['fields']:
-      fixed_list = render_version_list(archive, archive.projects[issue['fields']['project']], issue['fields']['fixVersions'], depth=1)
-      file.write(f'<dt>Fixed Versions</dt><dd>{fixed_list}</dd>')
-   file.write(f'<dt>Labels</dt><dd>{'-' if len(issue['fields']['labels']) == 0 else ', '.join([f'<a href="../labels/{escape(x)}.html"><code>{escape(x)}</code></a>' for x in issue['fields']['labels']])}</dd>')
-   if issue['fields'].get('customfield_11901') is not None:
-      file.write(f'<dt>Category</dt><dd>{'-' if len(issue['fields']['customfield_11901']) == 0 else ', '.join([f'<a href="../category/{escape(x['value'])}.html">{escape(x['value'])}</a>' for x in issue['fields']['customfield_11901']])}</dd>')
-   if issue['fields'].get('customfield_12800') is not None:
-      area_val = issue['fields']['customfield_12800']['value']
-      file.write(f'<dt>Area</dt><dd><a href="../area/{area_val}.html">{escape(area_val)}</a></dd>')
-   if issue['fields'].get('customfield_12200') is not None:
-      prio_val = issue['fields']['customfield_12200']['value']
-      file.write(f'<dt>Mojang Priority</dt><dd><a href="../priority/{prio_val}.html">{escape(prio_val)}</a></dd>')
-   file.write('</dl></div><hr/>')
-   desc = issue['fields']['description']
-   if desc is not None:
-      rendered_summary = markup.convert(markup_proc, desc, issue['id'])
-      file.write(f'<div class="description">{rendered_summary}</div>')
    file.write('<hr/><div class="links">')
    link_types = {}
    issue_links = issue['fields']['issuelinks']
@@ -272,6 +327,18 @@ def create_issue_page(website: Website, issue: Issue):
    for comment in issue['fields']['comment']['comments']:
       render_comment(archive, issue, comment, file, markup_proc)
    file.write('</div></body></html>')
+
+def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterable[bs4.Tag]) -> bs4.Tag:
+   span = soup.new_tag('span')
+   try:
+      first = next(items)
+   except StopIteration:
+      return span
+   span.append(first)
+   for item in items:
+      span.append(', ')
+      span.append(item)
+   return span
 
 def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str) -> pathlib.Path | None:
    avatar_id = archive.get_avatar_id(url)
@@ -327,15 +394,15 @@ def user_link(website: Website, file: HtmlFile, user_key: str | None) -> str | b
       ], attrs={'class':'username'})
    ], attrs={'class':'user-hover', 'rel': user_data['name'], 'href': relative_link(website.root, file.path, website.users_folder / (urllib.parse.quote_plus(user_key) + '.html'))})
 
-def resolution_link(website: Website, file: HtmlFile, resolution: str | None) -> bs4.Tag:
-   if resolution is None:
-      resid = '0'
-      resname = 'Unresolved'
+def field_link(website: Website, file: HtmlFile, folder: pathlib.PurePath, value: str) -> bs4.Tag:
+   return new_content_tag(file.page.soup, 'a', value, attrs={'href': relative_link(website.root, file.path, folder / (urllib.parse.quote_plus(value) + '.html'))})
+
+def resolution_link(website: Website, file: HtmlFile, resolution_id: str | None) -> bs4.Tag:
+   if resolution_id is None:
+      name = 'Unresolved'
    else:
-      resolution_obj = website.metas.resolutions[resolution]
-      resid = resolution_obj['id']
-      resname = resolution_obj['name']
-   return new_content_tag(file.page.soup, 'a', resname, attrs={'href': relative_link(website.root, file.path, website.resolutions_folder / (resid + '.html'))})
+      name = website.metas.resolutions[resolution_id]['name']
+   return field_link(website, file, website.resolutions_folder, name)
 
 def render_datetime(date_str: str) -> str:
    return datetime.datetime.fromisoformat(date_str).strftime('%Y-%m-%d %H:%M')
@@ -343,24 +410,25 @@ def render_datetime(date_str: str) -> str:
 def render_date(date_str: str) -> str:
    return datetime.date.fromisoformat(date_str).strftime('%Y-%m-%d')
 
-
-def render_version_list(archive: mojira.Archive, project: Project, versions: list[str], depth: int) -> bs4.Tag | str:
-   version_objs = map(lambda x: project['versions'][x], versions)
-   version_objs = sorted(version_objs, key=lambda x: int(x['id']))
-   version_objs = list(version_objs)
-   if len(version_objs) == 0:
+def render_version_list(website: Website, file: HtmlFile, project: Project, versions: list[Version]) -> bs4.Tag | str:
+   if len(versions) == 0:
       return '-'
-   if len(version_objs) == 1:
-      return render_version(version_objs[0], depth=depth)
-   if len(version_objs) <= 4:
-      return ', '.join([render_version(x, depth=depth) for x in version_objs])
-   first_version = version_objs[0]
-   last_version = version_objs[-1]
-   return f'<details><summary>{render_version(first_version, depth=depth)} - {render_version(last_version, depth=depth)} ({len(version_objs)} versions)</summary>{', '.join([render_version(x, depth=depth) for x in version_objs])}</details>'
+   if len(versions) == 1:
+      return version_link(website, file, project, versions[0])
+   span = inline_list(file.page.soup, map(lambda x: version_link(website, file, project, x), versions))
+   if len(versions) <= 4:
+      return span
+   return new_content_tag(file.page.soup, 'details', [
+      new_content_tag(file.page.soup, 'summary', [
+         version_link(website, file, project, versions[0]),
+         ' - ',
+         version_link(website, file, project, versions[-1]),
+      ]),
+      span
+   ])
 
-def render_version(version, depth: int):
-   depth_str = '../' * depth
-   return f'<a href="{depth_str}versions/{escape(version['name'])}.html">{escape(version['name'])}</a>'
+def version_link(website: Website, file: HtmlFile, project: Project, version: Version) -> bs4.Tag:
+   return new_content_tag(file.page.soup, 'a', version['name'], attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions' / (urllib.parse.quote_plus(version['name']) + '.html'))})
 
 def render_comment(archive, issue, comment, file, markup_proc):
    file.write('<div class="comment">')

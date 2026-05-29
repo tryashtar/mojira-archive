@@ -1,9 +1,27 @@
 import pathlib
+import bs4
 import mojira
 import subprocess
 import json
 import relations
 
+class MarkupSource:
+   def __init__(self, folder: pathlib.Path):
+      self.folder = folder
+
+   def get_issue_description(self, issue_id: str) -> bs4.BeautifulSoup:
+      with open(self.folder / issue_id / 'description.html', 'r', encoding='utf-8') as file:
+         return bs4.BeautifulSoup(file, 'html.parser')
+
+   def get_issue_revision(self, issue_id: str, revision: str) -> bs4.BeautifulSoup:
+      with open(self.folder / issue_id / 'revisions' / (revision + '.html'), 'r', encoding='utf-8') as file:
+         return bs4.BeautifulSoup(file, 'html.parser')
+
+   def get_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
+      with open(self.folder / issue_id / 'comments' / (comment_id + '.html'), 'r', encoding='utf-8') as file:
+         return bs4.BeautifulSoup(file, 'html.parser')
+
+# to do: main could create one of these and "import" into it
 def main():
    print('Loading...')
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
