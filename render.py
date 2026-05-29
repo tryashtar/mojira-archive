@@ -8,7 +8,7 @@ import datetime
 import urllib.parse
 import markup
 import bs4
-from web import HtmlFile, append_desc_item, append_row, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
+from web import HtmlFile, append_desc_item, append_row, html_to_text, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
 
 @dataclasses.dataclass
 class Website:
@@ -17,6 +17,7 @@ class Website:
    project_folder: pathlib.PurePath
    issues_folder: pathlib.PurePath
    users_folder: pathlib.PurePath
+   confirmation_folder: pathlib.PurePath
    labels_folder: pathlib.PurePath
    categories_folder: pathlib.PurePath
    areas_folder: pathlib.PurePath
@@ -53,6 +54,7 @@ def main():
       project_folder=pathlib.PurePath('web/projects'),
       issues_folder=pathlib.PurePath('web/issues'),
       users_folder=pathlib.PurePath('web/users'),
+      confirmation_folder=pathlib.PurePath('web/fields/confirmations'),
       labels_folder=pathlib.PurePath('web/fields/labels'),
       resolutions_folder=pathlib.PurePath('web/fields/resolutions'),
       categories_folder=pathlib.PurePath('web/fields/categories'),
@@ -63,6 +65,11 @@ def main():
       relations=rels,
       markup_source=markup_source
    )
+
+   file = create_issue_page(website, archive.get_issue_data(rels.issue_keys['MC-4']))
+   save_file(website, file)
+   return
+
    print('Rendering...')
    make_project_list(website, website.project_list)
    save_file(website, website.project_list)
@@ -235,69 +242,136 @@ def render_issues_table(website: Website, file: HtmlFile, issues: list[str]) -> 
       append_row(file.page.soup, table, [link, issue['fields']['summary'], reporter, date])
    return table
 
+def make_generic_header(website: Website, file: HtmlFile) -> bs4.Tag:
+   header = new_content_tag(file.page.soup, 'header', [
+      new_content_tag(file.page.soup, 'a', 'Mojira Archive', attrs={'class': 'header-main', 'href': relative_link(website.root, file.path, website.project_list.path)})
+   ])
+   return header
+
 def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    key = issue['key']
    fields = issue['fields']
    summary = fields['summary']
    full_title = f'[{key}] {summary}'
    project = website.metas.projects[fields['project']]
+
    file = make_jira_file(website.root, website.issues_folder / (key + '.html'), full_title)
    soup = file.page.soup
+   file.page.head.append(soup.new_tag('meta', attrs={'name': 'title', 'content': full_title}))
+   file.page.head.append(soup.new_tag('meta', attrs={'property': 'og:title', 'content': full_title}))
+   file.page.head.append(soup.new_tag('meta', attrs={'property': 'twitter:title', 'content': full_title}))
+
+   file.page.body.append(make_generic_header(website, file))
    content = soup.new_tag('div', attrs={'class': 'content'})
-   summary_div = soup.new_tag('div', attrs={'class': 'summary'})
-   header = new_content_tag(soup, 'h1', [
-      new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.project_list.path)}),
-      ' / ',
-      project_link(website, file, project),
-      ' / ',
-      issue_link(website, file, issue)
-   ])
-   summary_div.append(header)
-   summary_div.append(new_content_tag(soup, 'h2', summary))
-   content.append(summary_div)
-   fields_div = soup.new_tag('div', attrs={'class': 'fields'})
-   fields1 = make_desc_list(soup)
-   append_desc_item(soup, fields1, 'Reporter', user_link(website, file, fields['reporter']))
+   file.page.body.append(content)
+   issue_div = soup.new_tag('div', attrs={'id': 'issue', 'class': 'issue'})
+   content.append(issue_div)
+   issue_div.append(new_content_tag(soup, 'div', attrs={'class': 'issue-top'}, content=[
+      new_content_tag(soup, 'div', attrs={'class': 'issue-title'}, content=[
+         new_content_tag(soup, 'div', attrs={'class': 'issue-key', 'data-copy': key}, content=[
+            soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/icon/bug.svg'))}),
+            new_content_tag(soup, 'span', key)
+         ]),
+         new_content_tag(soup, 'h1', attrs={'class': 'issue-summary'}, content=summary)
+      ])
+   ]))
+   issue_body = soup.new_tag('main', attrs={'class': 'issue-body'})
+   issue_details = soup.new_tag('div', attrs={'class': 'issue-details'})
+   issue_div.append(new_content_tag(soup, 'div', attrs={'class': 'issue-split'}, content=[
+      issue_body,
+      issue_details
+   ]))
+   issue_details.append(new_content_tag(soup, 'p', [
+      new_content_tag(soup, 'label', 'Status:'),
+      resolution_link(website, file, fields['resolution'])
+   ]))
+   issue_details.append(new_content_tag(soup, 'p', [
+      new_content_tag(soup, 'label', 'Reporter:'),
+      user_link(website, file, fields['reporter'])
+   ]))
    if fields['reporter'] != fields['creator']:
-      append_desc_item(soup, fields1, 'Creator', user_link(website, file, fields['creator']))
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Creator:'),
+         user_link(website, file, fields['creator'])
+      ]))
    if 'assignee' in fields and fields['assignee'] is not None:
-      append_desc_item(soup, fields1, 'Assigned to', user_link(website, file, fields['assignee']))
-   append_desc_item(soup, fields1, 'Votes', str(fields['votes']['votes']))
-   append_desc_item(soup, fields1, 'Watchers', str(fields['watches']['watchCount']))
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Assignee:'),
+         user_link(website, file, fields['assignee'])
+      ]))
+   issue_details.append(new_content_tag(soup, 'p', [
+      new_content_tag(soup, 'label', 'Created:'),
+      render_datetime(fields['created'])
+   ]))
+   issue_details.append(new_content_tag(soup, 'p', [
+      new_content_tag(soup, 'label', 'Updated:'),
+      render_datetime(fields['updated'])
+   ]))
    if fields['resolutiondate'] is not None:
-      append_desc_item(soup, fields1, 'Resolved', render_datetime(fields['resolutiondate']))
-   fields_div.append(new_content_tag(soup, 'div', fields1, attrs={'class': 'field-section'}))
-   fields2 = make_desc_list(soup)
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Resolved:'),
+         render_datetime(fields['resolutiondate'])
+      ]))
+   issue_details.append(new_content_tag(soup, 'p', [
+      new_content_tag(soup, 'label', 'Votes:'),
+      new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['votes']['votes']))
+   ]))
+   issue_details.append(new_content_tag(soup, 'p', [
+      new_content_tag(soup, 'label', 'Watchers:'),
+      new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['watches']['watchCount']))
+   ]))
    if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
-      append_desc_item(soup, fields2, 'Confirmation Status', fields['customfield_10500']['value'])
-   append_desc_item(soup, fields2, 'Resolution', resolution_link(website, file, fields['resolution']))
-   append_desc_item(soup, fields2, 'Created', render_datetime(fields['created']))
-   append_desc_item(soup, fields2, 'Updated', render_datetime(fields['updated']))
-   fields_div.append(new_content_tag(soup, 'div', fields2, attrs={'class': 'field-section'}))
-   content.append(fields_div)
-   details = make_desc_list(soup)
-   if 'versions' in fields:
-      versions = list(map(lambda x: project['versions'][x], fields['versions']))
-      append_desc_item(soup, details, 'Affects Versions', render_version_list(website, file, project, versions))
-   if 'fixVersions' in fields:
-      versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
-      append_desc_item(soup, details, 'Fixed Versions', render_version_list(website, file, project, versions))
-   labels_list = inline_list(soup, map(lambda x: new_content_tag(soup, 'a', x, attrs={'href': relative_link(website.root, file.path, website.labels_folder / (urllib.parse.quote_plus(x) + '.html'))}), fields['labels']))
-   append_desc_item(soup, details, 'Labels', '-' if len(fields['labels']) == 0 else labels_list)
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Confirmation Status:'),
+         field_link(website, file, website.confirmation_folder, fields['customfield_10500']['value'])
+      ]))
+   if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Mojang Priority:'),
+         field_link(website, file, website.priorities_folder, fields['customfield_12200']['value'])
+      ]))
+   if 'customfield_11500' in fields and fields['customfield_11500'] is not None:
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'ADO:'),
+         fields['customfield_11500']
+      ]))
+   if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Area:'),
+         field_link(website, file, website.areas_folder, fields['customfield_12800']['value'])
+      ]))
    if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
       category_list = inline_list(soup, map(lambda x: field_link(website, file, website.categories_folder, x['value']), fields['customfield_11901']))
-      append_desc_item(soup, details, 'Category', '-' if len(fields['customfield_11901']) == 0 else category_list)
-   if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
-      append_desc_item(soup, details, 'Area', field_link(website, file, website.areas_folder, fields['customfield_12800']['value']))
-   if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
-      append_desc_item(soup, details, 'Mojang Priority', field_link(website, file, website.priorities_folder, fields['customfield_12200']['value']))
-   details_div = new_content_tag(soup, 'div', details, attrs={'class': 'details'})
-   content.append(details_div)
-   content.append(soup.new_tag('hr'))
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Category:'),
+         category_list
+      ]))
+   labels_list = inline_list(soup, map(lambda x: new_content_tag(soup, 'a', x, attrs={'href': relative_link(website.root, file.path, website.labels_folder / (urllib.parse.quote_plus(x) + '.html'))}), fields['labels']))
+   issue_details.append(new_content_tag(soup, 'p', [
+      new_content_tag(soup, 'label', 'Labels:'),
+      labels_list
+   ]))
+   if 'versions' in fields:
+      versions = list(map(lambda x: project['versions'][x], fields['versions']))
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Affects Versions:'),
+         render_version_list(website, file, project, versions)
+      ]))
+   if 'fixVersions' in fields:
+      versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
+      issue_details.append(new_content_tag(soup, 'p', [
+         new_content_tag(soup, 'label', 'Fix Versions:'),
+         render_version_list(website, file, project, versions)
+      ]))
    if fields['description'] is not None:
       desc = website.markup_source.get_issue_description(issue['id'])
-      content.append(new_content_tag(soup, 'div', desc, attrs={'class': 'description'}))
-   file.page.body.append(content)
+      desc_text = html_to_text(desc)
+      issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-description'}, content=[
+         new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=desc)
+      ]))
+      file.page.head.append(soup.new_tag('meta', attrs={'name': 'description', 'content': desc_text}))
+      file.page.head.append(soup.new_tag('meta', attrs={'property': 'og:description', 'content': desc_text}))
+      file.page.head.append(soup.new_tag('meta', attrs={'property': 'twitter:description', 'content': desc_text}))
    return file
 
    file.write('<hr/><div class="links">')
@@ -402,10 +476,12 @@ def resolution_link(website: Website, file: HtmlFile, resolution_id: str | None)
       name = 'Unresolved'
    else:
       name = website.metas.resolutions[resolution_id]['name']
-   return field_link(website, file, website.resolutions_folder, name)
+   link = field_link(website, file, website.resolutions_folder, name)
+   link.get_attribute_list('class').append('status-badge')
+   return link
 
 def render_datetime(date_str: str) -> str:
-   return datetime.datetime.fromisoformat(date_str).strftime('%Y-%m-%d %H:%M')
+   return datetime.datetime.fromisoformat(date_str).strftime('%Y-%m-%d, %I:%M %p')
 
 def render_date(date_str: str) -> str:
    return datetime.date.fromisoformat(date_str).strftime('%Y-%m-%d')

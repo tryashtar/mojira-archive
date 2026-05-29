@@ -1,5 +1,6 @@
 import dataclasses
 import bs4
+import bs4.element
 import pathlib
 import urllib.parse
 import re
@@ -15,7 +16,7 @@ class Page:
 @dataclasses.dataclass
 class HtmlFile:
    path: pathlib.PurePath
-   page: Page
+   page: Page = dataclasses.field(repr=False)
 
 def relative_link(root: pathlib.Path, file: pathlib.PurePath, link: pathlib.PurePath) -> str:
    return urllib.parse.quote(str(relative_path(root, file, root / link)))
@@ -102,3 +103,30 @@ def make_cute_button(soup: bs4.BeautifulSoup, root: pathlib.Path, file: pathlib.
       img['width'] = str(img_data.width)
       img['height'] = str(img_data.height)
    return new_content_tag(soup, 'a', img, attrs={'href': relative_link(root, file, link)})
+
+def is_hidden(tag: bs4.element.PageElement) -> bool:
+   parent_tags = (t for t in tag.parents if type(t) is bs4.element.Tag)
+   for parent_tag in parent_tags:
+      if (parent_tag.name in ('area', 'base', 'basefont', 'datalist', 'head', 'link',
+                               'meta', 'noembed', 'noframes', 'param', 'rp', 'script',
+                               'source', 'style', 'template', 'track', 'title', 'noscript') or
+            parent_tag.has_attr('hidden') or
+            (parent_tag.name == 'input' and parent_tag.get('type') == 'hidden')):
+               return True
+   return False
+
+def html_to_text(soup: bs4.BeautifulSoup) -> str:
+   text: list[str] = []
+   for element in soup.descendants:
+      if type(element) is bs4.element.NavigableString:
+         if is_hidden(element):
+            continue
+         content = element.string.split()
+         if len(content) == 0:
+            continue
+         string = ' '.join(content)
+         if element.parent is not None and element.parent.name == 'p':
+            string = '\n' + string
+         text.append(string)
+   doc = '\n'.join(text)
+   return doc

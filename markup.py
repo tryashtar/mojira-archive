@@ -1,5 +1,6 @@
 import pathlib
 import bs4
+from jiratypes import Issue
 import mojira
 import subprocess
 import json
@@ -9,19 +10,41 @@ class MarkupSource:
    def __init__(self, folder: pathlib.Path):
       self.folder = folder
 
+   def get_issue_description_path(self, issue_id: str) -> pathlib.Path:
+      return self.folder / issue_id / 'description.html'
+
+   def get_issue_revision_path(self, issue_id: str, revision: str) -> pathlib.Path:
+      return self.folder / issue_id / 'revisions' / (revision + '.html')
+
+   def get_comment_body_path(self, issue_id: str, comment_id: str) -> pathlib.Path:
+      return self.folder / issue_id / 'comments' / (comment_id + '.html')
+
    def get_issue_description(self, issue_id: str) -> bs4.BeautifulSoup:
-      with open(self.folder / issue_id / 'description.html', 'r', encoding='utf-8') as file:
+      with open(self.get_issue_description_path(issue_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
    def get_issue_revision(self, issue_id: str, revision: str) -> bs4.BeautifulSoup:
-      with open(self.folder / issue_id / 'revisions' / (revision + '.html'), 'r', encoding='utf-8') as file:
+      with open(self.get_issue_revision_path(issue_id, revision), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
    def get_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
-      with open(self.folder / issue_id / 'comments' / (comment_id + '.html'), 'r', encoding='utf-8') as file:
+      with open(self.get_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
-# to do: main could create one of these and "import" into it
+   def render_issue(self, issue: Issue, renderer: subprocess.Popen):
+      issue_id = int(issue['id'])
+      if issue['fields']['description'] is not None:
+         path = self.get_issue_description_path(issue['id'])
+         render_to_file(renderer, issue_id, issue['fields']['description'], path)
+      for revision in issue['changelog']['histories']:
+         for entry in revision['items']:
+            if entry['field'] == 'description' and entry['fromString'] is not None:
+               path = self.get_issue_revision_path(issue['id'], revision['id'])
+               render_to_file(renderer, issue_id, entry['fromString'], path)
+      for comment in issue['fields']['comment']['comments']:
+         path = self.get_comment_body_path(issue['id'], comment['id'])
+         render_to_file(renderer, issue_id, comment['body'], path)
+
 def main():
    print('Loading...')
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
@@ -29,36 +52,12 @@ def main():
    rels.load(pathlib.Path('/d/Archives/Mojira/relations'))
    markup_out = pathlib.Path('/d/Archives/Mojira/markup')
    process = get_process(archive, rels, '.')
+   source = MarkupSource(markup_out)
    print('Converting...')
    for issue in archive.issues():
-      if issue['fields']['description'] is not None:
-         out_path = markup_out / issue['id'] / 'description.html'
-         if not out_path.exists():
-            print(f'{issue['id']} / {issue['key']} desc')
-            markup = convert(process, issue['fields']['description'], int(issue['id']))
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(out_path, 'w', encoding='utf-8') as file:
-               file.write(markup)
-      for revision in issue['changelog']['histories']:
-         for entry in revision['items']:
-            if entry['field'] == 'description' and entry['fromString'] is not None:
-               out_path = markup_out / issue['id'] / 'revisions' / (revision['id'] + '.html')
-               if not out_path.exists():
-                  print(f'{issue['id']} / {issue['key']} rev {revision['id']}')
-                  markup = convert(process, entry['fromString'], int(issue['id']))
-                  out_path.parent.mkdir(parents=True, exist_ok=True)
-                  with open(out_path, 'w', encoding='utf-8') as file:
-                     file.write(markup)
-      for comment in issue['fields']['comment']['comments']:
-         out_path = markup_out / issue['id'] / 'comments' / (comment['id'] + '.html')
-         if not out_path.exists():
-            print(f'{issue['id']} / {issue['key']} comment {comment['id']}')
-            markup = convert(process, comment['body'], int(issue['id']))
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(out_path, 'w', encoding='utf-8') as file:
-               file.write(markup)
+      source.render_issue(issue, process)
 
-def get_process(archive: mojira.Archive, rels: relations.Relations, root: str):
+def get_process(archive: mojira.Archive, rels: relations.Relations, root: str) -> subprocess.Popen:
    print('Configuring...')
    input_args = {
       'issues': str(archive.issues_folder),
@@ -100,6 +99,13 @@ def convert(process: subprocess.Popen, markup: str, issue_id: int | None) -> str
    output_text = process.stdout.readline()
    output = json.loads(output_text)
    return output['rendered']
+
+def render_to_file(renderer: subprocess.Popen, issue_id: int, markup: str, path: pathlib.Path):
+   if not path.exists():
+      html = convert(renderer, markup, issue_id)
+      path.parent.mkdir(parents=True, exist_ok=True)
+      with open(path, 'w', encoding='utf-8') as file:
+         file.write(html)
 
 if __name__ == '__main__':
    main()
