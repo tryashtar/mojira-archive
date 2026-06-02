@@ -2,7 +2,6 @@ import pathlib
 import typing
 import mojira
 import bisect
-import dataclasses
 import json
 
 IssueRelations = typing.TypedDict('IssueRelations', {
@@ -24,7 +23,6 @@ VersionRelations = typing.TypedDict('VersionRelations', {
    'fixed': list[str]
 })
 
-@dataclasses.dataclass
 class Relations:
    issue_keys: dict[str, str]
    user_keys: dict[str, str]

@@ -86,13 +86,19 @@ CustomField = typing.TypedDict('CustomField', {
    'value': str
 })
 
+CommentVisibility = typing.TypedDict('CommentVisibility', {
+   'type': str,
+   'value': str
+})
+
 Comment = typing.TypedDict('Comment', {
    'id': str,
    'author': typing.NotRequired[str],
    'updateAuthor': typing.NotRequired[str],
    'body': str,
    'created': str,
-   'updated': str
+   'updated': str,
+   'visibility': typing.NotRequired[CommentVisibility]
 })
 
 CommentField = typing.TypedDict('CommentField', {
@@ -110,9 +116,17 @@ WatchesField = typing.TypedDict('WatchesField', {
    'isWatching': bool
 })
 
+IssueLink = typing.TypedDict('IssueLink', {
+   'id': str,
+   'type': str,
+   'outwardIssue': typing.NotRequired[str],
+   'inwardIssue': typing.NotRequired[str],
+})
+
 IssueFields = typing.TypedDict('IssueFields', {
    'summary': str,
    'description': str | None,
+   'environment': typing.NotRequired[str | None],
    'issuetype': str,
    'project': str,
    'versions': typing.NotRequired[list[str]],
@@ -135,6 +149,7 @@ IssueFields = typing.TypedDict('IssueFields', {
    'comment': CommentField,
    'votes': VotesField,
    'watches': WatchesField,
+   'issuelinks': list[IssueLink],
 })
 
 RevisionChange = typing.TypedDict('RevisionChange', {

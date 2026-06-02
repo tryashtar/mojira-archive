@@ -10,21 +10,25 @@ class MarkupSource:
    def __init__(self, folder: pathlib.Path):
       self.folder = folder
 
-   def get_issue_description_path(self, issue_id: str) -> pathlib.Path:
-      return self.folder / issue_id / 'description.html'
+   def get_issue_description_path(self, issue_id: str, revision_id: str | None=None) -> pathlib.Path:
+      if revision_id is None:
+         return self.folder / issue_id / 'description.html'
+      return self.folder / issue_id / 'revisions' / revision_id / 'description.html'
 
-   def get_issue_revision_path(self, issue_id: str, revision: str) -> pathlib.Path:
-      return self.folder / issue_id / 'revisions' / (revision + '.html')
+   def get_issue_environment_path(self, issue_id: str, revision_id: str | None=None) -> pathlib.Path:
+      if revision_id is None:
+         return self.folder / issue_id / 'environment.html'
+      return self.folder / issue_id / 'revisions' / revision_id / 'environment.html'
 
    def get_comment_body_path(self, issue_id: str, comment_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'comments' / (comment_id + '.html')
 
-   def get_issue_description(self, issue_id: str) -> bs4.BeautifulSoup:
-      with open(self.get_issue_description_path(issue_id), 'r', encoding='utf-8') as file:
+   def get_issue_description(self, issue_id: str, revision_id: str | None=None) -> bs4.BeautifulSoup:
+      with open(self.get_issue_description_path(issue_id, revision_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
-   def get_issue_revision(self, issue_id: str, revision: str) -> bs4.BeautifulSoup:
-      with open(self.get_issue_revision_path(issue_id, revision), 'r', encoding='utf-8') as file:
+   def get_issue_environment(self, issue_id: str, revision_id: str | None=None) -> bs4.BeautifulSoup:
+      with open(self.get_issue_environment_path(issue_id, revision_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
    def get_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
@@ -36,11 +40,18 @@ class MarkupSource:
       if issue['fields']['description'] is not None:
          path = self.get_issue_description_path(issue['id'])
          render_to_file(renderer, issue_id, issue['fields']['description'], path)
+      if 'environment' in issue['fields'] and issue['fields']['environment'] is not None:
+         path = self.get_issue_environment_path(issue['id'])
+         render_to_file(renderer, issue_id, issue['fields']['environment'], path)
       for revision in issue['changelog']['histories']:
          for entry in revision['items']:
-            if entry['field'] == 'description' and entry['fromString'] is not None:
-               path = self.get_issue_revision_path(issue['id'], revision['id'])
-               render_to_file(renderer, issue_id, entry['fromString'], path)
+            if entry['fromString'] is not None:
+               if entry['field'] == 'description':
+                  path = self.get_issue_description_path(issue['id'], revision['id'])
+                  render_to_file(renderer, issue_id, entry['fromString'], path)
+               elif entry['field'] == 'environment':
+                  path = self.get_issue_environment_path(issue['id'], revision['id'])
+                  render_to_file(renderer, issue_id, entry['fromString'], path)
       for comment in issue['fields']['comment']['comments']:
          path = self.get_comment_body_path(issue['id'], comment['id'])
          render_to_file(renderer, issue_id, comment['body'], path)
