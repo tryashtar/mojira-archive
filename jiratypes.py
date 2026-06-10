@@ -165,6 +165,7 @@ IssueFields = typing.TypedDict('IssueFields', {
    'customfield_11901': typing.NotRequired[list[CustomField] | None],
    'customfield_10500': typing.NotRequired[CustomField | None],
    'customfield_11500': typing.NotRequired[str | None],
+   'customfield_12201': typing.NotRequired[str | None],
    'comment': CommentField,
    'votes': VotesField,
    'watches': WatchesField,
