@@ -1,4 +1,5 @@
 import dataclasses
+import typing
 import bs4
 import bs4.element
 import pathlib
@@ -68,12 +69,13 @@ def make_embed(soup: bs4.BeautifulSoup, path: str | pathlib.PurePath, name: str)
       return new_content_tag(soup, 'audio', soup.new_tag('source', attrs={'src': urllib.parse.quote(str(path))}), attrs={'controls': ''})
    raise ValueError(path)
 
-def new_content_tag(soup: bs4.BeautifulSoup, name: str, content: str | bs4.Tag | list[str | bs4.Tag], attrs: dict[str, str] | None=None) -> bs4.Tag:
+def new_content_tag(soup: bs4.BeautifulSoup, name: str, content: str | bs4.Tag | typing.Iterable[str | bs4.Tag], attrs: dict[str, str] | None=None) -> bs4.Tag:
    tag = soup.new_tag(name, attrs=attrs)
-   if not isinstance(content, list):
-      content = [content]
-   for entry in content:
-      tag.append(entry)
+   if isinstance(content, bs4.Tag) or isinstance(content, str):
+      tag.append(content)
+   else:
+      for entry in content:
+         tag.append(entry)
    return tag
 
 def make_file(path: pathlib.PurePath, title: str) -> HtmlFile:

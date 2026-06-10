@@ -386,18 +386,7 @@ def render_issue_body(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag
 
 def render_issue_comments(website: Website, file: HtmlFile, comments: list[tuple[Comment, bs4.BeautifulSoup]]) -> bs4.Tag:
    soup = file.page.soup
-   comments_list = soup.new_tag('div', attrs={'class': 'comments-list'})
-   issue_comments = new_content_tag(soup, 'div', attrs={'class': 'issue-comment-section issue-body'}, content=[
-      new_content_tag(soup, 'details', attrs={'open': ''}, content=[
-         new_content_tag(soup, 'summary', [
-            new_content_tag(soup, 'span', attrs={'class': 'section-heading'}, content=[
-               'Comments',
-               new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(comments)))
-            ])
-         ]),
-         comments_list
-      ])
-   ])
+   comments_list: list[bs4.Tag] = []
    def comment_author(user_key: str) -> bs4.Tag:
       user_tag = user_link(website, file, user_key)
       user_text = user_tag if 'username' in user_tag.attrs['class'] else user_tag.find(class_='username')
@@ -441,22 +430,20 @@ def render_issue_comments(website: Website, file: HtmlFile, comments: list[tuple
          new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=body)
       ]))
       comments_list.append(comment_div)
+   issue_comments = new_content_tag(soup, 'details', attrs={'open': ''}, content=[
+      new_content_tag(soup, 'summary', [
+         new_content_tag(soup, 'span', attrs={'class': 'section-heading'}, content=[
+            'Comments',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(comments)))
+         ])
+      ]),
+      new_content_tag(soup, 'div', attrs={'class': 'issue-comment-section issue-body'}, content=comments_list)
+   ])
    return issue_comments
 
 def render_issue_attachments(website: Website, file: HtmlFile, attachments: list[str]) -> bs4.Tag:
    soup = file.page.soup
-   attach_list = soup.new_tag('div', attrs={'class': 'attachments'})
-   issue_attaches = new_content_tag(soup, 'div', attrs={'class': 'issue-attachment-section issue-body'}, content=[
-      new_content_tag(soup, 'details', attrs={'open': ''}, content=[
-         new_content_tag(soup, 'summary', [
-            new_content_tag(soup, 'span', attrs={'class': 'section-heading'}, content=[
-               'Attachments',
-               new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(attachments)))
-            ])
-         ]),
-         attach_list
-      ])
-   ])
+   attach_list: list[bs4.Tag] = []
    for entry in attachments:
       attach_info = website.archive.get_attachment_data(entry)
       assert attach_info is not None
@@ -475,6 +462,15 @@ def render_issue_attachments(website: Website, file: HtmlFile, attachments: list
       attach_div.append(
          new_content_tag(soup, 'p', content=render_datetime(soup, attach_info['created']))
       )
+   issue_attaches = new_content_tag(soup, 'details', attrs={'open': ''}, content=[
+      new_content_tag(soup, 'summary', [
+         new_content_tag(soup, 'span', attrs={'class': 'section-heading'}, content=[
+            'Attachments',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(attachments)))
+         ])
+      ]),
+      new_content_tag(soup, 'div', attrs={'class': 'attachments'}, content=attach_list)
+   ])
    return issue_attaches
 
 def render_issue_links(website: Website, file: HtmlFile, links: list[IssueLink]) -> bs4.Tag | None:
@@ -496,17 +492,7 @@ def render_issue_links(website: Website, file: HtmlFile, links: list[IssueLink])
       link_types[identity].append(linked_data)
    if len(link_types) == 0:
       return None
-   link_list = soup.new_tag('div', attrs={'class': 'issue-links-categories issue-body'})
-   link_section = new_content_tag(soup, 'div', attrs={'class': 'issue-link-section issue-body'}, content=[
-      new_content_tag(soup, 'details', attrs={'open': ''}, content=[
-         new_content_tag(soup, 'summary', [
-            new_content_tag(soup, 'span', attrs={'class': 'section-heading'}, content=[
-               'Linked Issues'
-            ])
-         ]),
-         link_list
-      ])
-   ])
+   link_lists: list[bs4.Tag] = []
    for link_desc, issues in link_types.items():
       link_block = new_content_tag(soup, 'div', attrs={'class': 'issue-links-category'}, content=[
          new_content_tag(soup, 'h3', attrs={'class': 'issue-link-type'}, content=[
@@ -514,11 +500,19 @@ def render_issue_links(website: Website, file: HtmlFile, links: list[IssueLink])
             new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(issues)))
          ])
       ])
-      link_list.append(link_block)
+      link_lists.append(link_block)
       link_list = soup.new_tag('div', attrs={'class': 'issue-links-list'})
       link_block.append(link_list)
       for linked_issue in issues:
          link_list.append(big_issue_link(website, file, linked_issue))
+   link_section = new_content_tag(soup, 'details', attrs={'open': ''}, content=[
+      new_content_tag(soup, 'summary', [
+         new_content_tag(soup, 'span', attrs={'class': 'section-heading'}, content=[
+            'Linked Issues'
+         ])
+      ]),
+      new_content_tag(soup, 'div', attrs={'class': 'issue-link-section issue-body'}, content=link_lists)
+   ])
    return link_section
 
 def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
