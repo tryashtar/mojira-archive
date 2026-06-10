@@ -1,6 +1,6 @@
 import dataclasses
 import typing
-from jiratypes import Attachment, Comment, Issue, IssueLink, Project, Version
+from jiratypes import Attachment, Comment, Issue, IssueLink, Project, Revision, Version
 import mojira
 import relations
 import pathlib
@@ -45,7 +45,7 @@ def save_file(website: Website, file: HtmlFile):
    write_html(website.root / file.path, file.page)
 
 def main():
-   print('Starting...')
+   print('Loading...')
    root = pathlib.Path('/d/Archives/Mojira')
    archive = mojira.Archive(folder=root / 'data')
    metas = mojira.ArchiveMetas()
@@ -72,6 +72,7 @@ def main():
       markup_source=markup_source,
       secret_comments=secret_comments
    )
+   print('Rendering...')
 
    file = create_issue_page(website, archive.get_issue_data(rels.issue_keys['MC-4']))
    save_file(website, file)
@@ -79,7 +80,6 @@ def main():
    save_file(website, file)
    return
 
-   print('Rendering...')
    make_project_list(website, website.project_list)
    save_file(website, website.project_list)
    for project_id, project in metas.projects.items():
@@ -359,6 +359,9 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
          bisect.insort_left(all_comments, (converted_comment, body), key=lambda x: datetime.datetime.fromisoformat(x[0]['created']))
       comment_section = render_issue_comments(website, file, all_comments)
       issue_body.append(comment_section)
+   if len(issue['changelog']['histories']) > 0:
+      attach_section = render_issue_revisions(website, file, issue['changelog']['histories'])
+      issue_body.append(attach_section)
    return file
 
 def render_issue_body(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
@@ -383,6 +386,84 @@ def render_issue_body(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag
          new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=env)
       ]))
    return issue_body
+
+def render_issue_revisions(website: Website, file: HtmlFile, revisions: list[Revision]) -> bs4.Tag:
+   soup = file.page.soup
+   revisions_list: list[bs4.Tag] = []
+   labels: list[str] | None = None
+   for revision in revisions:
+      history_items: list[bs4.Tag] = []
+      for item in revision['items']:
+         match item['field']:
+            case 'labels':
+               if labels is None:
+                  labels = item['fromString'].split(' ') if item['fromString'] is not None else []
+               new_labels = item['toString'].split(' ') if item['toString'] is not None else []
+               added_labels = set(new_labels) - set(labels)
+               removed_labels = set(labels) - set(new_labels)
+               if len(added_labels) > 0:
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Added labels: ',
+                     labels_list(website, file, added_labels)
+                  ]))
+               if len(removed_labels) > 0:
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Removed labels: ',
+                     labels_list(website, file, removed_labels)
+                  ]))
+               labels = new_labels
+            case 'Confirmation Status':
+               history_items.append(new_content_tag(soup, 'p', [
+                  'Confirmation Status: ',
+                  field_link(website, file, website.confirmation_folder, item['fromString']),
+                  ' → ',
+                  field_link(website, file, website.confirmation_folder, item['toString'])
+               ]))
+            case 'security':
+               history_items.append(new_content_tag(soup, 'p', [
+                  'Security Level: ',
+                  new_content_tag(soup, 'span', attrs={'class': 'status-badge'}, content=item['fromString']),
+                  ' → ',
+                  new_content_tag(soup, 'span', attrs={'class': 'status-badge'}, content=item['toString'])
+               ]))
+            case 'Link':
+               if item['to'] is not None:
+                  link_dir = item['toString'][len('This issue '):-(len(item['to']) + 1)]
+                  relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[item['to']])
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Added a link: ',
+                     link_dir,
+                     ' ',
+                     issue_link(website, file, relevant_issue, with_summary=True)
+                  ]))
+               if item['from'] is not None:
+                  link_dir = item['fromString'][len('This issue '):-(len(item['from']) + 1)]
+                  relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[item['from']])
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Removed a link: ',
+                     link_dir,
+                     ' ',
+                     issue_link(website, file, relevant_issue, with_summary=True)
+                  ]))
+            case 'status' | 'Linked':
+               pass
+            case _:
+               history_items.append(new_content_tag(soup, 'p', item['field']))
+      revisions_list.append(new_content_tag(soup, 'div', attrs={'class': 'history-entry'}, content=[
+         user_link(website, file, revision['author']),
+         render_datetime(soup, revision['created']),
+         new_content_tag(soup, 'div', attrs={'class': 'history-entry-items'}, content=history_items)
+      ]))
+   issue_revisions = new_content_tag(soup, 'details', attrs={'class': 'issue-body'}, content=[
+      new_content_tag(soup, 'summary', [
+         new_content_tag(soup, 'h2', content=[
+            'History',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(revisions)))
+         ])
+      ]),
+      new_content_tag(soup, 'div', attrs={'class': 'issue-history-section issue-body'}, content=revisions_list)
+   ])
+   return issue_revisions
 
 def render_issue_comments(website: Website, file: HtmlFile, comments: list[tuple[Comment, bs4.BeautifulSoup]]) -> bs4.Tag:
    soup = file.page.soup
@@ -587,11 +668,9 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
          new_content_tag(soup, 'label', 'Category:'),
          category_list
       )
-   labels_list = inline_list(soup, map(lambda x: new_content_tag(soup, 'a', x, attrs={'class': 'status-badge', 'href': relative_link(website.root, file.path, website.labels_folder / (urllib.parse.quote_plus(x) + '.html'))}), fields['labels']))
-   labels_list.attrs['class'] = 'labels-list'
    append_desc_item(soup, issue_details,
       new_content_tag(soup, 'label', 'Labels:'),
-      labels_list
+      labels_list(website, file, fields['labels'])
    )
    if 'versions' in fields:
       versions = list(map(lambda x: project['versions'][x], fields['versions']))
@@ -617,6 +696,11 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       ])
    )
    return issue_details
+
+def labels_list(website: Website, file: HtmlFile, labels: typing.Iterable[str]) -> bs4.Tag:
+   labels_list = inline_list(file.page.soup, map(lambda x: new_content_tag(file.page.soup, 'a', x, attrs={'class': 'status-badge', 'href': relative_link(website.root, file.path, website.labels_folder / (urllib.parse.quote_plus(x) + '.html'))}), labels))
+   labels_list.attrs['class'] = 'labels-list'
+   return labels_list
 
 def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment) -> bs4.Tag | None:
    attach_path = website.archive.get_attachment_content_path(attachment['id'], attachment['filename'])
@@ -677,12 +761,15 @@ def big_issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
       merged_status(website, file, issue)
    ])
 
-def issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
+def issue_link(website: Website, file: HtmlFile, issue: Issue, with_summary: bool) -> bs4.Tag:
    key = issue['key']
    linkpart = new_content_tag(file.page.soup, 'a', key, attrs={'href': relative_link(website.root, file.path, website.issues_folder / (key + '.html'))})
    if issue['fields']['resolution'] is not None:
       linkpart.attrs['class'] = 'resolved'
-   return new_content_tag(file.page.soup, 'span', [linkpart, ' ', issue['fields']['summary']])
+   if with_summary:
+      return new_content_tag(file.page.soup, 'span', [linkpart, ' ', issue['fields']['summary']])
+   else:
+      return new_content_tag(file.page.soup, 'span', [linkpart])
 
 def user_link(website: Website, file: HtmlFile, user_key: str | None) -> bs4.Tag:
    if user_key is None:

@@ -136,6 +136,12 @@ IssueLink = typing.TypedDict('IssueLink', {
    'inwardIssue': typing.NotRequired[str],
 })
 
+Security = typing.TypedDict('Security', {
+   'id': str,
+   'name': str,
+   'description': str
+})
+
 IssueFields = typing.TypedDict('IssueFields', {
    'summary': str,
    'description': str | None,
@@ -163,6 +169,7 @@ IssueFields = typing.TypedDict('IssueFields', {
    'votes': VotesField,
    'watches': WatchesField,
    'issuelinks': list[IssueLink],
+   'security': typing.NotRequired[Security]
 })
 
 RevisionChange = typing.TypedDict('RevisionChange', {
