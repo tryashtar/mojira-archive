@@ -194,7 +194,7 @@ def create_relations(archive: mojira.Archive) -> Relations:
       assert user is not None
       if i % 100 == 0:
          print(f'{i+1} / {total} - {user['name']}')
-      relations.user_keys[user['name']] = user_key
+      relations.user_keys[user['name'].casefold()] = user_key
       for group in user['groups']['items']:
          append(relations.groups, group['name'], user_key)
    return relations

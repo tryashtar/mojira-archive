@@ -2,7 +2,7 @@ import pathlib
 import json
 import urllib.parse
 import typing
-from jiratypes import Attachment, Field, Issue, IssueType, LinkType, Project, Resolution, Status, User
+from jiratypes import Attachment, Field, Issue, IssueType, LinkType, NewComment, Project, Resolution, Status, User
 
 class ArchiveMetas:
    def __init__(self):
@@ -180,3 +180,40 @@ def save_one(data: dict[str, typing.Any], path: pathlib.Path):
    path.parent.mkdir(parents=True, exist_ok=True)
    with open(path, 'w', encoding='utf-8') as file:
       json.dump(list(data.values()), file, indent=3)
+
+class SecretComments:
+   def __init__(self, path: pathlib.Path):
+      with open(path, 'r', encoding='utf-8') as file:
+         self.comments: dict[str, list[NewComment]] = json.load(file)
+
+   def get(self, issue_id: str) -> list[NewComment]:
+      return self.comments.get(issue_id, [])
+
+def migrate_secret_comments():
+   import relations
+   rels = relations.Relations()
+   rels.load(pathlib.Path('/d/Archives/Mojira/relations'))
+   final: dict = {}
+   with open('/d/Archives/Mojira/secret_comments-1.json', 'r', encoding='utf-8') as file:
+      data1 = json.load(file)
+   with open('/d/Archives/Mojira/secret_comments-2.json', 'r', encoding='utf-8') as file:
+      data2 = json.load(file)
+   for data in (data1, data2):
+      for key, comments in data.items():
+         issue_id = rels.issue_keys[key]
+         if issue_id not in final:
+            final[issue_id] = []
+         for comment in comments:
+            found = False
+            for i, cm in enumerate(final[issue_id]):
+               if cm['id'] == comment['id']:
+                  final[issue_id][i] = comment
+                  found = True
+                  break
+            if not found:
+               final[issue_id].append(comment)
+   with open('/d/Archives/Mojira/secret_comments.json', 'w', encoding='utf-8') as file:
+      json.dump(final, file, indent=3)
+
+if __name__ == '__main__':
+   migrate_secret_comments()

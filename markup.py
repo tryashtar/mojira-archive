@@ -23,6 +23,9 @@ class MarkupSource:
    def get_comment_body_path(self, issue_id: str, comment_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'comments' / (comment_id + '.html')
 
+   def get_secret_comment_body_path(self, issue_id: str, comment_id: str) -> pathlib.Path:
+      return self.folder / issue_id / 'secret_comments' / (comment_id + '.html')
+
    def get_issue_description(self, issue_id: str, revision_id: str | None=None) -> bs4.BeautifulSoup:
       with open(self.get_issue_description_path(issue_id, revision_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
@@ -33,6 +36,10 @@ class MarkupSource:
 
    def get_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
       with open(self.get_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
+         return bs4.BeautifulSoup(file, 'html.parser')
+
+   def get_secret_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
+      with open(self.get_secret_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
    def render_issue(self, issue: Issue, renderer: subprocess.Popen):
@@ -61,12 +68,21 @@ def main():
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
    rels = relations.Relations()
    rels.load(pathlib.Path('/d/Archives/Mojira/relations'))
+   secret_comments = mojira.SecretComments(pathlib.Path('/d/Archives/Mojira/secret_comments.json'))
    markup_out = pathlib.Path('/d/Archives/Mojira/markup')
    process = get_process(archive, rels, '.')
    source = MarkupSource(markup_out)
    print('Converting...')
-   for issue in archive.issues():
+   for i, issue in enumerate(archive.issues()):
+      if i % 10000 == 0:
+         print(i)
       source.render_issue(issue, process)
+   print('Secrets...')
+   for issue_id, comments in secret_comments.comments.items():
+      print(issue_id)
+      for comment in comments:
+         path = source.get_secret_comment_body_path(issue_id, comment['id'])
+         render_to_file(process, int(issue_id), comment['body'], path)
 
 def get_process(archive: mojira.Archive, rels: relations.Relations, root: str) -> subprocess.Popen:
    print('Configuring...')
@@ -87,11 +103,10 @@ def get_process(archive: mojira.Archive, rels: relations.Relations, root: str) -
    )
    assert process.stdin is not None
    issue_map = {k: int(v) for k, v in rels.issue_keys.items()}
-   user_map = {k.lower(): v for k, v in rels.user_keys.items()}
    configure_data = {
       'type': 'configure',
       'issue_map': issue_map,
-      'user_map': user_map
+      'user_map': rels.user_keys
    }
    process.stdin.write(json.dumps(configure_data) + '\n')
    process.stdin.flush()

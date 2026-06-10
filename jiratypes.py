@@ -91,6 +91,19 @@ CommentVisibility = typing.TypedDict('CommentVisibility', {
    'value': str
 })
 
+NewAuthor = typing.TypedDict('NewAuthor', {
+   'displayName': str
+})
+
+NewComment = typing.TypedDict('NewComment', {
+   'id': str,
+   'author': NewAuthor,
+   'updateAuthor': NewAuthor,
+   'body': str,
+   'created': str,
+   'updated': str
+})
+
 Comment = typing.TypedDict('Comment', {
    'id': str,
    'author': typing.NotRequired[str],
