@@ -36,7 +36,7 @@ def make_desc_list(soup: bs4.BeautifulSoup) -> bs4.Tag:
    return list
 
 def append_desc_item(soup: bs4.BeautifulSoup, desc_list: bs4.Tag, name: str | bs4.Tag, value: str | bs4.Tag):
-   desc_list.append(new_content_tag(soup, 'dt', name))
+   desc_list.append(new_content_tag(soup, 'dt', new_content_tag(soup, 'label', name)))
    desc_list.append(new_content_tag(soup, 'dd', value))
 
 def make_table(soup: bs4.BeautifulSoup, headings: list[bs4.Tag | str]) -> bs4.Tag:

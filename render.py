@@ -402,17 +402,17 @@ class TrackedMultiSetRevision:
       self.name = name
       self.creator = creator
 
-   def handle(self, soup: bs4.BeautifulSoup) -> typing.Generator[bs4.Tag]:
+   def handle(self, soup: bs4.BeautifulSoup, table: bs4.Tag):
       if len(self.added) > 0:
-         yield new_content_tag(soup, 'p', [
+         append_desc_item(soup, table,
             f'Added {self.name}: ',
             self.creator(self.added)
-         ])
+         )
       if len(self.removed) > 0:
-         yield new_content_tag(soup, 'p', [
+         append_desc_item(soup, table,
             f'Removed {self.name}: ',
             self.creator(self.added)
-         ])
+         )
 
 def revision_import_multi(versions: TrackedMultiSetRevision, entry: RevisionChange):
    if entry['to'] is not None:
@@ -429,64 +429,70 @@ class TrackedMultiValueRevision:
       self.separator = separator
       self.creator = creator
 
-   def handle(self, soup: bs4.BeautifulSoup, revision: RevisionChange) -> typing.Generator[bs4.Tag]:
+   def handle(self, soup: bs4.BeautifulSoup, table: bs4.Tag, revision: RevisionChange):
       if self.previous is None:
          self.previous = revision['fromString'].split(self.separator) if revision['fromString'] is not None else []
       new_values = revision['toString'].split(self.separator) if revision['toString'] is not None else []
       added_values = set(new_values) - set(self.previous)
       removed_values = set(self.previous) - set(new_values)
       if len(added_values) > 0:
-         yield new_content_tag(soup, 'p', [
+         append_desc_item(soup, table,
             f'Added {self.name}: ',
             self.creator(added_values)
-         ])
+         )
       if len(removed_values) > 0:
-         yield new_content_tag(soup, 'p', [
+         append_desc_item(soup, table,
             f'Removed {self.name}: ',
             self.creator(removed_values)
-         ])
+         )
       self.previous = new_values
 
-def revision_always_set(soup: bs4.BeautifulSoup, revision: RevisionChange, label: str, creator: typing.Callable[[str], bs4.Tag]) -> bs4.Tag:
+def revision_always_set(soup: bs4.BeautifulSoup, table: bs4.Tag, revision: RevisionChange, label: str, creator: typing.Callable[[str], bs4.Tag]):
    assert revision['fromString'] is not None
    assert revision['toString'] is not None
-   return new_content_tag(soup, 'p', [
+   append_desc_item(soup, table,
       f'{label}: ',
-      creator(revision['fromString']),
-      ' → ',
-      creator(revision['toString'])
-   ])
-
-def revision_always_set_source(soup: bs4.BeautifulSoup, revision: RevisionChange, label: str, creator: typing.Callable[[str | None], bs4.Tag]) -> bs4.Tag:
-   return new_content_tag(soup, 'p', [
-      f'{label}: ',
-      creator(revision['from']),
-      ' → ',
-      creator(revision['to'])
-   ])
-
-def revision_optional(soup: bs4.BeautifulSoup, revision: RevisionChange, label: str, creator: typing.Callable[[str], bs4.Tag]) -> typing.Generator[bs4.Tag]:
-   if revision['to'] is not None and revision['from'] is not None:
-      assert revision['fromString'] is not None
-      assert revision['toString'] is not None
-      yield new_content_tag(soup, 'p', [
-         f'{label}: ',
+      new_content_tag(soup, 'span', [
          creator(revision['fromString']),
          ' → ',
          creator(revision['toString'])
       ])
+   )
+
+def revision_always_set_source(soup: bs4.BeautifulSoup, table: bs4.Tag, revision: RevisionChange, label: str, creator: typing.Callable[[str | None], bs4.Tag]):
+   append_desc_item(soup, table,
+      f'{label}: ',
+      new_content_tag(soup, 'span', [
+         creator(revision['from']),
+         ' → ',
+         creator(revision['to'])
+      ])
+   )
+
+def revision_optional(soup: bs4.BeautifulSoup, table: bs4.Tag, revision: RevisionChange, label: str, creator: typing.Callable[[str], bs4.Tag]):
+   if revision['to'] is not None and revision['from'] is not None:
+      assert revision['fromString'] is not None
+      assert revision['toString'] is not None
+      append_desc_item(soup, table,
+         f'{label}: ',
+         new_content_tag(soup, 'span', [
+            creator(revision['fromString']),
+            ' → ',
+            creator(revision['toString'])
+         ])
+      )
    elif revision['to'] is None and revision['from'] is not None:
       assert revision['fromString'] is not None
-      yield new_content_tag(soup, 'p', [
+      append_desc_item(soup, table,
          f'Removed {label}: ',
          creator(revision['fromString'])
-      ])
+      )
    elif revision['from'] is None and revision['from'] is None:
       assert revision['toString'] is not None
-      yield new_content_tag(soup, 'p', [
+      append_desc_item(soup, table,
          f'Added {label}: ',
          creator(revision['toString'])
-      ])
+      )
 
 def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> bs4.Tag:
    soup = file.page.soup
@@ -495,7 +501,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    labels = TrackedMultiValueRevision('labels', ' ', lambda x: labels_list(website, file, x))
    categories = TrackedMultiValueRevision('Category', ',', lambda x: inline_list(soup, map(lambda y: new_content_tag(file.page.soup, 'span', y, attrs={'class': 'status-badge'}), x)))
    for revision in revisions:
-      history_items: list[bs4.Tag] = []
+      history_entries = new_content_tag(soup, 'dl', attrs={'class': 'history-entry-items'}, content=[])
       def version_creator(versions: list[tuple[str, str]]) -> bs4.Tag:
          def render_version(version_id: str, version_name: str) -> bs4.Tag:
             if version_id in project['versions']:
@@ -507,70 +513,61 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       for item in revision['items']:
          match item['field']:
             case 'labels':
-               for tag in labels.handle(soup, item):
-                  history_items.append(tag)
+               labels.handle(soup, history_entries, item)
             case 'Category':
-               for tag in categories.handle(soup, item):
-                  history_items.append(tag)
+               categories.handle(soup, history_entries, item)
             case 'Confirmation Status':
                def creator(x: str): return field_link(website, file, website.field_folders.confirmation_status, x)
-               history_items.append(revision_always_set(soup, item, 'Confirmation Status', creator))
+               revision_always_set(soup, history_entries, item, 'Confirmation Status', creator)
             case 'Area':
                def creator(x: str): return field_link(website, file, website.field_folders.area, x)
-               for tag in revision_optional(soup, item, 'Area', creator):
-                  history_items.append(tag)
+               revision_optional(soup, history_entries, item, 'Area', creator)
             case 'Mojang Priority':
                def creator(x: str): return field_link(website, file, website.field_folders.mojang_priority, x)
-               for tag in revision_optional(soup, item, 'Mojang Priority', creator):
-                  history_items.append(tag)
+               revision_optional(soup, history_entries, item, 'Mojang Priority', creator)
             case 'resolution':
                def res_creator(x: str | None): return resolution_link(website, file, x)
-               history_items.append(revision_always_set_source(soup, item, 'Resolution', res_creator))
+               revision_always_set_source(soup, history_entries, item, 'Resolution', res_creator)
             case 'security':
                def creator(x: str): return field_link(website, file, website.field_folders.security, x)
-               history_items.append(revision_always_set(soup, item, 'Security Level', creator))
+               revision_always_set(soup, history_entries, item, 'Security Level', creator)
             case 'Link':
                def link_creator(full: str, ticket: str, label: str):
                   link_dir = full[len('This issue '):-(len(ticket) + 1)]
                   relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[ticket])
                   assert relevant_issue is not None
-                  return new_content_tag(soup, 'p', [
-                     f'{label} a link: ',
-                     link_dir,
-                     ' ',
+                  append_desc_item(soup, history_entries,
+                     f'{label} {link_dir}: ',
                      big_issue_link(website, file, relevant_issue)
-                  ])
+                  )
                if item['to'] is not None:
                   assert item['toString'] is not None
-                  history_items.append(link_creator(item['toString'], item['to'], 'Added'))
+                  link_creator(item['toString'], item['to'], 'Added')
                if item['from'] is not None:
                   assert item['fromString'] is not None
-                  history_items.append(link_creator(item['fromString'], item['from'], 'Removed'))
+                  link_creator(item['fromString'], item['from'], 'Removed')
             case 'Version':
                revision_import_multi(affected_versions, item)
             case 'Fix Version':
                revision_import_multi(affected_versions, item)
             case 'assignee':
                def creator(x: str): return user_link(website, file, x)
-               for tag in revision_optional(soup, item, 'Assignee', creator):
-                  history_items.append(tag)
+               revision_optional(soup, history_entries, item, 'Assignee', creator)
             case 'reporter':
                def creator(x: str): return user_link(website, file, x)
-               history_items.append(revision_always_set(soup, item, 'Reporter', creator))
+               revision_always_set(soup, history_entries, item, 'Reporter', creator)
             case 'status' | 'Linked' | 'RemoteIssueLink' | 'CHK' | 'Pinned' | 'Workflow':
                pass
             case _:
                print(item['field'])
-               history_items.append(new_content_tag(soup, 'p', item['field']))
-      for tag in affected_versions.handle(soup):
-         history_items.append(tag)
-      for tag in fixed_versions.handle(soup):
-         history_items.append(tag)
-      if len(history_items) > 0:
+               append_desc_item(soup, history_entries, item['field'], '.')
+      affected_versions.handle(soup, history_entries)
+      fixed_versions.handle(soup, history_entries)
+      if len(history_entries) > 0:
          revisions_list.append(new_content_tag(soup, 'div', attrs={'class': 'history-entry'}, content=[
             user_link(website, file, revision['author']),
             render_datetime(soup, revision['created']),
-            new_content_tag(soup, 'div', attrs={'class': 'history-entry-items'}, content=history_items)
+            history_entries
          ]))
    issue_revisions = new_content_tag(soup, 'details', attrs={'class': 'issue-body'}, content=[
       new_content_tag(soup, 'summary', [
@@ -722,94 +719,94 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
    project = website.metas.projects[fields['project']]
    issue_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Status:'),
+      'Status:',
       resolution_link(website, file, fields['resolution'])
    )
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Reporter:'),
+      'Reporter:',
       user_link(website, file, fields['reporter'])
    )
    if fields['reporter'] != fields['creator']:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Creator:'),
+         'Creator:',
          user_link(website, file, fields['creator'])
       )
    if 'assignee' in fields and fields['assignee'] is not None:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Assignee:'),
+         'Assignee:',
          user_link(website, file, fields['assignee'])
       )
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Created:'),
+      'Created:',
       render_datetime(soup, fields['created'])
    )
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Updated:'),
+      'Updated:',
       render_datetime(soup, fields['updated'])
    )
    if 'customfield_12201'in fields and fields['customfield_12201'] is not None:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Triaged:'),
+         'Triaged:',
          render_datetime(soup, fields['customfield_12201'])
       )
    if fields['resolutiondate'] is not None:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Resolved:'),
+         'Resolved:',
          render_datetime(soup, fields['resolutiondate'])
       )
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Votes:'),
+      'Votes:',
       new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['votes']['votes']))
    )
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Watchers:'),
+      'Watchers:',
       new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['watches']['watchCount']))
    )
    if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Confirmation Status:'),
+         'Confirmation Status:',
          field_link(website, file, website.field_folders.confirmation_status, fields['customfield_10500']['value'])
       )
    if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Mojang Priority:'),
+         'Mojang Priority:',
          field_link(website, file, website.field_folders.mojang_priority, fields['customfield_12200']['value'])
       )
    if 'customfield_11500' in fields and fields['customfield_11500'] is not None:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'ADO:'),
+         'ADO:',
          fields['customfield_11500']
       )
    if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Area:'),
+         'Area:',
          field_link(website, file, website.field_folders.area, fields['customfield_12800']['value'])
       )
    if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
       category_list = inline_list(soup, map(lambda x: field_link(website, file, website.field_folders.category, x['value']), fields['customfield_11901']))
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Category:'),
+         'Category:',
          category_list
       )
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Labels:'),
+      'Labels:',
       labels_list(website, file, fields['labels'])
    )
    if 'versions' in fields:
       versions = list(map(lambda x: project['versions'][x], fields['versions']))
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Affects Versions:'),
+         'Affects Versions:',
          render_version_list(website, file, project, versions)
       )
    if 'fixVersions' in fields:
       versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
       append_desc_item(soup, issue_details,
-         new_content_tag(soup, 'label', 'Fix Versions:'),
+         'Fix Versions:',
          render_version_list(website, file, project, versions)
       )
    data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
    append_desc_item(soup, issue_details,
-      new_content_tag(soup, 'label', 'Links:'),
+      'Links:',
       new_content_tag(soup, 'ul', content=[
          new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': urllib.parse.quote(str(data_link))}, content='JSON')),
          new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.dev/{issue['key']}'}, content='mojira.dev')),
