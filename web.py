@@ -4,7 +4,6 @@ import bs4
 import bs4.element
 import pathlib
 import urllib.parse
-import re
 import PIL.Image
 
 @dataclasses.dataclass
@@ -54,21 +53,6 @@ def append_row(soup: bs4.BeautifulSoup, table: bs4.Tag, entries: list[bs4.Tag | 
    table.append(row)
    return row
 
-def make_embed(soup: bs4.BeautifulSoup, path: str | pathlib.PurePath, name: str) -> bs4.Tag:
-   if isinstance(path, str):
-      match = re.match(r'(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch|v|embed)(?:\.php)?(?:\?.*v=|\/))([a-zA-Z0-9\_-]+)', path)
-      if match is not None:
-         return soup.new_tag('iframe', attrs={'src': f'https://www.youtube.com/embed/{match.group(1)}', 'referrerpolicy': 'strict-origin-when-cross-origin'})
-      raise ValueError(path)
-   ext = path.suffix.lower()
-   if ext in ['.gif', '.jpg', '.png', '.webp']:
-      return soup.new_tag('img', attrs={'src': urllib.parse.quote(str(path)), 'alt': name})
-   if ext in ['.webm', '.mov', '.mkv', '.mp4']:
-      return new_content_tag(soup, 'video', soup.new_tag('source', attrs={'src': urllib.parse.quote(str(path))}), attrs={'controls': ''})
-   if ext in ['.mp3', '.wav', '.m4a', '.ogg']:
-      return new_content_tag(soup, 'audio', soup.new_tag('source', attrs={'src': urllib.parse.quote(str(path))}), attrs={'controls': ''})
-   raise ValueError(path)
-
 def new_content_tag(soup: bs4.BeautifulSoup, name: str, content: str | bs4.Tag | typing.Iterable[str | bs4.Tag], attrs: dict[str, str] | None=None) -> bs4.Tag:
    tag = soup.new_tag(name, attrs=attrs)
    if isinstance(content, bs4.Tag) or isinstance(content, str):
@@ -92,19 +76,6 @@ def make_file(path: pathlib.PurePath, title: str) -> HtmlFile:
    html.append(body)
    file = HtmlFile(path, Page(soup, html, head, body))
    return file
-
-def make_button(soup: bs4.BeautifulSoup, text: str, link: str | None) -> bs4.Tag:
-   if link is None:
-      return new_content_tag(soup, 'button', text, attrs={'disabled': ''})
-   else:
-      return new_content_tag(soup, 'a', new_content_tag(soup, 'button', text), attrs={'href': link})
-
-def make_cute_button(soup: bs4.BeautifulSoup, root: pathlib.Path, file: pathlib.PurePath, id: str, name: str, image: pathlib.PurePath, link: pathlib.PurePath) -> bs4.Tag:
-   img = soup.new_tag('img', src=relative_link(root, file, image), attrs={'class': f'{id}-link', 'alt': name})
-   with PIL.Image.open(root / image) as img_data:
-      img['width'] = str(img_data.width)
-      img['height'] = str(img_data.height)
-   return new_content_tag(soup, 'a', img, attrs={'href': relative_link(root, file, link)})
 
 def is_hidden(tag: bs4.element.PageElement) -> bool:
    parent_tags = (t for t in tag.parents if type(t) is bs4.element.Tag)
