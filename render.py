@@ -561,11 +561,34 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   new_content_tag(soup, 'html', new_content_tag(soup, 'span', item['toString']))
                )[0]
                diff = xmldiff.main.diff_trees(from_xml, to_xml, formatter=xmldiff.formatting.XMLFormatter())
-               history_items.append(new_content_tag(soup, 'p', [
-                  'Changed summary: ',
-                  soup.new_tag('br'),
-                  bs4.BeautifulSoup(diff)
-               ]))
+               before = bs4.BeautifulSoup(diff)
+               after = bs4.BeautifulSoup(diff)
+               for tag in before.find_all('diff:insert'):
+                  tag.extract()
+               for tag in after.find_all('diff:delete'):
+                  tag.extract()
+               has_insertions = after.find('diff:insert') is not None
+               has_deletions = before.find('diff:delete') is not None
+               if has_insertions and has_deletions:
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Changed summary: ',
+                     soup.new_tag('br'),
+                     before,
+                     soup.new_tag('br'),
+                     after
+                  ]))
+               elif has_insertions:
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Changed summary: ',
+                     soup.new_tag('br'),
+                     after
+                  ]))
+               elif has_deletions:
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Changed summary: ',
+                     soup.new_tag('br'),
+                     before
+                  ]))
             case 'Link':
                def link_creator(full: str, ticket: str, label: str):
                   link_dir = full[len('This issue '):-(len(ticket) + 1)]
