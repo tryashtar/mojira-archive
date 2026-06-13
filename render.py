@@ -511,15 +511,15 @@ def revision_optional_source(soup: bs4.BeautifulSoup, revision: RevisionChange, 
          creator(revision['to'])
       ])
 
-def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None) -> typing.Generator[bs4.Tag]:
+def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, panel_class: str) -> typing.Generator[bs4.Tag]:
    if before is not None and after is not None:
       # convert_tree strips off the top-level tag, so wrap it beforehand
-      # diff_trees also works best with a top-level tag, so wrap it in the final div here too
+      # diff_trees also works best with a top-level tag, so wrap it another tag too
       before_xml = lxml.html.soupparser.convert_tree(
-         new_content_tag(soup, 'html', new_content_tag(soup, 'div', before, attrs={'class': 'adf'}))
+         new_content_tag(soup, 'html', new_content_tag(soup, 'body', before))
       )[0]
       after_xml = lxml.html.soupparser.convert_tree(
-         new_content_tag(soup, 'html', new_content_tag(soup, 'div', after, attrs={'class': 'adf'}))
+         new_content_tag(soup, 'html', new_content_tag(soup, 'body', after))
       )[0]
       diff = xmldiff.main.diff_trees(before_xml, after_xml,
          diff_options={'fast_match': True}, # without fast_match, I tend to get lots of nodes moving around
@@ -527,35 +527,28 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
       )
       # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
       # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
-      before_diff = bs4.BeautifulSoup(diff, 'lxml').select_one('div.adf')
-      after_diff = bs4.BeautifulSoup(diff, 'lxml').select_one('div.adf')
+      before_diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
+      after_diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
       assert before_diff is not None
       assert after_diff is not None
-      insert_tags = ('diff:insert', 'diff:insert-formatting')
-      delete_tags = ('diff:delete', 'diff:delete-formatting')
       has_insertions = False
       has_deletions = False
-      for att in insert_tags:
-         for tag in before_diff.find_all(att):
-            tag.extract()
-         for tag in before_diff.find_all(attrs={att: True}):
-            tag.extract()
-         if after_diff.find(att) is not None or after_diff.find(attrs={att: True}):
-            has_insertions = True
-      for att in delete_tags:
-         for tag in after_diff.find_all(att):
-            tag.extract()
-         for tag in after_diff.find_all(attrs={att: True}):
-            tag.extract()
-         if before_diff.find(att) is not None or before_diff.find(attrs={att: True}):
-            has_deletions = True
+      for tag in before_diff.find_all('diff:insert'):
+         tag.extract()
+      for tag in before_diff.find_all(attrs={'diff:insert': True}):
+         tag.extract()
+      if after_diff.find('diff:insert') is not None or after_diff.find(attrs={'diff:insert': True}):
+         has_insertions = True
+      for tag in after_diff.find_all('diff:delete'):
+         tag.extract()
+      for tag in after_diff.find_all(attrs={'diff:delete': True}):
+         tag.extract()
+      if before_diff.find('diff:delete') is not None or before_diff.find(attrs={'diff:delete': True}):
+         has_deletions = True
       if has_insertions and has_deletions:
          yield new_content_tag(soup, 'p', [
             f'Changed {label}: ',
-            soup.new_tag('br'),
-            before_diff,
-            soup.new_tag('br'),
-            after_diff
+            new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[before_diff, after_diff])
          ])
       elif has_insertions:
          yield new_content_tag(soup, 'p', [
@@ -628,23 +621,27 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['toString'] is not None
                before = new_content_tag(soup, 'span', item['fromString'])
                after = new_content_tag(soup, 'span', item['toString'])
-               for tag in revision_html_diff(soup, 'summary', before, after):
+               for tag in revision_html_diff(soup, 'summary', before, after, 'diff-panel-top'):
                   history_items.append(tag)
             case 'description':
                before, after = website.markup_source.get_issue_description_revision(issue['id'], revision['id'])
                if before is not None:
                   fix_markup(website, file, before)
+                  before = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=before)
                if after is not None:
                   fix_markup(website, file, after)
-               for tag in revision_html_diff(soup, 'description', before, after):
+                  after = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=after)
+               for tag in revision_html_diff(soup, 'description', before, after, 'diff-panel-side'):
                   history_items.append(tag)
             case 'environment':
                before, after = website.markup_source.get_issue_environment_revision(issue['id'], revision['id'])
                if before is not None:
                   fix_markup(website, file, before)
+                  before = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=before)
                if after is not None:
                   fix_markup(website, file, after)
-               for tag in revision_html_diff(soup, 'environment', before, after):
+                  after = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=after)
+               for tag in revision_html_diff(soup, 'environment', before, after, 'diff-panel-side'):
                   history_items.append(tag)
             case 'Link':
                def link_creator(full: str, ticket: str, label: str):
@@ -702,8 +699,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                for tag in revision_optional_source(soup, item, 'Assignee', creator):
                   history_items.append(tag)
             case 'reporter':
-               def creator(x: str): return user_link(website, file, x)
-               history_items.append(revision_always_set(soup, item, 'Reporter', creator))
+               def rep_creator(x: str | None): return user_link(website, file, x)
+               history_items.append(revision_always_set_source(soup, item, 'Reporter', rep_creator))
             case 'status' | 'Linked' | 'RemoteIssueLink' | 'CHK' | 'Pinned' | 'Workflow':
                pass
             case _:
