@@ -13,7 +13,7 @@ import bisect
 import xmldiff.main
 import xmldiff.formatting
 import lxml.html.soupparser
-from web import HtmlFile, append_desc_item, append_row, html_to_text, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
+from web import HtmlFile, append_desc_item, append_row, html_find_replace, html_to_text, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
 
 @dataclasses.dataclass
 class FieldFolders:
@@ -511,8 +511,13 @@ def revision_optional_source(soup: bs4.BeautifulSoup, revision: RevisionChange, 
          creator(revision['to'])
       ])
 
+CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i}' for i in list(range(32)) + [127]}
+CONTROL_MAP_REV = {v: k for k, v in CONTROL_MAP.items()}
+
 def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, panel_class: str) -> typing.Generator[bs4.Tag]:
    if before is not None and after is not None:
+      html_find_replace(before, CONTROL_MAP)
+      html_find_replace(after, CONTROL_MAP)
       # convert_tree strips off the top-level tag, so wrap it beforehand
       # diff_trees also works best with a top-level tag, so wrap it another tag too
       before_xml = lxml.html.soupparser.convert_tree(
@@ -523,7 +528,7 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
       )[0]
       diff = xmldiff.main.diff_trees(before_xml, after_xml,
          diff_options={'fast_match': True}, # without fast_match, I tend to get lots of nodes moving around
-         formatter=xmldiff.formatting.XMLFormatter(formatting_tags=('b', 'i'), text_tags=('p', 'h1', 'h2', 'h3'))
+         formatter=xmldiff.formatting.XMLFormatter()
       )
       # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
       # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
@@ -531,6 +536,8 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
       after_diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
       assert before_diff is not None
       assert after_diff is not None
+      html_find_replace(before_diff, CONTROL_MAP_REV)
+      html_find_replace(after_diff, CONTROL_MAP_REV)
       has_insertions = False
       has_deletions = False
       for tag in before_diff.find_all('diff:insert'):
@@ -580,7 +587,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    project = website.metas.projects[issue['fields']['project']]
    revisions_list: list[bs4.Tag] = []
    labels = TrackedMultiValueRevision('labels', ' ', lambda x: labels_list(website, file, x))
-   categories = TrackedMultiValueRevision('Category', ',', lambda x: inline_list(soup, map(lambda y: new_content_tag(file.page.soup, 'span', y, attrs={'class': 'status-badge'}), x)))
+   categories = TrackedMultiValueRevision('Category', ',', lambda x: inline_list(soup, map(lambda y: field_link(website, file, website.field_folders.category, y), x)))
    for revision in revisions:
       history_items: list[bs4.Tag] = []
       def version_creator(versions: list[tuple[str, str]]) -> bs4.Tag:
@@ -601,7 +608,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   history_items.append(tag)
             case 'Confirmation Status':
                def creator(x: str): return field_link(website, file, website.field_folders.confirmation_status, x)
-               history_items.append(revision_always_set(soup, item, 'Confirmation Status', creator))
+               for tag in revision_optional(soup, item, 'Confirmation Status', creator):
+                  history_items.append(tag)
             case 'Area':
                def creator(x: str): return field_link(website, file, website.field_folders.area, x)
                for tag in revision_optional(soup, item, 'Area', creator):
@@ -615,7 +623,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                history_items.append(revision_always_set_source(soup, item, 'Resolution', res_creator))
             case 'security':
                def creator(x: str): return field_link(website, file, website.field_folders.security, x)
-               history_items.append(revision_always_set(soup, item, 'Security Level', creator))
+               for tag in revision_optional(soup, item, 'Security Level', creator):
+                  history_items.append(tag)
             case 'summary':
                assert item['fromString'] is not None
                assert item['toString'] is not None
@@ -646,13 +655,18 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             case 'Link':
                def link_creator(full: str, ticket: str, label: str):
                   link_dir = full[len('This issue '):-(len(ticket) + 1)]
-                  relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[ticket])
-                  assert relevant_issue is not None
-                  return new_content_tag(soup, 'p', [
-                     f'{label} {link_dir} link: ',
-                     soup.new_tag('br'),
-                     new_content_tag(soup, 'span', big_issue_link(website, file, relevant_issue))
-                  ])
+                  if ticket in website.relations.issue_keys:
+                     relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[ticket])
+                     assert relevant_issue is not None
+                     return new_content_tag(soup, 'p', [
+                        f'{label} {link_dir} link: ',
+                        soup.new_tag('br'),
+                        new_content_tag(soup, 'span', big_issue_link(website, file, relevant_issue))
+                     ])
+                  else:
+                     return new_content_tag(soup, 'p', [
+                        f'{label} {link_dir} link: {ticket}'
+                     ])
                if item['to'] is not None:
                   assert item['toString'] is not None
                   history_items.append(link_creator(item['toString'], item['to'], 'Added'))
@@ -981,7 +995,7 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
    return issue_details
 
 def labels_list(website: Website, file: HtmlFile, labels: typing.Iterable[str]) -> bs4.Tag:
-   labels_list = inline_list(file.page.soup, map(lambda x: new_content_tag(file.page.soup, 'a', x, attrs={'class': 'status-badge', 'href': relative_link(website.root, file.path, website.field_folders.labels / (urllib.parse.quote_plus(x) + '.html'))}), labels))
+   labels_list = inline_list(file.page.soup, map(lambda x: field_link(website, file, website.field_folders.labels, x), labels))
    labels_list.attrs['class'] = 'labels-list'
    return labels_list
 

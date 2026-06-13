@@ -1,4 +1,5 @@
 import dataclasses
+import re
 import typing
 import bs4
 import bs4.element
@@ -88,7 +89,16 @@ def is_hidden(tag: bs4.element.PageElement) -> bool:
                return True
    return False
 
-def html_to_text(soup: bs4.BeautifulSoup) -> str:
+def map_find_replace(text: str, mapping: dict[str, str]) -> str:
+   pattern = re.compile('|'.join(mapping.keys()))
+   return pattern.sub(lambda x: mapping[x.group(0)], text)
+
+def html_find_replace(soup: bs4.Tag, mapping: dict[str, str]):
+   for tag in soup.find_all(string=True):
+      if isinstance(tag, bs4.element.NavigableString):
+         tag.replace_with(map_find_replace(tag.text, mapping))
+
+def html_to_text(soup: bs4.Tag) -> str:
    text: list[str] = []
    for element in soup.descendants:
       if type(element) is bs4.element.NavigableString:

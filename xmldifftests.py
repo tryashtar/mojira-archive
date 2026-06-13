@@ -22,7 +22,7 @@ def convert(before: bs4.Tag, after: bs4.Tag, name: str):
    print(lxml.etree.tostring(after_xml))
    diff = xmldiff.main.diff_trees(before_xml, after_xml,
       diff_options={'fast_match': True},
-      formatter=xmldiff.formatting.XMLFormatter(formatting_tags=('b', 'i'), text_tags=('p', 'h1', 'h2', 'h3'))
+      formatter=xmldiff.formatting.XMLFormatter()
    )
    diff_soup = bs4.BeautifulSoup(diff, 'lxml').body.children
    print(diff_soup)
