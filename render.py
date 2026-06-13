@@ -135,6 +135,7 @@ ATTACH_RE = re.compile(r'^./secure/attachment/([0-9]+)/(.+)$')
 THUMBNAIL_RE = re.compile(r'^./secure/thumbnail/([0-9]+)/(.+)$')
 ICON_RE = re.compile(r'^./images/(.+)$')
 USER_RE = re.compile(r'^./secure/ViewProfile\.jspa\?name=(.+)$')
+UNKNOWN_COMMENT_RE = re.compile(r'A comment with security level \'[a-z]+\' was removed\.' + '\u00a0?$')
 
 def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str:
    if (match := BROWSE_RE.match(link)) is not None:
@@ -153,7 +154,7 @@ def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str:
       normalized = username.casefold()
       user_key = website.relations.user_keys.get(normalized, normalized)
       return relative_link(website.root, file.path, website.users_folder / (urllib.parse.quote_plus(user_key) + '.html'))
-   return link
+   assert False
 
 def make_project_list(website: Website, file: HtmlFile):
    soup = file.page.soup
@@ -510,6 +511,77 @@ def revision_optional_source(soup: bs4.BeautifulSoup, revision: RevisionChange, 
          creator(revision['to'])
       ])
 
+def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None) -> typing.Generator[bs4.Tag]:
+   if before is not None and after is not None:
+      # convert_tree strips off the top-level tag, so wrap it beforehand
+      # diff_trees also works best with a top-level tag, so wrap it in the final div here too
+      before_xml = lxml.html.soupparser.convert_tree(
+         new_content_tag(soup, 'html', new_content_tag(soup, 'div', before, attrs={'class': 'adf'}))
+      )[0]
+      after_xml = lxml.html.soupparser.convert_tree(
+         new_content_tag(soup, 'html', new_content_tag(soup, 'div', after, attrs={'class': 'adf'}))
+      )[0]
+      diff = xmldiff.main.diff_trees(before_xml, after_xml,
+         diff_options={'fast_match': True}, # without fast_match, I tend to get lots of nodes moving around
+         formatter=xmldiff.formatting.XMLFormatter(formatting_tags=('b', 'i'), text_tags=('p', 'h1', 'h2', 'h3'))
+      )
+      # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
+      # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
+      before_diff = bs4.BeautifulSoup(diff, 'lxml').select_one('div.adf')
+      after_diff = bs4.BeautifulSoup(diff, 'lxml').select_one('div.adf')
+      assert before_diff is not None
+      assert after_diff is not None
+      insert_tags = ('diff:insert', 'diff:insert-formatting')
+      delete_tags = ('diff:delete', 'diff:delete-formatting')
+      has_insertions = False
+      has_deletions = False
+      for att in insert_tags:
+         for tag in before_diff.find_all(att):
+            tag.extract()
+         for tag in before_diff.find_all(attrs={att: True}):
+            tag.extract()
+         if after_diff.find(att) is not None or after_diff.find(attrs={att: True}):
+            has_insertions = True
+      for att in delete_tags:
+         for tag in after_diff.find_all(att):
+            tag.extract()
+         for tag in after_diff.find_all(attrs={att: True}):
+            tag.extract()
+         if before_diff.find(att) is not None or before_diff.find(attrs={att: True}):
+            has_deletions = True
+      if has_insertions and has_deletions:
+         yield new_content_tag(soup, 'p', [
+            f'Changed {label}: ',
+            soup.new_tag('br'),
+            before_diff,
+            soup.new_tag('br'),
+            after_diff
+         ])
+      elif has_insertions:
+         yield new_content_tag(soup, 'p', [
+            f'Changed {label}: ',
+            soup.new_tag('br'),
+            after_diff
+         ])
+      elif has_deletions:
+         yield new_content_tag(soup, 'p', [
+            f'Changed {label}: ',
+            soup.new_tag('br'),
+            before_diff
+         ])
+   elif before is not None and after is None:
+      yield new_content_tag(soup, 'p', [
+         f'Removed {label}: ',
+         soup.new_tag('br'),
+         before
+      ])
+   elif after is not None and before is None:
+      yield new_content_tag(soup, 'p', [
+         f'Added {label}: ',
+         soup.new_tag('br'),
+         after
+      ])
+
 def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> bs4.Tag:
    soup = file.page.soup
    project = website.metas.projects[issue['fields']['project']]
@@ -554,41 +626,26 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             case 'summary':
                assert item['fromString'] is not None
                assert item['toString'] is not None
-               from_xml = lxml.html.soupparser.convert_tree(
-                  new_content_tag(soup, 'html', new_content_tag(soup, 'span', item['fromString']))
-               )[0]
-               to_xml = lxml.html.soupparser.convert_tree(
-                  new_content_tag(soup, 'html', new_content_tag(soup, 'span', item['toString']))
-               )[0]
-               diff = xmldiff.main.diff_trees(from_xml, to_xml, formatter=xmldiff.formatting.XMLFormatter())
-               before = bs4.BeautifulSoup(diff)
-               after = bs4.BeautifulSoup(diff)
-               for tag in before.find_all('diff:insert'):
-                  tag.extract()
-               for tag in after.find_all('diff:delete'):
-                  tag.extract()
-               has_insertions = after.find('diff:insert') is not None
-               has_deletions = before.find('diff:delete') is not None
-               if has_insertions and has_deletions:
-                  history_items.append(new_content_tag(soup, 'p', [
-                     'Changed summary: ',
-                     soup.new_tag('br'),
-                     before,
-                     soup.new_tag('br'),
-                     after
-                  ]))
-               elif has_insertions:
-                  history_items.append(new_content_tag(soup, 'p', [
-                     'Changed summary: ',
-                     soup.new_tag('br'),
-                     after
-                  ]))
-               elif has_deletions:
-                  history_items.append(new_content_tag(soup, 'p', [
-                     'Changed summary: ',
-                     soup.new_tag('br'),
-                     before
-                  ]))
+               before = new_content_tag(soup, 'span', item['fromString'])
+               after = new_content_tag(soup, 'span', item['toString'])
+               for tag in revision_html_diff(soup, 'summary', before, after):
+                  history_items.append(tag)
+            case 'description':
+               before, after = website.markup_source.get_issue_description_revision(issue['id'], revision['id'])
+               if before is not None:
+                  fix_markup(website, file, before)
+               if after is not None:
+                  fix_markup(website, file, after)
+               for tag in revision_html_diff(soup, 'description', before, after):
+                  history_items.append(tag)
+            case 'environment':
+               before, after = website.markup_source.get_issue_environment_revision(issue['id'], revision['id'])
+               if before is not None:
+                  fix_markup(website, file, before)
+               if after is not None:
+                  fix_markup(website, file, after)
+               for tag in revision_html_diff(soup, 'environment', before, after):
+                  history_items.append(tag)
             case 'Link':
                def link_creator(full: str, ticket: str, label: str):
                   link_dir = full[len('This issue '):-(len(ticket) + 1)]
@@ -614,7 +671,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                         soup.new_tag('br'),
                         render_attachment(website, file, attachment, include_upload=False)
                      ])
-                  broken = soup.new_tag('img', attrs={'class': 'broken-image', 'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
+                  broken = soup.new_tag('img', attrs={'class': 'broken-image', 'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
                   return new_content_tag(soup, 'p', [
                      f'{label} attachment: ',
                      new_content_tag(soup, 'span', [broken, filename])
@@ -625,6 +682,17 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                if item['from'] is not None:
                   assert item['fromString'] is not None
                   history_items.append(attach_creator(item['from'], item['fromString'], 'Removed'))
+            case 'Comment':
+               assert item['from'] is not None
+               assert item['to'] is None
+               if UNKNOWN_COMMENT_RE.match(item['from']) is None:
+                  comment = website.markup_source.get_deleted_comment_body(issue['id'], revision['id'])
+                  fix_markup(website, file, comment)
+                  history_items.append(new_content_tag(soup, 'p', [
+                     'Deleted comment: ',
+                     soup.new_tag('br'),
+                     new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=comment)
+                  ]))
             case 'Version':
                revision_import_multi(affected_versions, item)
             case 'Fix Version':

@@ -10,15 +10,19 @@ class MarkupSource:
    def __init__(self, folder: pathlib.Path):
       self.folder = folder
 
-   def get_issue_description_path(self, issue_id: str, revision_id: str | None=None) -> pathlib.Path:
-      if revision_id is None:
-         return self.folder / issue_id / 'description.html'
-      return self.folder / issue_id / 'revisions' / revision_id / 'description.html'
+   def get_issue_description_path(self, issue_id: str) -> pathlib.Path:
+      return self.folder / issue_id / 'description.html'
 
-   def get_issue_environment_path(self, issue_id: str, revision_id: str | None=None) -> pathlib.Path:
-      if revision_id is None:
-         return self.folder / issue_id / 'environment.html'
-      return self.folder / issue_id / 'revisions' / revision_id / 'environment.html'
+   def get_issue_description_revision_paths(self, issue_id: str, revision_id: str) -> tuple[pathlib.Path, pathlib.Path]:
+      root = self.folder / issue_id / 'revisions' / revision_id / 'description'
+      return (root / 'before.html', root / 'after.html')
+
+   def get_issue_environment_path(self, issue_id: str) -> pathlib.Path:
+      return self.folder / issue_id / 'environment.html'
+
+   def get_issue_environment_revision_paths(self, issue_id: str, revision_id: str) -> tuple[pathlib.Path, pathlib.Path]:
+      root = self.folder / issue_id / 'revisions' / revision_id / 'environment'
+      return (root / 'before.html', root / 'after.html')
 
    def get_comment_body_path(self, issue_id: str, comment_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'comments' / (comment_id + '.html')
@@ -26,13 +30,46 @@ class MarkupSource:
    def get_secret_comment_body_path(self, issue_id: str, comment_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'secret_comments' / (comment_id + '.html')
 
-   def get_issue_description(self, issue_id: str, revision_id: str | None=None) -> bs4.BeautifulSoup:
-      with open(self.get_issue_description_path(issue_id, revision_id), 'r', encoding='utf-8') as file:
+   def get_deleted_comment_body_path(self, issue_id: str, revision_id: str) -> pathlib.Path:
+      return self.folder / issue_id / 'deleted_comments' / (revision_id + '.html')
+
+   # use html.parser because lxml wraps the tags in <html><body>...</body></html>
+   # and I'd rather not unwrap it and return a plain bs4.Tag
+   def get_issue_description(self, issue_id: str) -> bs4.BeautifulSoup:
+      with open(self.get_issue_description_path(issue_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
-   def get_issue_environment(self, issue_id: str, revision_id: str | None=None) -> bs4.BeautifulSoup:
-      with open(self.get_issue_environment_path(issue_id, revision_id), 'r', encoding='utf-8') as file:
+   def get_issue_description_revision(self, issue_id: str, revision_id: str) -> tuple[bs4.BeautifulSoup | None, bs4.BeautifulSoup | None]:
+      path1, path2 = self.get_issue_description_revision_paths(issue_id, revision_id)
+      if path1.exists():
+         with open(path1, 'r', encoding='utf-8') as file:
+            data1 = bs4.BeautifulSoup(file, 'html.parser')
+      else:
+         data1 = None
+      if path2.exists():
+         with open(path2, 'r', encoding='utf-8') as file:
+            data2 = bs4.BeautifulSoup(file, 'html.parser')
+      else:
+         data2 = None
+      return (data1, data2)
+
+   def get_issue_environment(self, issue_id: str) -> bs4.BeautifulSoup:
+      with open(self.get_issue_environment_path(issue_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
+
+   def get_issue_environment_revision(self, issue_id: str, revision_id: str) -> tuple[bs4.BeautifulSoup | None, bs4.BeautifulSoup | None]:
+      path1, path2 = self.get_issue_environment_revision_paths(issue_id, revision_id)
+      if path1.exists():
+         with open(path1, 'r', encoding='utf-8') as file:
+            data1 = bs4.BeautifulSoup(file, 'html.parser')
+      else:
+         data1 = None
+      if path2.exists():
+         with open(path2, 'r', encoding='utf-8') as file:
+            data2 = bs4.BeautifulSoup(file, 'html.parser')
+      else:
+         data2 = None
+      return (data1, data2)
 
    def get_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
       with open(self.get_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
@@ -40,6 +77,10 @@ class MarkupSource:
 
    def get_secret_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
       with open(self.get_secret_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
+         return bs4.BeautifulSoup(file, 'html.parser')
+
+   def get_deleted_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
+      with open(self.get_deleted_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
          return bs4.BeautifulSoup(file, 'html.parser')
 
    def render_issue(self, issue: Issue, renderer: subprocess.Popen):
@@ -52,13 +93,23 @@ class MarkupSource:
          render_to_file(renderer, issue_id, issue['fields']['environment'], path)
       for revision in issue['changelog']['histories']:
          for entry in revision['items']:
-            if entry['fromString'] is not None:
-               if entry['field'] == 'description':
-                  path = self.get_issue_description_path(issue['id'], revision['id'])
-                  render_to_file(renderer, issue_id, entry['fromString'], path)
-               elif entry['field'] == 'environment':
-                  path = self.get_issue_environment_path(issue['id'], revision['id'])
-                  render_to_file(renderer, issue_id, entry['fromString'], path)
+            if entry['field'] == 'description':
+               path1, path2 = self.get_issue_description_revision_paths(issue['id'], revision['id'])
+               if entry['fromString'] is not None:
+                  render_to_file(renderer, issue_id, entry['fromString'], path1)
+               if entry['toString'] is not None:
+                  render_to_file(renderer, issue_id, entry['toString'], path2)
+            elif entry['field'] == 'environment':
+               path1, path2 = self.get_issue_environment_revision_paths(issue['id'], revision['id'])
+               if entry['fromString'] is not None:
+                  render_to_file(renderer, issue_id, entry['fromString'], path1)
+               if entry['toString'] is not None:
+                  render_to_file(renderer, issue_id, entry['toString'], path2)
+            elif entry['field'] == 'Comment':
+               assert entry['from'] is not None
+               assert entry['to'] is None
+               path = self.get_deleted_comment_body_path(issue['id'], revision['id'])
+               render_to_file(renderer, issue_id, entry['from'], path)
       for comment in issue['fields']['comment']['comments']:
          path = self.get_comment_body_path(issue['id'], comment['id'])
          render_to_file(renderer, issue_id, comment['body'], path)
