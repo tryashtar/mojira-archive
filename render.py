@@ -344,8 +344,9 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    if len(issue['fields']['attachment']) > 0:
       attach_section = render_issue_attachments(website, file, issue['fields']['attachment'])
       issue_body.append(attach_section)
+   tabbed_content = soup.new_tag('div', attrs={'class': 'issue-tabs-content'})
+   all_comments: list[RenderableComment] = []
    if len(issue['fields']['comment']['comments']) > 0:
-      all_comments: list[RenderableComment] = []
       for comment in issue['fields']['comment']['comments']:
          body = website.markup_source.get_comment_body(issue['id'], comment['id'])
          fix_markup(website, file, body)
@@ -355,10 +356,25 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
          fix_markup(website, file, body)
          bisect.insort_left(all_comments, RenderableComment(comment, body), key=lambda x: datetime.datetime.fromisoformat(x.comment['created']))
       comment_section = render_issue_comments(website, file, all_comments)
-      issue_body.append(comment_section)
+      tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'issue-tab-content-comments', 'class': 'issue-tab-content'}, content=comment_section))
    if len(issue['changelog']['histories']) > 0:
       attach_section = render_issue_revisions(website, file, issue, issue['changelog']['histories'])
-      issue_body.append(attach_section)
+      tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'issue-tab-content-history', 'class': 'issue-tab-content'}, content=attach_section))
+   issue_div.append(
+      new_content_tag(soup, 'div', attrs={'class': 'issue-tabs'}, content=[
+         soup.new_tag('input', attrs={'type': 'radio', 'name': 'issue-tabs', 'id': 'issue-tab-comments', 'checked': ''}),
+         new_content_tag(soup, 'label', attrs={'for': 'issue-tab-comments'}, content=[
+            'Comments',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(all_comments)))
+         ]),
+         soup.new_tag('input', attrs={'type': 'radio', 'name': 'issue-tabs', 'id': 'issue-tab-history'}),
+         new_content_tag(soup, 'label', attrs={'for': 'issue-tab-history'}, content=[
+            'History',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(issue['changelog']['histories'])))
+         ]),
+         tabbed_content
+      ])
+   )
    return file
 
 def render_issue_body(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
@@ -728,16 +744,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             ]),
             new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=history_items)
          ]))
-   issue_revisions = new_content_tag(soup, 'details', attrs={'class': 'issue-body'}, content=[
-      new_content_tag(soup, 'summary', [
-         new_content_tag(soup, 'h2', content=[
-            'History',
-            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(revisions)))
-         ])
-      ]),
-      new_content_tag(soup, 'div', attrs={'class': 'issue-history-section issue-body'}, content=revisions_list)
-   ])
-   return issue_revisions
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-history-section issue-body'}, content=revisions_list)
 
 def comment_author(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
    user_tag = user_link(website, file, user_key)
@@ -809,16 +816,7 @@ def render_issue_comments(website: Website, file: HtmlFile, comments: list[Rende
          new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=entry.rendered_body)
       ]))
       comments_list.append(comment_div)
-   issue_comments = new_content_tag(soup, 'details', attrs={'class': 'issue-body', 'open': ''}, content=[
-      new_content_tag(soup, 'summary', [
-         new_content_tag(soup, 'h2', content=[
-            'Comments',
-            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(comments)))
-         ])
-      ]),
-      new_content_tag(soup, 'div', attrs={'class': 'issue-comment-section issue-body'}, content=comments_list)
-   ])
-   return issue_comments
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-comment-section issue-body'}, content=comments_list)
 
 def render_attachment(website: Website, file: HtmlFile, attachment: Attachment, include_upload: bool) -> bs4.Tag:
    soup = file.page.soup
