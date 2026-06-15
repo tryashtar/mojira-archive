@@ -1,4 +1,5 @@
 import dataclasses
+import datetime
 import re
 import typing
 import bs4
@@ -142,3 +143,37 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    assert diff is not None
    html_find_replace(diff, CONTROL_MAP_REV)
    return diff
+
+def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: datetime.datetime) -> bs4.Tag:
+   if start == end:
+      return render_datetime(soup, start)
+   else:
+      if start.date() == end.date():
+         second_part = end.strftime('%I:%M:%S %p')
+      else:
+         second_part = render_datetime(soup, end)
+      return new_content_tag(soup, 'span', [
+         render_datetime(soup, start),
+         ' - ',
+         second_part
+      ])
+
+def render_datetime(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
+   formatted = date.strftime('%Y-%m-%d, %I:%M:%S %p')
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
+
+def render_date(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
+   formatted = date.strftime('%Y-%m-%d')
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
+
+def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separator: str = ' ') -> bs4.Tag:
+   span = soup.new_tag('span')
+   try:
+      first = next(items)
+   except StopIteration:
+      return span
+   span.append(first)
+   for item in items:
+      span.append(separator)
+      span.append(item)
+   return span

@@ -1,6 +1,6 @@
 import dataclasses
 import typing
-from jiratypes import Attachment, Comment, Issue, IssueLink, Project, Revision, RevisionChange, Version
+from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, Version
 import mojira
 import relations
 import pathlib
@@ -11,7 +11,7 @@ import bs4
 import re
 import bisect
 import copy
-from web import HtmlFile, append_desc_item, append_row, html_diff, html_to_text, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
+from web import HtmlFile, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, write_html
 
 @dataclasses.dataclass
 class FieldFolders:
@@ -240,7 +240,7 @@ def create_version_page(website: Website, project: Project, version: Version) ->
    if 'description' in version:
       append_desc_item(soup, fields, 'Description', version['description'])
    if 'releaseDate' in version:
-      append_desc_item(soup, fields, 'Date', render_date(soup, version['releaseDate']))
+      append_desc_item(soup, fields, 'Date', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate'])))
    append_desc_item(soup, fields, 'Status', 'Archived' if version['archived'] else ('Active' if version['released'] else 'Unreleased'))
    append_desc_item(soup, fields, 'Affected Issues', str(len(rels['affected'])))
    append_desc_item(soup, fields, 'Fixed Issues', str(len(rels['fixed'])))
@@ -277,7 +277,7 @@ def render_versions_table(website: Website, file: HtmlFile, project: Project, ve
       append_row(file.page.soup, table, [
          version_link(website, file, project, version),
          version['description'] if 'description' in version else '',
-         render_date(file.page.soup, version['releaseDate']) if 'releaseDate' in version else '',
+         render_date(file.page.soup, datetime.datetime.fromisoformat(version['releaseDate'])) if 'releaseDate' in version else '',
          str(len(rel_ver['affected'])),
          str(len(rel_ver['fixed'])),
       ])
@@ -292,7 +292,7 @@ def render_issues_table(website: Website, file: HtmlFile, issues: list[str]) -> 
       issue = website.archive.get_issue_data(issue_key)
       assert issue is not None
       reporter = user_link(website, file, issue['fields']['reporter'])
-      date = render_datetime(file.page.soup, issue['fields']['created'])
+      date = render_datetime(file.page.soup, datetime.datetime.fromisoformat(issue['fields']['created']))
       link = new_content_tag(file.page.soup, 'a', issue['key'], attrs={'href': relative_link(website.root, file.path, website.issues_folder / (issue['key'] + '.html'))})
       append_row(file.page.soup, table, [link, issue['fields']['summary'], reporter, date])
    return table
@@ -345,27 +345,15 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
       attach_section = render_issue_attachments(website, file, issue['fields']['attachment'])
       issue_body.append(attach_section)
    if len(issue['fields']['comment']['comments']) > 0:
-      all_comments: list[tuple[Comment, bs4.BeautifulSoup]] = []
+      all_comments: list[RenderableComment] = []
       for comment in issue['fields']['comment']['comments']:
          body = website.markup_source.get_comment_body(issue['id'], comment['id'])
          fix_markup(website, file, body)
-         all_comments.append((comment, body))
+         all_comments.append(RenderableComment(comment, body))
       for comment in website.secret_comments.get(issue['id']):
-         converted_comment: Comment = {
-            'id': comment['id'],
-            'author': comment['author']['displayName'],
-            'updateAuthor': comment['author']['displayName'],
-            'body': comment['body'],
-            'created': comment['created'],
-            'updated': comment['updated'],
-            'visibility': {
-               'type': 'secret',
-               'value': 'secret'
-            }
-         }
          body = website.markup_source.get_secret_comment_body(issue['id'], comment['id'])
          fix_markup(website, file, body)
-         bisect.insort_left(all_comments, (converted_comment, body), key=lambda x: datetime.datetime.fromisoformat(x[0]['created']))
+         bisect.insort_left(all_comments, RenderableComment(comment, body), key=lambda x: datetime.datetime.fromisoformat(x.comment['created']))
       comment_section = render_issue_comments(website, file, all_comments)
       issue_body.append(comment_section)
    if len(issue['changelog']['histories']) > 0:
@@ -758,45 +746,67 @@ def comment_author(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
    user_text.attrs['class'] = 'username comment-author'
    return user_tag
 
-def comment_time(soup: bs4.BeautifulSoup, id: str, date_str: str) -> bs4.Tag:
-   tag = render_datetime(soup, date_str)
-   return new_content_tag(soup, 'a', attrs={'class': 'comment-time', 'href': f'#comment-id-{id}'}, content=tag)
+@dataclasses.dataclass
+class RenderableComment:
+   comment: Comment | NewComment
+   rendered_body: bs4.BeautifulSoup
 
-def render_issue_comments(website: Website, file: HtmlFile, comments: list[tuple[Comment, bs4.BeautifulSoup]]) -> bs4.Tag:
+def render_author_key_or_dict(website: Website, file: HtmlFile, author: str | NewAuthor) -> bs4.Tag:
+   if isinstance(author, dict):
+      return new_content_tag(file.page.soup, 'span', attrs={'class': 'username comment-author'}, content=author['displayName'])
+   else:
+      return comment_author(website, file, author)
+
+def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewComment) -> bs4.Tag:
+   soup = file.page.soup
+   div = soup.new_tag('div', attrs={'class': 'comment-head'})
+   created_time = datetime.datetime.fromisoformat(comment['created'])
+   updated_time = datetime.datetime.fromisoformat(comment['updated'])
+   if 'author' in comment:
+      div.append(render_author_key_or_dict(website, file, comment['author']))
+      div.append(' ')
+   div.append(
+      new_content_tag(soup, 'a', attrs={'class': 'comment-time', 'href': f'#comment-id-{comment['id']}'}, content=[
+         render_datetime(soup, created_time)
+      ])
+   )
+   has_update_author = 'updateAuthor' in comment and ('author' not in comment or comment['updateAuthor'] != comment['author'])
+   has_update = comment['updated'] != comment['created']
+   if has_update_author or has_update:
+      div.append(new_content_tag(soup, 'span', ' • edited ', attrs={'class': 'comment-time'}))
+   if has_update_author:
+      assert 'updateAuthor' in comment
+      div.append(render_author_key_or_dict(website, file, comment['updateAuthor']))
+      if has_update:
+         div.append(' ')
+   if has_update:
+      inner_time = updated_time.strftime('%I:%M:%S %p') if created_time.date() == updated_time.date() else render_datetime(soup, updated_time)
+      div.append(
+         new_content_tag(soup, 'a', attrs={'class': 'comment-time', 'href': f'#comment-id-{comment['id']}'}, content=inner_time)
+      )
+   if 'visibility' in comment:
+      div.append(
+         new_content_tag(soup, 'span', attrs={'class': 'comment-visibility'}, content=[
+            ' • ',
+            soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/icon/locked.png'))}),
+            ' Restricted to ',
+            new_content_tag(soup, 'span', attrs={'class': 'comment-visibility-name'}, content=comment['visibility']['value'])
+         ])
+      )
+   return div
+
+def render_issue_comments(website: Website, file: HtmlFile, comments: list[RenderableComment]) -> bs4.Tag:
    soup = file.page.soup
    comments_list: list[bs4.Tag] = []
-   for entry, body in comments:
+   for entry in comments:
       header = soup.new_tag('div', attrs={'class': 'comment-header'})
-      header1tags: list[bs4.Tag | str] = []
-      header2tags: list[bs4.Tag | str] = []
-      if 'author' in entry:
-         header1tags.append(comment_author(website, file, entry['author']))
-      header1tags.append(' ')
-      header1tags.append(comment_time(soup, entry['id'], entry['created']))
-      if 'updateAuthor' in entry and ('author' not in entry or entry['updateAuthor'] != entry['author']):
-         header2tags.append(comment_author(website, file, entry['updateAuthor']))
-      if entry['updated'] != entry['created']:
-         if len(header2tags) > 0:
-            header2tags.append(' ')
-         header2tags.append(new_content_tag(soup, 'span', 'edited ', attrs={'class': 'comment-time'}))
-         header2tags.append(comment_time(soup, entry['id'], entry['updated']))
-      header.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=header1tags))
-      if len(header2tags) > 0:
-         header.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=header2tags))
-      if 'visibility' in entry:
-         header.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=[
-            new_content_tag(soup, 'span', attrs={'class': 'comment-visibility'}, content=[
-               soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/icon/locked.png'))}),
-               ' Restricted to ',
-               new_content_tag(soup, 'span', attrs={'class': 'comment-visibility-name'}, content=entry['visibility']['value'])
-            ])
-         ]))
+      header.append(comment_authorship(website, file, entry.comment))
       comment_div = new_content_tag(soup, 'div', attrs={'class': 'comment'}, content=[
-         soup.new_tag('div', attrs={'class': 'anchor', 'id': f'comment-id-{entry['id']}'}),
+         soup.new_tag('div', attrs={'class': 'anchor', 'id': f'comment-id-{entry.comment['id']}'}),
          header
       ])
       comment_div.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
-         new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=body)
+         new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=entry.rendered_body)
       ]))
       comments_list.append(comment_div)
    issue_comments = new_content_tag(soup, 'details', attrs={'class': 'issue-body', 'open': ''}, content=[
@@ -825,7 +835,7 @@ def render_attachment(website: Website, file: HtmlFile, attachment: Attachment, 
          details_div.append(
             new_content_tag(soup, 'p', content=comment_author(website, file, attachment['author']))
          )
-      date_tag = render_datetime(soup, attachment['created'])
+      date_tag = render_datetime(soup, datetime.datetime.fromisoformat(attachment['created']))
       date_tag.attrs['class'] = 'comment-time'
       details_div.append(
          new_content_tag(soup, 'p', content=date_tag)
@@ -920,21 +930,21 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       )
    append_desc_item(soup, issue_details,
       'Created:',
-      render_datetime(soup, fields['created'])
+      render_datetime(soup, datetime.datetime.fromisoformat(fields['created']))
    )
    append_desc_item(soup, issue_details,
       'Updated:',
-      render_datetime(soup, fields['updated'])
+      render_datetime(soup, datetime.datetime.fromisoformat(fields['updated']))
    )
    if 'customfield_12201'in fields and fields['customfield_12201'] is not None:
       append_desc_item(soup, issue_details,
          'Triaged:',
-         render_datetime(soup, fields['customfield_12201'])
+         render_datetime(soup, datetime.datetime.fromisoformat(fields['customfield_12201']))
       )
    if fields['resolutiondate'] is not None:
       append_desc_item(soup, issue_details,
          'Resolved:',
-         render_datetime(soup, fields['resolutiondate'])
+         render_datetime(soup, datetime.datetime.fromisoformat(fields['resolutiondate']))
       )
    append_desc_item(soup, issue_details,
       'Votes:',
@@ -1017,18 +1027,6 @@ def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment)
       return file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/text.gif'))})
    return file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/file.gif'))})
 
-def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separator: str = ' ') -> bs4.Tag:
-   span = soup.new_tag('span')
-   try:
-      first = next(items)
-   except StopIteration:
-      return span
-   span.append(first)
-   for item in items:
-      span.append(separator)
-      span.append(item)
-   return span
-
 def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str) -> pathlib.Path | None:
    avatar_id = archive.get_avatar_id(url)
    avatar_file = folder / (avatar_id + '.png')
@@ -1081,8 +1079,7 @@ def user_link(website: Website, file: HtmlFile, user_key: str | None) -> bs4.Tag
    user_data = website.archive.get_user_data(user_key)
    if user_data is None:
       user_data = website.archive.get_unknown_user_data(user_key)
-      if user_data is None:
-         return new_content_tag(file.page.soup, 'span', attrs={'class': 'username'}, content=user_key)
+      assert user_data is not None
       display_name = user_data['name']
    else:
       display_name = user_data['displayName']
@@ -1125,32 +1122,6 @@ def resolution_link(website: Website, file: HtmlFile, resolution_id: str | None)
       name = website.metas.resolutions[resolution_id]['name']
       tag = field_link(website, file, website.field_folders.resolution, name)
       return new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=tag)
-
-def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: datetime.datetime) -> bs4.Tag:
-   if start == end:
-      return render_datetime(soup, start)
-   else:
-      if start.date == end.date:
-         second_part = end.strftime('%I:%M:%S %p')
-      else:
-         second_part = render_datetime(soup, end)
-      return new_content_tag(soup, 'span', [
-         render_datetime(soup, start),
-         ' - ',
-         second_part
-      ])
-
-def render_datetime(soup: bs4.BeautifulSoup, date: str | datetime.datetime) -> bs4.Tag:
-   if isinstance(date, str):
-      date_date = datetime.datetime.fromisoformat(date)
-   else:
-      date_date = date
-   formatted = date_date.strftime('%Y-%m-%d, %I:%M:%S %p')
-   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date_date.isoformat()})
-
-def render_date(soup: bs4.BeautifulSoup, date_str: str) -> bs4.Tag:
-   formatted = datetime.date.fromisoformat(date_str).strftime('%Y-%m-%d')
-   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date_str})
 
 def render_version_list(website: Website, file: HtmlFile, project: Project, versions: list[Version]) -> bs4.Tag | str:
    if len(versions) == 0:
