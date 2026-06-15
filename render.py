@@ -10,10 +10,8 @@ import markup
 import bs4
 import re
 import bisect
-import xmldiff.main
-import xmldiff.formatting
-import lxml.html.soupparser
-from web import HtmlFile, append_desc_item, append_row, html_find_replace, html_to_text, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
+import copy
+from web import HtmlFile, append_desc_item, append_row, html_diff, html_to_text, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, write_html
 
 @dataclasses.dataclass
 class FieldFolders:
@@ -85,10 +83,9 @@ def main():
    )
    print('Rendering...')
 
-   file = create_issue_page(website, archive.get_issue_data(rels.issue_keys['MC-4']))
-   save_file(website, file)
-   file = create_issue_page(website, archive.get_issue_data(rels.issue_keys['MC-1691']))
-   save_file(website, file)
+   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468']:
+      file = create_issue_page(website, archive.get_issue_data(rels.issue_keys[test]))
+      save_file(website, file)
    return
 
    make_project_list(website, website.project_list)
@@ -435,8 +432,8 @@ class TrackedMultiValueRevision:
 
    def handle(self, soup: bs4.BeautifulSoup, revision: RevisionChange) -> typing.Generator[bs4.Tag]:
       if self.previous is None:
-         self.previous = revision['fromString'].split(self.separator) if revision['fromString'] is not None else []
-      new_values = revision['toString'].split(self.separator) if revision['toString'] is not None else []
+         self.previous = revision['fromString'].split(self.separator) if revision['fromString'] is not None and revision['fromString'] != '' else []
+      new_values = revision['toString'].split(self.separator) if revision['toString'] is not None and revision['toString'] != '' else []
       added_values = set(new_values) - set(self.previous)
       removed_values = set(self.previous) - set(new_values)
       if len(added_values) > 0:
@@ -511,76 +508,78 @@ def revision_optional_source(soup: bs4.BeautifulSoup, revision: RevisionChange, 
          creator(revision['to'])
       ])
 
-CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i}' for i in list(range(32)) + [127]}
-CONTROL_MAP_REV = {v: k for k, v in CONTROL_MAP.items()}
-
 def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, panel_class: str) -> typing.Generator[bs4.Tag]:
    if before is not None and after is not None:
-      html_find_replace(before, CONTROL_MAP)
-      html_find_replace(after, CONTROL_MAP)
-      # convert_tree strips off the top-level tag, so wrap it beforehand
-      # diff_trees also works best with a top-level tag, so wrap it another tag too
-      before_xml = lxml.html.soupparser.convert_tree(
-         new_content_tag(soup, 'html', new_content_tag(soup, 'body', before))
-      )[0]
-      after_xml = lxml.html.soupparser.convert_tree(
-         new_content_tag(soup, 'html', new_content_tag(soup, 'body', after))
-      )[0]
-      diff = xmldiff.main.diff_trees(before_xml, after_xml,
-         diff_options={'fast_match': True}, # without fast_match, I tend to get lots of nodes moving around
-         formatter=xmldiff.formatting.XMLFormatter()
-      )
-      # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
-      # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
-      before_diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
-      after_diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
-      assert before_diff is not None
-      assert after_diff is not None
-      html_find_replace(before_diff, CONTROL_MAP_REV)
-      html_find_replace(after_diff, CONTROL_MAP_REV)
-      has_insertions = False
-      has_deletions = False
-      for tag in before_diff.find_all('diff:insert'):
-         tag.extract()
-      for tag in before_diff.find_all(attrs={'diff:insert': True}):
-         tag.extract()
-      if after_diff.find('diff:insert') is not None or after_diff.find(attrs={'diff:insert': True}):
-         has_insertions = True
-      for tag in after_diff.find_all('diff:delete'):
-         tag.extract()
-      for tag in after_diff.find_all(attrs={'diff:delete': True}):
-         tag.extract()
-      if before_diff.find('diff:delete') is not None or before_diff.find(attrs={'diff:delete': True}):
-         has_deletions = True
+      diff = html_diff(soup, before, after)
+      has_insertions = diff.find('diff:insert') is not None or diff.find(attrs={'diff:insert': True})
+      has_deletions = diff.find('diff:delete') is not None or diff.find(attrs={'diff:delete': True})
       if has_insertions and has_deletions:
+         before_diff = copy.deepcopy(diff)
+         after_diff = copy.deepcopy(diff)
+         for tag in before_diff.find_all('diff:insert'):
+            tag.extract()
+         for tag in before_diff.find_all(attrs={'diff:insert': True}):
+            tag.extract()
+         for tag in after_diff.find_all('diff:delete'):
+            tag.extract()
+         for tag in after_diff.find_all(attrs={'diff:delete': True}):
+            tag.extract()
          yield new_content_tag(soup, 'p', [
             f'Changed {label}: ',
-            new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[before_diff, after_diff])
+            new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+               new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[before_diff, after_diff])
+            ])
          ])
       elif has_insertions:
          yield new_content_tag(soup, 'p', [
             f'Changed {label}: ',
-            soup.new_tag('br'),
-            after_diff
+            new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
          ])
       elif has_deletions:
          yield new_content_tag(soup, 'p', [
             f'Changed {label}: ',
-            soup.new_tag('br'),
-            before_diff
+            new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
          ])
    elif before is not None and after is None:
       yield new_content_tag(soup, 'p', [
          f'Removed {label}: ',
-         soup.new_tag('br'),
-         before
+         new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=before)
       ])
    elif after is not None and before is None:
       yield new_content_tag(soup, 'p', [
          f'Added {label}: ',
-         soup.new_tag('br'),
-         after
+         new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=after)
       ])
+
+@dataclasses.dataclass
+class MergedRevision:
+   user_key: str
+   start_time: datetime.datetime
+   end_time: datetime.datetime
+   changes: list[tuple[str, RevisionChange]]
+
+def merge_revisions(revisions: list[Revision]) -> list[MergedRevision]:
+   merged_revisions: list[MergedRevision] = []
+   current: MergedRevision | None = None
+   for revision in revisions:
+      time = datetime.datetime.fromisoformat(revision['created'])
+      merged = MergedRevision(
+         user_key=revision['author'],
+         start_time=time,
+         end_time=time,
+         changes=[(revision['id'], x) for x in revision['items']]
+      )
+      if current is None:
+         current = merged
+      elif revision['author'] == current.user_key and time - current.end_time <= datetime.timedelta(minutes=10):
+         current.end_time = time
+         current.changes.extend((revision['id'], x) for x in revision['items'])
+      else:
+         merged_revisions.append(current)
+         current = merged
+   if current is not None:
+      merged_revisions.append(current)
+   return merged_revisions
 
 def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> bs4.Tag:
    soup = file.page.soup
@@ -588,7 +587,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    revisions_list: list[bs4.Tag] = []
    labels = TrackedMultiValueRevision('labels', ' ', lambda x: labels_list(website, file, x))
    categories = TrackedMultiValueRevision('Category', ',', lambda x: inline_list(soup, map(lambda y: field_link(website, file, website.field_folders.category, y), x)))
-   for revision in revisions:
+   merged = merge_revisions(revisions)
+   for entry in merged:
       history_items: list[bs4.Tag] = []
       def version_creator(versions: list[tuple[str, str]]) -> bs4.Tag:
          def render_version(version_id: str, version_name: str) -> bs4.Tag:
@@ -598,7 +598,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          return inline_list(file.page.soup, map(lambda x: render_version(x[0], x[1]), versions))
       affected_versions = TrackedMultiSetRevision('affects versions', version_creator)
       fixed_versions = TrackedMultiSetRevision('fixed versions', version_creator)
-      for item in revision['items']:
+      for rev_id, item in entry.changes:
          match item['field']:
             case 'labels':
                for tag in labels.handle(soup, item):
@@ -633,7 +633,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                for tag in revision_html_diff(soup, 'summary', before, after, 'diff-panel-top'):
                   history_items.append(tag)
             case 'description':
-               before, after = website.markup_source.get_issue_description_revision(issue['id'], revision['id'])
+               before, after = website.markup_source.get_issue_description_revision(issue['id'], rev_id)
                if before is not None:
                   fix_markup(website, file, before)
                   before = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=before)
@@ -643,7 +643,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                for tag in revision_html_diff(soup, 'description', before, after, 'diff-panel-side'):
                   history_items.append(tag)
             case 'environment':
-               before, after = website.markup_source.get_issue_environment_revision(issue['id'], revision['id'])
+               before, after = website.markup_source.get_issue_environment_revision(issue['id'], rev_id)
                if before is not None:
                   fix_markup(website, file, before)
                   before = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=before)
@@ -659,13 +659,14 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                      relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[ticket])
                      assert relevant_issue is not None
                      return new_content_tag(soup, 'p', [
-                        f'{label} {link_dir} link: ',
-                        soup.new_tag('br'),
-                        new_content_tag(soup, 'span', big_issue_link(website, file, relevant_issue))
+                        f'{label} link ({link_dir}): ',
+                        new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+                           new_content_tag(soup, 'span', big_issue_link(website, file, relevant_issue))
+                        ])
                      ])
                   else:
                      return new_content_tag(soup, 'p', [
-                        f'{label} {link_dir} link: {ticket}'
+                        f'{label} link ({link_dir}): {ticket}'
                      ])
                if item['to'] is not None:
                   assert item['toString'] is not None
@@ -679,8 +680,9 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   if attachment is not None:
                      return new_content_tag(soup, 'p', [
                         f'{label} attachment: ',
-                        soup.new_tag('br'),
-                        render_attachment(website, file, attachment, include_upload=False)
+                        new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+                           render_attachment(website, file, attachment, include_upload=False)
+                        ])
                      ])
                   broken = soup.new_tag('img', attrs={'class': 'broken-image', 'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
                   return new_content_tag(soup, 'p', [
@@ -697,17 +699,20 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['from'] is not None
                assert item['to'] is None
                if UNKNOWN_COMMENT_RE.match(item['from']) is None:
-                  comment = website.markup_source.get_deleted_comment_body(issue['id'], revision['id'])
+                  comment = website.markup_source.get_deleted_comment_body(issue['id'], rev_id)
                   fix_markup(website, file, comment)
                   history_items.append(new_content_tag(soup, 'p', [
                      'Deleted comment: ',
-                     soup.new_tag('br'),
-                     new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=comment)
+                     new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+                        new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=comment)
+                     ])
                   ]))
             case 'Version':
                revision_import_multi(affected_versions, item)
             case 'Fix Version':
-               revision_import_multi(affected_versions, item)
+               revision_import_multi(fixed_versions, item)
+            case 'ADO':
+               revision_optional(soup, item, 'ADO', lambda x: new_content_tag(soup, 'span', x))
             case 'assignee':
                def creator(x: str): return user_link(website, file, x)
                for tag in revision_optional_source(soup, item, 'Assignee', creator):
@@ -725,11 +730,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       for tag in fixed_versions.handle(soup):
          history_items.append(tag)
       if len(history_items) > 0:
-         date_tag = render_datetime(soup, revision['created'])
+         date_tag = render_date_range(soup, entry.start_time, entry.end_time)
          date_tag.attrs['class'] = 'comment-time'
          revisions_list.append(new_content_tag(soup, 'div', attrs={'class': 'history-entry'}, content=[
             new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=[
-               comment_author(website, file, revision['author']),
+               comment_author(website, file, entry.user_key),
                ' ',
                date_tag
             ]),
@@ -1075,8 +1080,12 @@ def user_link(website: Website, file: HtmlFile, user_key: str | None) -> bs4.Tag
       return new_content_tag(file.page.soup, 'span', attrs={'class': 'username'}, content='-')
    user_data = website.archive.get_user_data(user_key)
    if user_data is None:
-      return new_content_tag(file.page.soup, 'span', attrs={'class': 'username'}, content=user_key)
-   display_name = user_data['displayName']
+      user_data = website.archive.get_unknown_user_data(user_key)
+      if user_data is None:
+         return new_content_tag(file.page.soup, 'span', attrs={'class': 'username'}, content=user_key)
+      display_name = user_data['name']
+   else:
+      display_name = user_data['displayName']
    avatar_url = user_data['avatarUrls']['48x48']
    avatar_path = get_avatar_path(website.archive, website.archive.users_avatars_folder, avatar_url)
    img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'class': 'avatar'})
@@ -1117,9 +1126,27 @@ def resolution_link(website: Website, file: HtmlFile, resolution_id: str | None)
       tag = field_link(website, file, website.field_folders.resolution, name)
       return new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=tag)
 
-def render_datetime(soup: bs4.BeautifulSoup, date_str: str) -> bs4.Tag:
-   formatted = datetime.datetime.fromisoformat(date_str).strftime('%Y-%m-%d, %I:%M:%S %p')
-   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date_str})
+def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: datetime.datetime) -> bs4.Tag:
+   if start == end:
+      return render_datetime(soup, start)
+   else:
+      if start.date == end.date:
+         second_part = end.strftime('%I:%M:%S %p')
+      else:
+         second_part = render_datetime(soup, end)
+      return new_content_tag(soup, 'span', [
+         render_datetime(soup, start),
+         ' - ',
+         second_part
+      ])
+
+def render_datetime(soup: bs4.BeautifulSoup, date: str | datetime.datetime) -> bs4.Tag:
+   if isinstance(date, str):
+      date_date = datetime.datetime.fromisoformat(date)
+   else:
+      date_date = date
+   formatted = date_date.strftime('%Y-%m-%d, %I:%M:%S %p')
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date_date.isoformat()})
 
 def render_date(soup: bs4.BeautifulSoup, date_str: str) -> bs4.Tag:
    formatted = datetime.date.fromisoformat(date_str).strftime('%Y-%m-%d')

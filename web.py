@@ -5,7 +5,9 @@ import bs4
 import bs4.element
 import pathlib
 import urllib.parse
-import PIL.Image
+import lxml.html.soupparser
+import xmldiff.main
+import xmldiff.formatting
 
 @dataclasses.dataclass
 class Page:
@@ -90,7 +92,7 @@ def is_hidden(tag: bs4.element.PageElement) -> bool:
    return False
 
 def map_find_replace(text: str, mapping: dict[str, str]) -> str:
-   pattern = re.compile('|'.join(mapping.keys()))
+   pattern = re.compile('|'.join(map(re.escape, mapping.keys())))
    return pattern.sub(lambda x: mapping[x.group(0)], text)
 
 def html_find_replace(soup: bs4.Tag, mapping: dict[str, str]):
@@ -113,3 +115,30 @@ def html_to_text(soup: bs4.Tag) -> str:
          text.append(string)
    doc = '\n'.join(text)
    return doc
+
+CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i:04x}___' for i in list(range(32)) + [127]}
+CONTROL_MAP_REV = {v: k for k, v in CONTROL_MAP.items()}
+
+def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.Tag:
+   # xml throws if the tree has control characters
+   # but I want to preserve them, so replace them with substitutes then replace back after
+   html_find_replace(before, CONTROL_MAP)
+   html_find_replace(after, CONTROL_MAP)
+   # convert_tree strips off the top-level tag, so wrap it beforehand
+   # diff_trees also works best with a top-level tag, so wrap it another tag too
+   before_xml = lxml.html.soupparser.convert_tree(
+      new_content_tag(soup, 'html', new_content_tag(soup, 'body', before))
+   )[0]
+   after_xml = lxml.html.soupparser.convert_tree(
+      new_content_tag(soup, 'html', new_content_tag(soup, 'body', after))
+   )[0]
+   diff = xmldiff.main.diff_trees(before_xml, after_xml,
+      diff_options={'fast_match': True}, # without fast_match, I tend to get lots of nodes moving around
+      formatter=xmldiff.formatting.XMLFormatter()
+   )
+   # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
+   # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
+   diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
+   assert diff is not None
+   html_find_replace(diff, CONTROL_MAP_REV)
+   return diff
