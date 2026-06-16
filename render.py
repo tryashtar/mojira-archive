@@ -303,6 +303,18 @@ def make_generic_header(website: Website, file: HtmlFile) -> bs4.Tag:
    ])
    return header
 
+def make_generic_footer(website: Website, file: HtmlFile) -> bs4.Tag:
+   footer = new_content_tag(file.page.soup, 'footer', [
+      new_content_tag(file.page.soup, 'p', [
+         'Pre-migration archive of ',
+         new_content_tag(file.page.soup, 'a', attrs={'href': 'https://bugs.mojang.com'}, content='bugs.mojang.com'),
+         ' by ',
+         new_content_tag(file.page.soup, 'a', attrs={'href': 'https://github.com/tryashtar'}, content='tryashtar'),
+         '. For Mojira volunteer use only!'
+      ])
+   ])
+   return footer
+
 def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
    return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/icon/bug.svg'))})
 
@@ -321,6 +333,7 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    file.page.body.append(make_generic_header(website, file))
    content = soup.new_tag('div', attrs={'class': 'content'})
    file.page.body.append(content)
+   file.page.body.append(make_generic_footer(website, file))
    issue_div = soup.new_tag('div', attrs={'id': 'issue', 'class': 'issue'})
    content.append(issue_div)
    issue_div.append(new_content_tag(soup, 'div', attrs={'class': 'issue-top'}, content=[
@@ -401,34 +414,41 @@ def render_issue_body(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag
    return issue_body
 
 class TrackedMultiSetRevision:
-   def __init__(self, name: str, creator: typing.Callable[[list[tuple[str, str]]], bs4.Tag]):
+   def __init__(self, name: str, creator: typing.Callable[[list[tuple[str, str]]], bs4.Tag], inline: bool):
       self.added: list[tuple[str, str]] = []
       self.removed: list[tuple[str, str]] = []
       self.name = name
       self.creator = creator
+      self.inline = inline
+
+   def import_change(self, entry: RevisionChange):
+      if entry['to'] is not None:
+         assert entry['toString'] is not None
+         self.added.append((entry['to'], entry['toString']))
+      if entry['from'] is not None:
+         assert entry['fromString'] is not None
+         self.removed.append((entry['from'], entry['fromString']))
 
    def handle(self, soup: bs4.BeautifulSoup) -> typing.Generator[bs4.Tag]:
       if len(self.added) > 0:
-         yield new_content_tag(soup, 'p', [
-            f'Added {self.name}: ',
-            self.creator(self.added)
-         ])
+         label = f'Added {self.name}: '
+         contents = self.creator(self.added)
+         if self.inline:
+            yield new_content_tag(soup, 'p', [label, contents])
+         else:
+            yield new_content_tag(soup, 'p', label)
+            yield contents
       if len(self.removed) > 0:
-         yield new_content_tag(soup, 'p', [
-            f'Removed {self.name}: ',
-            self.creator(self.added)
-         ])
-
-def revision_import_multi(versions: TrackedMultiSetRevision, entry: RevisionChange):
-   if entry['to'] is not None:
-      assert entry['toString'] is not None
-      versions.added.append((entry['to'], entry['toString']))
-   if entry['from'] is not None:
-      assert entry['fromString'] is not None
-      versions.removed.append((entry['from'], entry['fromString']))
+         label = f'Removed {self.name}: '
+         contents = self.creator(self.removed)
+         if self.inline:
+            yield new_content_tag(soup, 'p', [label, contents])
+         else:
+            yield new_content_tag(soup, 'p', label)
+            yield contents
 
 class TrackedMultiValueRevision:
-   def __init__(self, name: str, separator: str, creator: typing.Callable[[set[str]], bs4.Tag]):
+   def __init__(self, name: str, separator: str, creator: typing.Callable[[list[str]], bs4.Tag]):
       self.previous: list[str] | None = None
       self.name = name
       self.separator = separator
@@ -438,8 +458,8 @@ class TrackedMultiValueRevision:
       if self.previous is None:
          self.previous = revision['fromString'].split(self.separator) if revision['fromString'] is not None and revision['fromString'] != '' else []
       new_values = revision['toString'].split(self.separator) if revision['toString'] is not None and revision['toString'] != '' else []
-      added_values = set(new_values) - set(self.previous)
-      removed_values = set(self.previous) - set(new_values)
+      added_values = [x for x in new_values if x not in self.previous]
+      removed_values = [x for x in self.previous if x not in new_values]
       if len(added_values) > 0:
          yield new_content_tag(soup, 'p', [
             f'Added {self.name}: ',
@@ -528,32 +548,22 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
             tag.extract()
          for tag in after_diff.find_all(attrs={'diff:delete': True}):
             tag.extract()
-         yield new_content_tag(soup, 'p', [
-            f'Changed {label}: ',
-            new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+         yield new_content_tag(soup, 'p', f'Changed {label}: ')
+         yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
                new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[before_diff, after_diff])
             ])
-         ])
       elif has_insertions:
-         yield new_content_tag(soup, 'p', [
-            f'Changed {label}: ',
-            new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
-         ])
+         yield new_content_tag(soup, 'p', f'Changed {label}: ')
+         yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
       elif has_deletions:
-         yield new_content_tag(soup, 'p', [
-            f'Changed {label}: ',
-            new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
-         ])
+         yield new_content_tag(soup, 'p', f'Changed {label}: ')
+         yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
    elif before is not None and after is None:
-      yield new_content_tag(soup, 'p', [
-         f'Removed {label}: ',
-         new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=before)
-      ])
+      yield new_content_tag(soup, 'p', f'Removed {label}: ')
+      yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=before)
    elif after is not None and before is None:
-      yield new_content_tag(soup, 'p', [
-         f'Added {label}: ',
-         new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=after)
-      ])
+      yield new_content_tag(soup, 'p', f'Added {label}: ')
+      yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=after)
 
 @dataclasses.dataclass
 class MergedRevision:
@@ -594,14 +604,47 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    merged = merge_revisions(revisions)
    for entry in merged:
       history_items: list[bs4.Tag] = []
+      def render_version(version_id: str, version_name: str) -> bs4.Tag:
+         if version_id in project['versions']:
+            return version_link(website, file, project, project['versions'][version_id])
+         return new_content_tag(file.page.soup, 'span', version_name, attrs={'class': 'status-badge'})
       def version_creator(versions: list[tuple[str, str]]) -> bs4.Tag:
-         def render_version(version_id: str, version_name: str) -> bs4.Tag:
-            if version_id in project['versions']:
-               return version_link(website, file, project, project['versions'][version_id])
-            return new_content_tag(file.page.soup, 'span', version_name, attrs={'class': 'status-badge'})
          return inline_list(file.page.soup, map(lambda x: render_version(x[0], x[1]), versions))
-      affected_versions = TrackedMultiSetRevision('affects versions', version_creator)
-      fixed_versions = TrackedMultiSetRevision('fixed versions', version_creator)
+      affected_versions = TrackedMultiSetRevision('affects versions', version_creator, inline=True)
+      fixed_versions = TrackedMultiSetRevision('fixed versions', version_creator, inline=True)
+      def render_attach(attach_id: str, filename: str):
+         attachment = website.archive.get_attachment_data(attach_id)
+         if attachment is not None:
+            return render_attachment(website, file, attachment, include_upload=False)
+         broken = soup.new_tag('img', attrs={'class': 'broken-image', 'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
+         return new_content_tag(soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, filename])
+      def attach_creator(attaches: list[tuple[str, str]]) -> bs4.Tag:
+         return new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+            new_content_tag(soup, 'div', attrs={'class': 'attachments'}, content=list(
+               map(lambda x: render_attach(x[0], x[1]), attaches)
+            ))
+         ])
+      def render_link(ticket: str):
+         if ticket in website.relations.issue_keys:
+            relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[ticket])
+            assert relevant_issue is not None
+            return new_content_tag(soup, 'div', big_issue_link(website, file, relevant_issue))
+         else:
+            return new_content_tag(soup, 'div', ticket)
+      def link_creator(links: list[tuple[str, str]]) -> bs4.Tag:
+         link_dict: dict[str, list[bs4.Tag]] = {}
+         for ticket, full in links:
+            link_dir = full[len('This issue '):-(len(ticket) + 1)]
+            if link_dir not in link_dict:
+               link_dict[link_dir] = []
+            link_dict[link_dir].append(render_link(ticket))
+         result = soup.new_tag('blockquote', attrs={'class': 'history-quote'})
+         for dir, tags in link_dict.items():
+            result.append(new_content_tag(soup, 'p', dir))
+            result.extend(tags)
+         return result
+      attachments = TrackedMultiSetRevision('attachments', attach_creator, inline=False)
+      links = TrackedMultiSetRevision('links', link_creator, inline=False)
       for rev_id, item in entry.changes:
          match item['field']:
             case 'labels':
@@ -657,64 +700,24 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                for tag in revision_html_diff(soup, 'environment', before, after, 'diff-panel-side'):
                   history_items.append(tag)
             case 'Link':
-               def link_creator(full: str, ticket: str, label: str):
-                  link_dir = full[len('This issue '):-(len(ticket) + 1)]
-                  if ticket in website.relations.issue_keys:
-                     relevant_issue = website.archive.get_issue_data(website.relations.issue_keys[ticket])
-                     assert relevant_issue is not None
-                     return new_content_tag(soup, 'p', [
-                        f'{label} link ({link_dir}): ',
-                        new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
-                           new_content_tag(soup, 'span', big_issue_link(website, file, relevant_issue))
-                        ])
-                     ])
-                  else:
-                     return new_content_tag(soup, 'p', [
-                        f'{label} link ({link_dir}): {ticket}'
-                     ])
-               if item['to'] is not None:
-                  assert item['toString'] is not None
-                  history_items.append(link_creator(item['toString'], item['to'], 'Added'))
-               if item['from'] is not None:
-                  assert item['fromString'] is not None
-                  history_items.append(link_creator(item['fromString'], item['from'], 'Removed'))
+               links.import_change(item)
             case 'Attachment':
-               def attach_creator(attach_id: str, filename: str, label: str):
-                  attachment = website.archive.get_attachment_data(attach_id)
-                  if attachment is not None:
-                     return new_content_tag(soup, 'p', [
-                        f'{label} attachment: ',
-                        new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
-                           render_attachment(website, file, attachment, include_upload=False)
-                        ])
-                     ])
-                  broken = soup.new_tag('img', attrs={'class': 'broken-image', 'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
-                  return new_content_tag(soup, 'p', [
-                     f'{label} attachment: ',
-                     new_content_tag(soup, 'span', [broken, filename])
-                  ])
-               if item['to'] is not None:
-                  assert item['toString'] is not None
-                  history_items.append(attach_creator(item['to'], item['toString'], 'Added'))
-               if item['from'] is not None:
-                  assert item['fromString'] is not None
-                  history_items.append(attach_creator(item['from'], item['fromString'], 'Removed'))
+               attachments.import_change(item)
             case 'Comment':
                assert item['from'] is not None
                assert item['to'] is None
                if UNKNOWN_COMMENT_RE.match(item['from']) is None:
                   comment = website.markup_source.get_deleted_comment_body(issue['id'], rev_id)
                   fix_markup(website, file, comment)
-                  history_items.append(new_content_tag(soup, 'p', [
-                     'Deleted comment: ',
-                     new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+                  history_items.append(new_content_tag(soup, 'p', 'Deleted comment: '))
+                  history_items.append(new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
                         new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=comment)
                      ])
-                  ]))
+                  )
             case 'Version':
-               revision_import_multi(affected_versions, item)
+               affected_versions.import_change(item)
             case 'Fix Version':
-               revision_import_multi(fixed_versions, item)
+               fixed_versions.import_change(item)
             case 'ADO':
                revision_optional(soup, item, 'ADO', lambda x: new_content_tag(soup, 'span', x))
             case 'assignee':
@@ -732,6 +735,10 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       for tag in affected_versions.handle(soup):
          history_items.append(tag)
       for tag in fixed_versions.handle(soup):
+         history_items.append(tag)
+      for tag in attachments.handle(soup):
+         history_items.append(tag)
+      for tag in links.handle(soup):
          history_items.append(tag)
       if len(history_items) > 0:
          date_tag = render_date_range(soup, entry.start_time, entry.end_time)

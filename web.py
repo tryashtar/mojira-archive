@@ -140,6 +140,7 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
    # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
    diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
+   diff.name = 'div'
    assert diff is not None
    html_find_replace(diff, CONTROL_MAP_REV)
    return diff
