@@ -535,14 +535,18 @@ def revision_optional_source(soup: bs4.BeautifulSoup, revision: RevisionChange, 
 def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, panel_class: str) -> typing.Generator[bs4.Tag]:
    if before is not None and after is not None:
       diff = html_diff(soup, before, after)
-      has_insertions = diff.find(class_='diff-insert') is not None
-      has_deletions = diff.find(class_='diff-del') is not None
+      has_insertions = diff.find('diff:insert') is not None or diff.find(attrs={'diff:insert': True})
+      has_deletions = diff.find('diff:delete') is not None or diff.find(attrs={'diff:delete': True})
       if has_insertions and has_deletions:
          before_diff = copy.deepcopy(diff)
          after_diff = copy.deepcopy(diff)
-         for tag in before_diff.find_all(class_='diff-insert'):
+         for tag in before_diff.find_all('diff:insert'):
             tag.extract()
-         for tag in after_diff.find_all(class_='diff-del'):
+         for tag in before_diff.find_all(attrs={'diff:insert': True}):
+            tag.extract()
+         for tag in after_diff.find_all('diff:delete'):
+            tag.extract()
+         for tag in after_diff.find_all(attrs={'diff:delete': True}):
             tag.extract()
          yield new_content_tag(soup, 'p', f'Changed {label}: ')
          yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[

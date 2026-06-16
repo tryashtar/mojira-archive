@@ -7,7 +7,6 @@ import bs4.element
 import pathlib
 import urllib.parse
 import lxml.html.soupparser
-import lxml.etree
 import xmldiff.main
 import xmldiff.formatting
 
@@ -121,14 +120,6 @@ def html_to_text(soup: bs4.Tag) -> str:
 CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i:04x}___' for i in list(range(32)) + [127]}
 CONTROL_MAP_REV = {v: k for k, v in CONTROL_MAP.items()}
 
-XSLT_TEMPLATE = lxml.etree.parse('htmlformatter.xslt')
-
-class HTMLFormatter(xmldiff.formatting.XMLFormatter):
-   def render(self, result):
-      transform = lxml.etree.XSLT(XSLT_TEMPLATE)
-      result = transform(result)
-      return super(HTMLFormatter, self).render(result)
-
 def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.Tag:
    # xml throws if the tree has control characters
    # but I want to preserve them, so replace them with substitutes then replace back after
@@ -144,10 +135,7 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    )[0]
    diff = xmldiff.main.diff_trees(before_xml, after_xml,
       diff_options={'fast_match': True}, # without fast_match, I tend to get lots of nodes moving around
-      formatter=HTMLFormatter(
-         text_tags=('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'),
-         formatting_tags=('b', 'u', 'i', 'strike', 'em', 'super', 'sup', 'sub', 'link', 'a', 'span')
-      )
+      formatter=xmldiff.formatting.XMLFormatter()
    )
    # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
    # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
