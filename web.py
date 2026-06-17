@@ -140,8 +140,8 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
    # but it wraps the output in <html><body>...</body></html>, so unwrap the original root
    diff = bs4.BeautifulSoup(diff, 'lxml').find('body')
-   diff.name = 'div'
    assert diff is not None
+   diff.name = 'div'
    html_find_replace(diff, CONTROL_MAP_REV)
    return diff
 
@@ -149,23 +149,33 @@ def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: da
    if start == end:
       return render_datetime(soup, start)
    else:
-      if start.date() == end.date():
-         second_part = end.strftime('%I:%M:%S %p')
+      same_tz = start.tzinfo == end.tzinfo
+      same_day = start.date() == end.date()
+      if same_tz:
+         first_part = new_content_tag(soup, 'time', start.strftime('%Y-%m-%d, %I:%M:%S %p'), attrs={'datetime': start.isoformat()})
+      else:
+         first_part = render_datetime(soup, start)
+      if same_day and same_tz:
+         second_part = end.strftime('%I:%M:%S %p %Z')
       else:
          second_part = render_datetime(soup, end)
       return new_content_tag(soup, 'span', [
-         render_datetime(soup, start),
+         first_part,
          ' - ',
          second_part
       ])
 
 def render_datetime(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
-   formatted = date.strftime('%Y-%m-%d, %I:%M:%S %p')
+   formatted = date.strftime('%Y-%m-%d, %I:%M:%S %p %Z')
    return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
 
-def render_date(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
-   formatted = date.strftime('%Y-%m-%d')
+def render_date(soup: bs4.BeautifulSoup, date: datetime.date) -> bs4.Tag:
+   formatted = date.strftime('%Y-%m-%d %Z')
    return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
+
+def render_time(soup: bs4.BeautifulSoup, time: datetime.time) -> bs4.Tag:
+   formatted = time.strftime('%I:%M:%S %p')
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': time.isoformat()})
 
 def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separator: str = ' ') -> bs4.Tag:
    span = soup.new_tag('span')

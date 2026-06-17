@@ -160,12 +160,14 @@ IssueFields = typing.TypedDict('IssueFields', {
    'reporter': str,
    'assignee': typing.NotRequired[str | None],
    'attachment': list[str],
-   'customfield_12800': typing.NotRequired[CustomField | None],
-   'customfield_12200': typing.NotRequired[CustomField | None],
-   'customfield_11901': typing.NotRequired[list[CustomField] | None],
-   'customfield_10500': typing.NotRequired[CustomField | None],
-   'customfield_11500': typing.NotRequired[str | None],
-   'customfield_12201': typing.NotRequired[str | None],
+   'customfield_12800': typing.NotRequired[CustomField | None], # Area
+   'customfield_12200': typing.NotRequired[CustomField | None], # Mojang Priority
+   'customfield_11901': typing.NotRequired[list[CustomField] | None], # Category
+   'customfield_10500': typing.NotRequired[CustomField | None], # Confirmation Status
+   'customfield_11500': typing.NotRequired[str | None], # ADO
+   'customfield_12201': typing.NotRequired[str | None], # Triaged Time
+   'customfield_11800': typing.NotRequired[str | None], # Partner Team Reporting
+   'customfield_11801': typing.NotRequired[str | None], # Impact
    'comment': CommentField,
    'votes': VotesField,
    'watches': WatchesField,

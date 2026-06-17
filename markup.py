@@ -117,11 +117,11 @@ class MarkupSource:
 def main():
    print('Loading...')
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
-   rels = relations.Relations()
-   rels.load(pathlib.Path('/d/Archives/Mojira/relations'))
+   keys = relations.KeyLookups()
+   keys.load(pathlib.Path('/d/Archives/Mojira/relations'))
    secret_comments = mojira.SecretComments(pathlib.Path('/d/Archives/Mojira/secret_comments.json'))
    markup_out = pathlib.Path('/d/Archives/Mojira/markup')
-   process = get_process(archive, rels, '.')
+   process = get_process(archive, keys, '.')
    source = MarkupSource(markup_out)
    print('Converting...')
    for i, issue in enumerate(archive.issues()):
@@ -135,7 +135,7 @@ def main():
          path = source.get_secret_comment_body_path(issue_id, comment['id'])
          render_to_file(process, int(issue_id), comment['body'], path)
 
-def get_process(archive: mojira.Archive, rels: relations.Relations, root: str) -> subprocess.Popen:
+def get_process(archive: mojira.Archive, keys: relations.KeyLookups, root: str) -> subprocess.Popen:
    print('Configuring...')
    input_args = {
       'issues': str(archive.issues_folder),
@@ -153,11 +153,11 @@ def get_process(archive: mojira.Archive, rels: relations.Relations, root: str) -
       stdout=subprocess.PIPE
    )
    assert process.stdin is not None
-   issue_map = {k: int(v) for k, v in rels.issue_keys.items()}
+   issue_map = {k: int(v) for k, v in keys.issue_keys.items()}
    configure_data = {
       'type': 'configure',
       'issue_map': issue_map,
-      'user_map': rels.user_keys
+      'user_map': keys.user_keys
    }
    process.stdin.write(json.dumps(configure_data) + '\n')
    process.stdin.flush()

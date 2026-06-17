@@ -1,3 +1,4 @@
+import dataclasses
 import pathlib
 import typing
 import mojira
@@ -23,62 +24,84 @@ VersionRelations = typing.TypedDict('VersionRelations', {
    'fixed': list[str]
 })
 
-class Relations:
+class KeyLookups:
    issue_keys: dict[str, str]
    user_keys: dict[str, str]
-   groups: dict[str, list[str]]
-   projects: dict[str, list[str]]
-   resolutions: dict[str, list[str]]
-   users: dict[str, UserRelations]
-   versions: dict[str, VersionRelations]
-   labels: dict[str, list[str]]
-   categories: dict[str, list[str]]
-   confirmation: dict[str, list[str]]
-   priority: dict[str, list[str]]
-   area: dict[str, list[str]]
 
    def __init__(self):
       self.issue_keys = {}
       self.user_keys = {}
-      self.groups = {}
-      self.projects = {}
-      self.resolutions = {}
-      self.users = {}
-      self.versions = {}
-      self.labels = {}
-      self.categories = {}
-      self.confirmation = {}
-      self.priority = {}
-      self.area = {}
 
    def load(self, folder: pathlib.Path):
       self.folder = folder
       load_one(self.issue_keys, folder / 'issue_keys.json')
       load_one(self.user_keys, folder / 'user_keys.json')
+
+   def save(self, folder: pathlib.Path):
+      save_one(self.issue_keys, folder / 'issue_keys.json')
+      save_one(self.user_keys, folder / 'user_keys.json')
+
+class MainRelations:
+   groups: dict[str, list[str]]
+   projects: dict[str, list[str]]
+   users: dict[str, UserRelations]
+   versions: dict[str, VersionRelations]
+
+   def __init__(self):
+      self.groups = {}
+      self.projects = {}
+      self.users = {}
+      self.versions = {}
+
+   def load(self, folder: pathlib.Path):
+      self.folder = folder
       load_one(self.groups, folder / 'groups.json')
       load_one(self.projects, folder / 'projects.json')
-      load_one(self.resolutions, folder / 'resolutions.json')
       load_one(self.users, folder / 'users.json')
       load_one(self.versions, folder / 'versions.json')
+
+   def save(self, folder: pathlib.Path):
+      save_one(self.groups, folder / 'groups.json')
+      save_one(self.projects, folder / 'projects.json')
+      save_one(self.users, folder / 'users.json')
+      save_one(self.versions, folder / 'versions.json')
+
+class FieldRelations:
+   resolutions: dict[str, list[str]]
+   labels: dict[str, list[str]]
+   categories: dict[str, list[str]]
+   confirmation: dict[str, list[str]]
+   priority: dict[str, list[str]]
+   area: dict[str, list[str]]
+   security: dict[str, list[str]]
+
+   def __init__(self):
+      self.resolutions = {}
+      self.labels = {}
+      self.categories = {}
+      self.confirmation = {}
+      self.priority = {}
+      self.area = {}
+      self.security = {}
+
+   def load(self, folder: pathlib.Path):
+      self.folder = folder
+      load_one(self.resolutions, folder / 'resolutions.json')
       load_one(self.labels, folder / 'labels.json')
       load_one(self.categories, folder / 'categories.json')
       load_one(self.confirmation, folder / 'confirmation.json')
       load_one(self.priority, folder / 'priority.json')
       load_one(self.area, folder / 'area.json')
+      load_one(self.security, folder / 'security.json')
 
    def save(self, folder: pathlib.Path):
-      save_one(self.issue_keys, folder / 'issue_keys.json')
-      save_one(self.user_keys, folder / 'user_keys.json')
-      save_one(self.groups, folder / 'groups.json')
-      save_one(self.projects, folder / 'projects.json')
       save_one(self.resolutions, folder / 'resolutions.json')
-      save_one(self.users, folder / 'users.json')
-      save_one(self.versions, folder / 'versions.json')
       save_one(self.labels, folder / 'labels.json')
       save_one(self.categories, folder / 'categories.json')
       save_one(self.confirmation, folder / 'confirmation.json')
       save_one(self.priority, folder / 'priority.json')
       save_one(self.area, folder / 'area.json')
+      save_one(self.security, folder / 'security.json')
 
 def load_one(data: dict, path: pathlib.Path):
    data.clear()
@@ -139,8 +162,26 @@ def append_version(data: dict[str, VersionRelations], key: str | None, subkey: s
       }
    bisect.insort(data[key][subkey], value)
 
-def create_relations(archive: mojira.Archive) -> Relations:
-   relations = Relations()
+@dataclasses.dataclass
+class RelationsBundle:
+   keys: KeyLookups
+   main: MainRelations
+   fields: FieldRelations
+
+   def load(self, folder: pathlib.Path):
+      self.keys.load(folder)
+      self.main.load(folder)
+      self.fields.load(folder)
+
+   def save(self, folder: pathlib.Path):
+      self.keys.save(folder)
+      self.main.save(folder)
+      self.fields.save(folder)
+
+def create_relations(archive: mojira.Archive) -> RelationsBundle:
+   key_rel = KeyLookups()
+   main_rel = MainRelations()
+   field_rel = FieldRelations()
    print('Tickets...')
    issue_ids = list(archive.issue_ids())
    total = len(issue_ids)
@@ -149,43 +190,45 @@ def create_relations(archive: mojira.Archive) -> Relations:
       assert issue is not None
       if i % 100 == 0:
          print(f'{i+1} / {total} - {issue['key']}')
-      relations.issue_keys[issue['key']] = issue_id
+      key_rel.issue_keys[issue['key']] = issue_id
       fields = issue['fields']
-      append(relations.resolutions, fields['resolution'], issue_id)
-      append(relations.projects, fields['project'], issue_id)
+      append(field_rel.resolutions, fields['resolution'], issue_id)
+      append(main_rel.projects, fields['project'], issue_id)
       if 'versions' in fields:
          for version in fields['versions']:
-            append_version(relations.versions, version, 'affected', issue_id)
+            append_version(main_rel.versions, version, 'affected', issue_id)
       if 'fixVersions' in fields:
          for version in fields['fixVersions']:
-            append_version(relations.versions, version, 'fixed', issue_id)
+            append_version(main_rel.versions, version, 'fixed', issue_id)
       for label in fields['labels']:
-         append(relations.labels, label, issue_id)
+         append(field_rel.labels, label, issue_id)
       if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
-         append(relations.area, fields['customfield_12800']['id'], issue_id)
+         append(field_rel.area, fields['customfield_12800']['id'], issue_id)
       if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
-         append(relations.priority, fields['customfield_12200']['id'], issue_id)
+         append(field_rel.priority, fields['customfield_12200']['id'], issue_id)
       if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
          for entry in fields['customfield_11901']:
-            append(relations.categories, entry['id'], issue_id)
+            append(field_rel.categories, entry['id'], issue_id)
       if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
-         append(relations.confirmation, fields['customfield_10500']['id'], issue_id)
-      append_user(relations.users, fields['creator'], 'created', issue_id)
-      append_user(relations.users, fields['reporter'], 'reported', issue_id)
+         append(field_rel.confirmation, fields['customfield_10500']['id'], issue_id)
+      if 'security' in fields:
+         append(field_rel.security, fields['security']['id'], issue_id)
+      append_user(main_rel.users, fields['creator'], 'created', issue_id)
+      append_user(main_rel.users, fields['reporter'], 'reported', issue_id)
       if 'assignee' in fields:
-         append_user(relations.users, fields['assignee'], 'assigned', issue_id)
+         append_user(main_rel.users, fields['assignee'], 'assigned', issue_id)
       for comment in fields['comment']['comments']:
-         append_user_issue(relations.users, comment.get('author'), issue_id, 'comments', comment['id'])
-         append_user_issue(relations.users, comment.get('updateAuthor'), issue_id, 'edits', comment['id'])
+         append_user_issue(main_rel.users, comment.get('author'), issue_id, 'comments', comment['id'])
+         append_user_issue(main_rel.users, comment.get('updateAuthor'), issue_id, 'edits', comment['id'])
       for change in issue['changelog']['histories']:
-         append_user_issue(relations.users, change['author'], issue_id, 'changes', change['id'])
+         append_user_issue(main_rel.users, change['author'], issue_id, 'changes', change['id'])
          for item in change['items']:
             if item['field'] == 'Key' and item['fromString'] is not None:
-               relations.issue_keys[item['fromString']] = issue_id
+               key_rel.issue_keys[item['fromString']] = issue_id
       for attachment in fields['attachment']:
          data = archive.get_attachment_data(attachment)
          assert data is not None
-         append_user_issue(relations.users, data.get('author'), issue_id, 'attachments', attachment)
+         append_user_issue(main_rel.users, data.get('author'), issue_id, 'attachments', attachment)
    print('Users...')
    user_keys = list(archive.user_keys())
    total = len(user_keys)
@@ -194,10 +237,14 @@ def create_relations(archive: mojira.Archive) -> Relations:
       assert user is not None
       if i % 100 == 0:
          print(f'{i+1} / {total} - {user['name']}')
-      relations.user_keys[user['name'].casefold()] = user_key
+      key_rel.user_keys[user['name'].casefold()] = user_key
       for group in user['groups']['items']:
-         append(relations.groups, group['name'], user_key)
-   return relations
+         append(main_rel.groups, group['name'], user_key)
+   return RelationsBundle(
+      keys=key_rel,
+      main=main_rel,
+      fields=field_rel
+   )
 
 def main():
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
