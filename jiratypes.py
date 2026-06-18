@@ -142,6 +142,18 @@ Security = typing.TypedDict('Security', {
    'description': str
 })
 
+Component = typing.TypedDict('Component', {
+   'id': str,
+   'name': str,
+   'description': str
+})
+
+Priority = typing.TypedDict('Priority', {
+   'id': str,
+   'name': str,
+   'iconUrl': str,
+})
+
 IssueFields = typing.TypedDict('IssueFields', {
    'summary': str,
    'description': str | None,
@@ -164,15 +176,22 @@ IssueFields = typing.TypedDict('IssueFields', {
    'customfield_12200': typing.NotRequired[CustomField | None], # Mojang Priority
    'customfield_11901': typing.NotRequired[list[CustomField] | None], # Category
    'customfield_10500': typing.NotRequired[CustomField | None], # Confirmation Status
+   'customfield_10501': typing.NotRequired[CustomField | None], # Game Mode
    'customfield_11500': typing.NotRequired[str | None], # ADO
    'customfield_12201': typing.NotRequired[str | None], # Triaged Time
    'customfield_11800': typing.NotRequired[str | None], # Partner Team Reporting
    'customfield_11801': typing.NotRequired[str | None], # Impact
+   'customfield_10402': typing.NotRequired[CustomField | None], # Platform
+   'customfield_12301': typing.NotRequired[CustomField | None], # Realms Platform
+   'customfield_12400': typing.NotRequired[CustomField | None], # Dungeons Platform
+   'customfield_12900': typing.NotRequired[CustomField | None], # Legends Platform
    'comment': CommentField,
    'votes': VotesField,
    'watches': WatchesField,
    'issuelinks': list[IssueLink],
-   'security': typing.NotRequired[Security]
+   'security': typing.NotRequired[Security],
+   'priority': typing.NotRequired[Priority | None],
+   'components': typing.NotRequired[list[Component]],
 })
 
 RevisionChange = typing.TypedDict('RevisionChange', {

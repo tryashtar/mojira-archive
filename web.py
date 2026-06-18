@@ -146,6 +146,8 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    return diff
 
 def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: datetime.datetime) -> bs4.Tag:
+   start = start.astimezone(datetime.UTC)
+   end = end.astimezone(datetime.UTC)
    if start == end:
       return render_datetime(soup, start)
    else:
@@ -166,15 +168,15 @@ def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: da
       ])
 
 def render_datetime(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
-   formatted = date.strftime('%Y-%m-%d, %I:%M:%S %p %Z')
+   formatted = date.astimezone(datetime.UTC).strftime('%Y-%m-%d, %I:%M:%S %p %Z')
    return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
 
-def render_date(soup: bs4.BeautifulSoup, date: datetime.date) -> bs4.Tag:
-   formatted = date.strftime('%Y-%m-%d %Z')
+def render_date(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
+   formatted = date.astimezone(datetime.UTC).strftime('%Y-%m-%d %Z')
    return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
 
-def render_time(soup: bs4.BeautifulSoup, time: datetime.time) -> bs4.Tag:
-   formatted = time.strftime('%I:%M:%S %p')
+def render_time(soup: bs4.BeautifulSoup, time: datetime.datetime) -> bs4.Tag:
+   formatted = time.astimezone(datetime.UTC).strftime('%I:%M:%S %p')
    return new_content_tag(soup, 'time', formatted, attrs={'datetime': time.isoformat()})
 
 def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separator: str = ' ') -> bs4.Tag:

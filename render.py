@@ -19,9 +19,16 @@ class FieldFolders:
    labels: pathlib.PurePath
    category: pathlib.PurePath
    area: pathlib.PurePath
+   game_mode: pathlib.PurePath
+   platform: pathlib.PurePath
+   realms_platform: pathlib.PurePath
+   dungeons_platform: pathlib.PurePath
+   legends_platform: pathlib.PurePath
    mojang_priority: pathlib.PurePath
+   priority: pathlib.PurePath
    resolution: pathlib.PurePath
    security: pathlib.PurePath
+   component: pathlib.PurePath
 
 @dataclasses.dataclass
 class Website:
@@ -76,8 +83,15 @@ def main():
          resolution=pathlib.PurePath('web/fields/resolution'),
          category=pathlib.PurePath('web/fields/category'),
          area=pathlib.PurePath('web/fields/area'),
+         game_mode=pathlib.PurePath('web/fields/game_mode'),
+         platform=pathlib.PurePath('web/fields/platform'),
+         realms_platform=pathlib.PurePath('web/fields/realms_platform'),
+         dungeons_platform=pathlib.PurePath('web/fields/dungeons_platform'),
+         legends_platform=pathlib.PurePath('web/fields/legends_platform'),
+         priority=pathlib.PurePath('web/fields/priority'),
          mojang_priority=pathlib.PurePath('web/fields/mojang_priority'),
          security=pathlib.PurePath('web/fields/security'),
+         component=pathlib.PurePath('web/fields/component'),
       ),
       archive=archive,
       metas=metas,
@@ -87,7 +101,7 @@ def main():
    )
    print('Rendering...')
 
-   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584']:
+   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765']:
       file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
       save_file(website, file)
    return
@@ -248,7 +262,7 @@ def create_version_page(website: Website, project: Project, version: Version) ->
    if 'description' in version:
       append_desc_item(soup, fields, 'Description', version['description'])
    if 'releaseDate' in version:
-      append_desc_item(soup, fields, 'Date', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate']).date()))
+      append_desc_item(soup, fields, 'Date', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate'])))
    append_desc_item(soup, fields, 'Status', 'Archived' if version['archived'] else ('Active' if version['released'] else 'Unreleased'))
    append_desc_item(soup, fields, 'Affected Issues', str(len(rels['affected'])))
    append_desc_item(soup, fields, 'Fixed Issues', str(len(rels['fixed'])))
@@ -285,7 +299,7 @@ def render_versions_table(website: Website, file: HtmlFile, project: Project, ve
       append_row(file.page.soup, table, [
          version_link(website, file, project, version),
          version['description'] if 'description' in version else '',
-         render_date(file.page.soup, datetime.datetime.fromisoformat(version['releaseDate']).date()) if 'releaseDate' in version else '',
+         render_date(file.page.soup, datetime.datetime.fromisoformat(version['releaseDate'])) if 'releaseDate' in version else '',
          str(len(rel_ver['affected'])),
          str(len(rel_ver['fixed'])),
       ])
@@ -371,11 +385,11 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
       for comment in issue['fields']['comment']['comments']:
          body = website.markup_source.get_comment_body(issue['id'], comment['id'])
          fix_markup(website, file, body)
-         all_comments.append(RenderableComment(comment, body))
+         all_comments.append(RenderableComment(comment, body, secret=False))
       for comment in website.secret_comments.get(issue['id']):
          body = website.markup_source.get_secret_comment_body(issue['id'], comment['id'])
          fix_markup(website, file, body)
-         bisect.insort_left(all_comments, RenderableComment(comment, body), key=lambda x: datetime.datetime.fromisoformat(x.comment['created']))
+         bisect.insort_left(all_comments, RenderableComment(comment, body, secret=True), key=lambda x: datetime.datetime.fromisoformat(x.comment['created']))
       comment_section = render_issue_comments(website, file, all_comments)
       tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'issue-tab-content-comments', 'class': 'issue-tab-content'}, content=comment_section))
    if len(issue['changelog']['histories']) > 0:
@@ -444,7 +458,7 @@ class TrackedMultiSetRevision:
 
    def handle(self, soup: bs4.BeautifulSoup) -> typing.Generator[bs4.Tag]:
       if len(self.added) > 0:
-         label = f'Added {self.name}: '
+         label = new_content_tag(soup, 'span', f'Added {self.name}: ', attrs={'class': 'history-label'})
          contents = self.creator(self.added)
          if self.inline:
             yield new_content_tag(soup, 'p', [label, contents])
@@ -452,7 +466,7 @@ class TrackedMultiSetRevision:
             yield new_content_tag(soup, 'p', label)
             yield contents
       if len(self.removed) > 0:
-         label = f'Removed {self.name}: '
+         label = new_content_tag(soup, 'span', f'Removed {self.name}: ', attrs={'class': 'history-label'})
          contents = self.creator(self.removed)
          if self.inline:
             yield new_content_tag(soup, 'p', [label, contents])
@@ -475,12 +489,12 @@ class TrackedMultiValueRevision:
       removed_values = [x for x in self.previous if x not in new_values]
       if len(added_values) > 0:
          yield new_content_tag(soup, 'p', [
-            f'Added {self.name}: ',
+            new_content_tag(soup, 'span', f'Added {self.name}: ', attrs={'class': 'history-label'}),
             self.creator(added_values)
          ])
       if len(removed_values) > 0:
          yield new_content_tag(soup, 'p', [
-            f'Removed {self.name}: ',
+            new_content_tag(soup, 'span', f'Removed {self.name}: ', attrs={'class': 'history-label'}),
             self.creator(removed_values)
          ])
       self.previous = new_values
@@ -489,9 +503,9 @@ def revision_str_change(soup: bs4.BeautifulSoup, revision: RevisionChange, label
    assert revision['fromString'] is not None
    assert revision['toString'] is not None
    return new_content_tag(soup, 'p', [
-      f'{label}: ',
+      new_content_tag(soup, 'span', f'{label}: ', attrs={'class': 'history-label'}),
       creator(revision['fromString']),
-      ' → ',
+      new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
       creator(revision['toString'])
    ])
 
@@ -499,17 +513,17 @@ def revision_source_change(soup: bs4.BeautifulSoup, revision: RevisionChange, la
    assert revision['from'] is not None
    assert revision['to'] is not None
    return new_content_tag(soup, 'p', [
-      f'{label}: ',
+      new_content_tag(soup, 'span', f'{label}: ', attrs={'class': 'history-label'}),
       creator(revision['from']),
-      ' → ',
+      new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
       creator(revision['to'])
    ])
 
 def revision_source_change_opt(soup: bs4.BeautifulSoup, revision: RevisionChange, label: str, creator: typing.Callable[[str | None], bs4.Tag]) -> bs4.Tag:
    return new_content_tag(soup, 'p', [
-      f'{label}: ',
+      new_content_tag(soup, 'span', f'{label}: ', attrs={'class': 'history-label'}),
       creator(revision['from']),
-      ' → ',
+      new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
       creator(revision['to'])
    ])
 
@@ -518,40 +532,40 @@ def revision_dual_set(soup: bs4.BeautifulSoup, revision: RevisionChange, label: 
       assert revision['fromString'] is not None
       assert revision['toString'] is not None
       yield new_content_tag(soup, 'p', [
-         f'{label}: ',
+         new_content_tag(soup, 'span', f'{label}: ', attrs={'class': 'history-label'}),
          creator(revision['fromString']),
-         ' → ',
+         new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
          creator(revision['toString'])
       ])
    elif revision['to'] is None and revision['from'] is not None:
       assert revision['fromString'] is not None
       yield new_content_tag(soup, 'p', [
-         f'Removed {label}: ',
+         new_content_tag(soup, 'span', f'Removed {label}: ', attrs={'class': 'history-label'}),
          creator(revision['fromString'])
       ])
    elif revision['from'] is None and revision['to'] is not None:
       assert revision['toString'] is not None
       yield new_content_tag(soup, 'p', [
-         f'Added {label}: ',
+         new_content_tag(soup, 'span', f'Added {label}: ', attrs={'class': 'history-label'}),
          creator(revision['toString'])
       ])
 
 def revision_source_set(soup: bs4.BeautifulSoup, revision: RevisionChange, label: str, creator: typing.Callable[[str], bs4.Tag]) -> typing.Generator[bs4.Tag]:
    if revision['to'] is not None and revision['from'] is not None:
       yield new_content_tag(soup, 'p', [
-         f'{label}: ',
+         new_content_tag(soup, 'span', f'{label}: ', attrs={'class': 'history-label'}),
          creator(revision['from']),
-         ' → ',
+         new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
          creator(revision['to'])
       ])
    elif revision['to'] is None and revision['from'] is not None:
       yield new_content_tag(soup, 'p', [
-         f'Removed {label}: ',
+         new_content_tag(soup, 'span', f'Removed {label}: ', attrs={'class': 'history-label'}),
          creator(revision['from'])
       ])
    elif revision['from'] is None and revision['to'] is not None:
       yield new_content_tag(soup, 'p', [
-         f'Added {label}: ',
+         new_content_tag(soup, 'span', f'Added {label}: ', attrs={'class': 'history-label'}),
          creator(revision['to'])
       ])
 
@@ -571,21 +585,21 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
             tag.extract()
          for tag in after_diff.find_all(attrs={'diff:delete': True}):
             tag.extract()
-         yield new_content_tag(soup, 'p', f'Changed {label}: ')
+         yield new_content_tag(soup, 'p', f'Changed {label}: ', attrs={'class': 'history-label'})
          yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
                new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[before_diff, after_diff])
             ])
       elif has_insertions:
-         yield new_content_tag(soup, 'p', f'Changed {label}: ')
+         yield new_content_tag(soup, 'p', f'Changed {label}: ', attrs={'class': 'history-label'})
          yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
       elif has_deletions:
-         yield new_content_tag(soup, 'p', f'Changed {label}: ')
+         yield new_content_tag(soup, 'p', f'Changed {label}: ', attrs={'class': 'history-label'})
          yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
    elif before is not None and after is None:
-      yield new_content_tag(soup, 'p', f'Removed {label}: ')
+      yield new_content_tag(soup, 'p', f'Removed {label}: ', attrs={'class': 'history-label'})
       yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=before)
    elif after is not None and before is None:
-      yield new_content_tag(soup, 'p', f'Added {label}: ')
+      yield new_content_tag(soup, 'p', f'Added {label}: ', attrs={'class': 'history-label'})
       yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=after)
 
 @dataclasses.dataclass
@@ -651,7 +665,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          # wrap in a div so Misode's CSS includes the top border
          return new_content_tag(soup, 'div', big_issue_link(website, file, relevant_issue))
       else:
-         return new_content_tag(soup, 'div', ticket)
+         return new_content_tag(soup, 'div', issue_key(website, file, ticket))
 
    def render_link_list(links: list[tuple[str, str]]) -> bs4.Tag:
       link_dict: dict[str, list[bs4.Tag]] = {}
@@ -666,6 +680,12 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          result.extend(tags)
       return result
 
+   def render_component(component_id: str, component_name: str) -> bs4.Tag:
+      return field_link(website, file, website.field_folders.component, component_name)
+
+   def render_component_list(components: list[tuple[str, str]]) -> bs4.Tag:
+      return inline_list(file.page.soup, map(lambda x: render_component(x[0], x[1]), components))
+
    revisions_list: list[bs4.Tag] = []
    labels = TrackedMultiValueRevision('labels', ' ', lambda x: labels_list(website, file, x))
    categories = TrackedMultiValueRevision('Category', ',', lambda x: inline_list(soup, map(lambda y: field_link(website, file, website.field_folders.category, y), x)))
@@ -676,6 +696,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       fixed_versions = TrackedMultiSetRevision('fixed versions', render_version_list, inline=True)
       attachments = TrackedMultiSetRevision('attachments', render_attach_list, inline=False)
       links = TrackedMultiSetRevision('links', render_link_list, inline=False)
+      components = TrackedMultiSetRevision('component', render_component_list, inline=False)
       for rev_id, item in entry.changes:
          match item['field']:
             # tracked changes
@@ -688,6 +709,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             # batched changes
             case 'Link':
                links.import_change(item)
+            case 'Component':
+               components.import_change(item)
             case 'Attachment':
                attachments.import_change(item)
             case 'Version':
@@ -703,9 +726,33 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                def creator(x: str): return field_link(website, file, website.field_folders.area, x)
                for tag in revision_dual_set(soup, item, 'Area', creator):
                   history_items.append(tag)
+            case 'Game Mode':
+               def creator(x: str): return field_link(website, file, website.field_folders.game_mode, x)
+               for tag in revision_dual_set(soup, item, 'Game Mode', creator):
+                  history_items.append(tag)
+            case 'Platform':
+               def creator(x: str): return field_link(website, file, website.field_folders.platform, x)
+               for tag in revision_dual_set(soup, item, 'Platform', creator):
+                  history_items.append(tag)
+            case 'Realms Platform':
+               def creator(x: str): return field_link(website, file, website.field_folders.realms_platform, x)
+               for tag in revision_dual_set(soup, item, 'Platform', creator):
+                  history_items.append(tag)
+            case 'Dungeons Platform':
+               def creator(x: str): return field_link(website, file, website.field_folders.dungeons_platform, x)
+               for tag in revision_dual_set(soup, item, 'Platform', creator):
+                  history_items.append(tag)
+            case 'Legends Platform':
+               def creator(x: str): return field_link(website, file, website.field_folders.legends_platform, x)
+               for tag in revision_dual_set(soup, item, 'Platform', creator):
+                  history_items.append(tag)
             case 'Mojang Priority':
                def creator(x: str): return mojang_priority_link(website, file, x)
                for tag in revision_dual_set(soup, item, 'Mojang Priority', creator):
+                  history_items.append(tag)
+            case 'priority':
+               def creator(x: str): return priority_link(website, file, x)
+               for tag in revision_dual_set(soup, item, 'Priority', creator):
                   history_items.append(tag)
             case 'resolution':
                def res_creator(x: str | None): return resolution_link(website, file, x)
@@ -715,7 +762,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                for tag in revision_dual_set(soup, item, 'Security Level', creator):
                   history_items.append(tag)
             # simple changes
-            case 'ADO':
+            case 'Triaged Time':
+               def creator(x: str): return render_datetime(soup, datetime.datetime.fromisoformat(x))
+               for tag in revision_source_set(soup, item, 'Triaged Time', creator):
+                  history_items.append(tag)
+            case 'ADO' | 'VSO': # field was renamed at some point, but old name persists in history
                def creator(x: str): return new_content_tag(soup, 'span', x)
                for tag in revision_dual_set(soup, item, 'ADO', creator):
                   history_items.append(tag)
@@ -778,13 +829,16 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                | 'RemoteIssueLink' # unfortunately these were not preserved in the archive
                | 'CHK' | 'Linked' | 'Pinned' # pointless fields
                | 'Workflow' # noise
-               | 'Console' | 'Description' | 'Affected Platforms' | 'Flagged' | 'Legends Platform' | 'Original story points' # only used in one test ticket
+               | 'Console' | 'Description' | 'Flagged' | 'Original story points' # only used in one test ticket
+               | 'issuetype' # only relevant to MCAPI which sadly was not preserved
             ):
                pass
             case _:
                #raise ValueError()
                print(item['field'])
                history_items.append(new_content_tag(soup, 'p', item['field']))
+      for tag in components.handle(soup):
+         history_items.append(tag)
       for tag in affected_versions.handle(soup):
          history_items.append(tag)
       for tag in fixed_versions.handle(soup):
@@ -817,6 +871,7 @@ def comment_author(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
 class RenderableComment:
    comment: Comment | NewComment
    rendered_body: bs4.BeautifulSoup
+   secret: bool
 
 def render_author_key_or_dict(website: Website, file: HtmlFile, author: str | NewAuthor) -> bs4.Tag:
    if isinstance(author, dict):
@@ -824,7 +879,7 @@ def render_author_key_or_dict(website: Website, file: HtmlFile, author: str | Ne
    else:
       return comment_author(website, file, author)
 
-def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewComment) -> bs4.Tag:
+def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewComment, secret: bool) -> bs4.Tag:
    soup = file.page.soup
    div = soup.new_tag('div', attrs={'class': 'comment-head'})
    created_time = datetime.datetime.fromisoformat(comment['created'])
@@ -849,7 +904,7 @@ def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewC
          time_part.append(' ')
    if has_update:
       if created_time.date() == updated_time.date() and created_time.tzinfo == updated_time.tzinfo:
-         inner_time = render_time(soup, updated_time.time())
+         inner_time = render_time(soup, updated_time)
       else:
         inner_time = render_datetime(soup, updated_time)
       time_part.append(inner_time)
@@ -860,6 +915,12 @@ def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewC
          ' Restricted to ',
          new_content_tag(soup, 'span', attrs={'class': 'comment-visibility-name'}, content=comment['visibility']['value'])
       ])
+   if secret:
+      time_part.extend([
+         ' • ',
+         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/ic_locked.png'))}),
+         ' Secret comment',
+      ])
    div.append(time_part)
    return div
 
@@ -869,7 +930,7 @@ def render_issue_comments(website: Website, file: HtmlFile, comments: list[Rende
    for entry in comments:
       comment_div = new_content_tag(soup, 'div', attrs={'class': 'comment'}, content=[
          soup.new_tag('div', attrs={'class': 'anchor', 'id': f'comment-id-{entry.comment['id']}'}),
-         comment_authorship(website, file, entry.comment)
+         comment_authorship(website, file, entry.comment, entry.secret)
       ])
       comment_div.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
          new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=entry.rendered_body)
@@ -971,6 +1032,11 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       'Status:',
       resolution_link(website, file, fields['resolution'])
    )
+   if 'security' in fields:
+      append_desc_item(soup, issue_details,
+         'Security:',
+         field_link(website, file, website.field_folders.security, fields['security']['name'])
+      )
    append_desc_item(soup, issue_details,
       'Reporter:',
       user_link(website, file, fields['reporter'])
@@ -1021,6 +1087,11 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
          'Confirmation Status:',
          field_link(website, file, website.field_folders.confirmation_status, fields['customfield_10500']['value'])
       )
+   if 'priority' in fields and fields['priority'] is not None:
+      append_desc_item(soup, issue_details,
+         'Priority:',
+         priority_link(website, file, fields['priority']['name'])
+      )
    if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
       append_desc_item(soup, issue_details,
          'Mojang Priority:',
@@ -1041,6 +1112,37 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       append_desc_item(soup, issue_details,
          'Category:',
          category_list
+      )
+   if 'components' in fields and len(fields['components']) > 0:
+      component_list = inline_list(soup, map(lambda x: field_link(website, file, website.field_folders.component, x['name']), fields['components']))
+      append_desc_item(soup, issue_details,
+         'Component:',
+         component_list
+      )
+   if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
+      append_desc_item(soup, issue_details,
+         'Game Mode:',
+         field_link(website, file, website.field_folders.game_mode, fields['customfield_10501']['value'])
+      )
+   if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
+      append_desc_item(soup, issue_details,
+         'Platform:',
+         field_link(website, file, website.field_folders.platform, fields['customfield_10402']['value'])
+      )
+   if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
+      append_desc_item(soup, issue_details,
+         'Platform:',
+         field_link(website, file, website.field_folders.realms_platform, fields['customfield_12301']['value'])
+      )
+   if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
+      append_desc_item(soup, issue_details,
+         'Platform:',
+         field_link(website, file, website.field_folders.dungeons_platform, fields['customfield_12400']['value'])
+      )
+   if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
+      append_desc_item(soup, issue_details,
+         'Platform:',
+         field_link(website, file, website.field_folders.legends_platform, fields['customfield_12900']['value'])
       )
    append_desc_item(soup, issue_details,
       'Labels:',
@@ -1166,14 +1268,24 @@ def user_link(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
    ])
 
 def mojang_priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
-   prio = {'Low': 'low', 'Normal': 'medium', 'Important': 'high', 'Very Important': 'major'}[value]
+   prio = {'Trivial': 'trivial', 'Low': 'low', 'Normal': 'medium', 'Important': 'high', 'Very Important': 'major'}[value]
    img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / f'data/assets/images/icons/priorities/{prio}.svg'))})
    return img
 
 def mojang_priority_link(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
    link = relative_link(website.root, file.path, website.field_folders.mojang_priority / (urllib.parse.quote_plus(value) + '.html'))
    img = mojang_priority_icon(website, file, value)
-   return new_content_tag(file.page.soup, 'a', [img, value], attrs={'class': 'status-badge mojang-priority', 'href': link})
+   return new_content_tag(file.page.soup, 'a', [img, value], attrs={'class': 'status-badge priority-badge', 'href': link})
+
+def priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
+   prio = {'Low': 'trivial', 'Normal': 'minor', 'Important': 'major', 'Blocker': 'blocker', 'Critical': 'critical'}[value]
+   img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / f'data/assets/images/icons/priorities/{prio}.svg'))})
+   return img
+
+def priority_link(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
+   link = relative_link(website.root, file.path, website.field_folders.priority / (urllib.parse.quote_plus(value) + '.html'))
+   img = priority_icon(website, file, value)
+   return new_content_tag(file.page.soup, 'a', [img, value], attrs={'class': 'status-badge priority-badge', 'href': link})
 
 def field_link(website: Website, file: HtmlFile, folder: pathlib.PurePath, value: str) -> bs4.Tag:
    link = relative_link(website.root, file.path, folder / (urllib.parse.quote_plus(value) + '.html'))
@@ -1187,7 +1299,7 @@ def merged_status(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    elif 'customfield_12200' in issue['fields'] and issue['fields']['customfield_12200'] is not None:
       img = mojang_priority_icon(website, file, issue['fields']['customfield_12200']['value'])
       result = new_content_tag(file.page.soup, 'span', [img, issue['fields']['customfield_12200']['value']])
-      cls += ' mojang-priority'
+      cls += ' priority-badge'
    elif 'customfield_10500' in issue['fields'] and issue['fields']['customfield_10500'] is not None:
       result = new_content_tag(file.page.soup, 'span', issue['fields']['customfield_10500']['value'])
    else:
@@ -1222,7 +1334,10 @@ def render_version_list(website: Website, file: HtmlFile, project: Project, vers
    ])
 
 def version_link(website: Website, file: HtmlFile, project: Project, version: Version) -> bs4.Tag:
-   return new_content_tag(file.page.soup, 'a', version['name'], attrs={'class': 'status-badge', 'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions' / (urllib.parse.quote_plus(version['name']) + '.html'))})
+   name = version['name']
+   name = name.removeprefix('Minecraft ').removeprefix('Snapshot ')
+   name = name.replace(' Pre-Release ', '-pre').replace(' Pre-release ', '-pre').replace(' Release Candidate ', '-rc')
+   return new_content_tag(file.page.soup, 'a', name, attrs={'class': 'status-badge', 'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions' / (urllib.parse.quote_plus(version['name']) + '.html'))})
 
 if __name__ == '__main__':
    main()

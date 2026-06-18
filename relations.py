@@ -67,41 +67,69 @@ class MainRelations:
       save_one(self.versions, folder / 'versions.json')
 
 class FieldRelations:
-   resolutions: dict[str, list[str]]
-   labels: dict[str, list[str]]
-   categories: dict[str, list[str]]
-   confirmation: dict[str, list[str]]
+   resolution: dict[str, list[str]]
+   label: dict[str, list[str]]
+   category: dict[str, list[str]]
+   confirmation_status: dict[str, list[str]]
+   game_mode: dict[str, list[str]]
+   platform: dict[str, list[str]]
+   realms_platform: dict[str, list[str]]
+   dungeons_platform: dict[str, list[str]]
+   legends_platform: dict[str, list[str]]
+   mojang_priority: dict[str, list[str]]
    priority: dict[str, list[str]]
    area: dict[str, list[str]]
    security: dict[str, list[str]]
+   component: dict[str, list[str]]
 
    def __init__(self):
-      self.resolutions = {}
-      self.labels = {}
-      self.categories = {}
-      self.confirmation = {}
+      self.resolution = {}
+      self.label = {}
+      self.category = {}
+      self.confirmation_status = {}
+      self.game_mode = {}
+      self.platform = {}
+      self.realms_platform = {}
+      self.dungeons_platform = {}
+      self.legends_platform = {}
+      self.mojang_priority = {}
       self.priority = {}
       self.area = {}
       self.security = {}
+      self.component = {}
 
    def load(self, folder: pathlib.Path):
       self.folder = folder
-      load_one(self.resolutions, folder / 'resolutions.json')
-      load_one(self.labels, folder / 'labels.json')
-      load_one(self.categories, folder / 'categories.json')
-      load_one(self.confirmation, folder / 'confirmation.json')
+      load_one(self.resolution, folder / 'resolution.json')
+      load_one(self.label, folder / 'label.json')
+      load_one(self.category, folder / 'category.json')
+      load_one(self.confirmation_status, folder / 'confirmation_status.json')
+      load_one(self.game_mode, folder / 'game_mode.json')
+      load_one(self.platform, folder / 'platform.json')
+      load_one(self.realms_platform, folder / 'realms_platform.json')
+      load_one(self.dungeons_platform, folder / 'dungeons_platform.json')
+      load_one(self.legends_platform, folder / 'legends_platform.json')
+      load_one(self.mojang_priority, folder / 'mojang_priority.json')
       load_one(self.priority, folder / 'priority.json')
       load_one(self.area, folder / 'area.json')
       load_one(self.security, folder / 'security.json')
+      load_one(self.component, folder / 'component.json')
 
    def save(self, folder: pathlib.Path):
-      save_one(self.resolutions, folder / 'resolutions.json')
-      save_one(self.labels, folder / 'labels.json')
-      save_one(self.categories, folder / 'categories.json')
-      save_one(self.confirmation, folder / 'confirmation.json')
+      save_one(self.resolution, folder / 'resolution.json')
+      save_one(self.label, folder / 'label.json')
+      save_one(self.category, folder / 'category.json')
+      save_one(self.confirmation_status, folder / 'confirmation_status.json')
+      save_one(self.game_mode, folder / 'game_mode.json')
+      save_one(self.platform, folder / 'platform.json')
+      save_one(self.realms_platform, folder / 'realms_platform.json')
+      save_one(self.dungeons_platform, folder / 'dungeons_platform.json')
+      save_one(self.legends_platform, folder / 'legends_platform.json')
+      save_one(self.mojang_priority, folder / 'mojang_priority.json')
       save_one(self.priority, folder / 'priority.json')
       save_one(self.area, folder / 'area.json')
       save_one(self.security, folder / 'security.json')
+      save_one(self.component, folder / 'component.json')
 
 def load_one(data: dict, path: pathlib.Path):
    data.clear()
@@ -192,7 +220,7 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
          print(f'{i+1} / {total} - {issue['key']}')
       key_rel.issue_keys[issue['key']] = issue_id
       fields = issue['fields']
-      append(field_rel.resolutions, fields['resolution'], issue_id)
+      append(field_rel.resolution, fields['resolution'], issue_id)
       append(main_rel.projects, fields['project'], issue_id)
       if 'versions' in fields:
          for version in fields['versions']:
@@ -201,18 +229,33 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
          for version in fields['fixVersions']:
             append_version(main_rel.versions, version, 'fixed', issue_id)
       for label in fields['labels']:
-         append(field_rel.labels, label, issue_id)
+         append(field_rel.label, label, issue_id)
       if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
          append(field_rel.area, fields['customfield_12800']['id'], issue_id)
       if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
-         append(field_rel.priority, fields['customfield_12200']['id'], issue_id)
+         append(field_rel.mojang_priority, fields['customfield_12200']['id'], issue_id)
       if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
          for entry in fields['customfield_11901']:
-            append(field_rel.categories, entry['id'], issue_id)
+            append(field_rel.category, entry['id'], issue_id)
       if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
-         append(field_rel.confirmation, fields['customfield_10500']['id'], issue_id)
+         append(field_rel.confirmation_status, fields['customfield_10500']['id'], issue_id)
+      if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
+         append(field_rel.game_mode, fields['customfield_10501']['id'], issue_id)
+      if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
+         append(field_rel.platform, fields['customfield_10402']['id'], issue_id)
+      if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
+         append(field_rel.realms_platform, fields['customfield_12301']['id'], issue_id)
+      if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
+         append(field_rel.dungeons_platform, fields['customfield_12400']['id'], issue_id)
+      if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
+         append(field_rel.legends_platform, fields['customfield_12900']['id'], issue_id)
       if 'security' in fields:
          append(field_rel.security, fields['security']['id'], issue_id)
+      if 'priority' in fields and fields['priority'] is not None:
+         append(field_rel.priority, fields['priority']['id'], issue_id)
+      if 'components' in fields:
+         for entry in fields['components']:
+            append(field_rel.component, entry['id'], issue_id)
       append_user(main_rel.users, fields['creator'], 'created', issue_id)
       append_user(main_rel.users, fields['reporter'], 'reported', issue_id)
       if 'assignee' in fields:
