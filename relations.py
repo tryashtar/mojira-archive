@@ -1,6 +1,7 @@
 import dataclasses
 import pathlib
 import typing
+from jiratypes import Field
 import mojira
 import bisect
 import json
@@ -43,93 +44,99 @@ class KeyLookups:
 
 class MainRelations:
    groups: dict[str, list[str]]
-   projects: dict[str, list[str]]
    users: dict[str, UserRelations]
    versions: dict[str, VersionRelations]
 
    def __init__(self):
       self.groups = {}
-      self.projects = {}
       self.users = {}
       self.versions = {}
 
    def load(self, folder: pathlib.Path):
       self.folder = folder
       load_one(self.groups, folder / 'groups.json')
-      load_one(self.projects, folder / 'projects.json')
       load_one(self.users, folder / 'users.json')
       load_one(self.versions, folder / 'versions.json')
 
    def save(self, folder: pathlib.Path):
       save_one(self.groups, folder / 'groups.json')
-      save_one(self.projects, folder / 'projects.json')
       save_one(self.users, folder / 'users.json')
       save_one(self.versions, folder / 'versions.json')
 
+EnumValue = typing.TypedDict('EnumValue', {
+   'name': str,
+   'issues': list[str]
+})
+
+DescriptionEnumValue = typing.TypedDict('DescriptionEnumValue', {
+   'name': str,
+   'description': str | None,
+   'issues': list[str]
+})
+
+IconEnumValue = typing.TypedDict('IconEnumValue', {
+   'name': str,
+   'icon': str,
+   'issues': list[str]
+})
+
 class FieldRelations:
-   resolution: dict[str, list[str]]
-   label: dict[str, list[str]]
-   category: dict[str, list[str]]
-   confirmation_status: dict[str, list[str]]
-   game_mode: dict[str, list[str]]
-   platform: dict[str, list[str]]
-   realms_platform: dict[str, list[str]]
-   dungeons_platform: dict[str, list[str]]
-   legends_platform: dict[str, list[str]]
-   mojang_priority: dict[str, list[str]]
-   priority: dict[str, list[str]]
-   area: dict[str, list[str]]
-   security: dict[str, list[str]]
-   component: dict[str, list[str]]
+   enum_fields: dict[str, dict[str, EnumValue]]
+   description_enum_fields: dict[str, dict[str, DescriptionEnumValue]]
+   icon_enum_fields: dict[str, dict[str, IconEnumValue]]
+   item_fields: dict[str, dict[str, list[str]]]
+   labels: dict[str, dict[str, list[str]]]
 
    def __init__(self):
-      self.resolution = {}
-      self.label = {}
-      self.category = {}
-      self.confirmation_status = {}
-      self.game_mode = {}
-      self.platform = {}
-      self.realms_platform = {}
-      self.dungeons_platform = {}
-      self.legends_platform = {}
-      self.mojang_priority = {}
-      self.priority = {}
-      self.area = {}
-      self.security = {}
-      self.component = {}
+      self.enum_fields = {}
+      self.description_enum_fields = {}
+      self.icon_enum_fields = {}
+      self.item_fields = {}
+      self.labels = {}
 
    def load(self, folder: pathlib.Path):
-      self.folder = folder
-      load_one(self.resolution, folder / 'resolution.json')
-      load_one(self.label, folder / 'label.json')
-      load_one(self.category, folder / 'category.json')
-      load_one(self.confirmation_status, folder / 'confirmation_status.json')
-      load_one(self.game_mode, folder / 'game_mode.json')
-      load_one(self.platform, folder / 'platform.json')
-      load_one(self.realms_platform, folder / 'realms_platform.json')
-      load_one(self.dungeons_platform, folder / 'dungeons_platform.json')
-      load_one(self.legends_platform, folder / 'legends_platform.json')
-      load_one(self.mojang_priority, folder / 'mojang_priority.json')
-      load_one(self.priority, folder / 'priority.json')
-      load_one(self.area, folder / 'area.json')
-      load_one(self.security, folder / 'security.json')
-      load_one(self.component, folder / 'component.json')
+      self.enum_fields.clear()
+      self.description_enum_fields.clear()
+      self.icon_enum_fields.clear()
+      self.item_fields.clear()
+      self.labels.clear()
+      if (folder / 'enum').exists():
+         for file in (folder / 'enum').iterdir():
+            data = {}
+            load_one(data, file)
+            self.enum_fields[file.stem] = data
+      if (folder / 'description').exists():
+         for file in (folder / 'description').iterdir():
+            data = {}
+            load_one(data, file)
+            self.description_enum_fields[file.stem] = data
+      if (folder / 'icon').exists():
+         for file in (folder / 'icon').iterdir():
+            data = {}
+            load_one(data, file)
+            self.icon_enum_fields[file.stem] = data
+      if (folder / 'item').exists():
+         for file in (folder / 'item').iterdir():
+            data = {}
+            load_one(data, file)
+            self.item_fields[file.stem] = data
+      if (folder / 'label').exists():
+         for file in (folder / 'label').iterdir():
+            data = {}
+            load_one(data, file)
+            self.labels[file.stem] = data
 
    def save(self, folder: pathlib.Path):
-      save_one(self.resolution, folder / 'resolution.json')
-      save_one(self.label, folder / 'label.json')
-      save_one(self.category, folder / 'category.json')
-      save_one(self.confirmation_status, folder / 'confirmation_status.json')
-      save_one(self.game_mode, folder / 'game_mode.json')
-      save_one(self.platform, folder / 'platform.json')
-      save_one(self.realms_platform, folder / 'realms_platform.json')
-      save_one(self.dungeons_platform, folder / 'dungeons_platform.json')
-      save_one(self.legends_platform, folder / 'legends_platform.json')
-      save_one(self.mojang_priority, folder / 'mojang_priority.json')
-      save_one(self.priority, folder / 'priority.json')
-      save_one(self.area, folder / 'area.json')
-      save_one(self.security, folder / 'security.json')
-      save_one(self.component, folder / 'component.json')
+      for key, value in self.enum_fields.items():
+         save_one(value, folder / 'enum' / (key + '.json'))
+      for key, value in self.description_enum_fields.items():
+         save_one(value, folder / 'description' / (key + '.json'))
+      for key, value in self.icon_enum_fields.items():
+         save_one(value, folder / 'icon' / (key + '.json'))
+      for key, value in self.item_fields.items():
+         save_one(value, folder / 'item' / (key + '.json'))
+      for key, value in self.labels.items():
+         save_one(value, folder / 'label' / (key + '.json'))
 
 def load_one(data: dict, path: pathlib.Path):
    data.clear()
@@ -190,6 +197,47 @@ def append_version(data: dict[str, VersionRelations], key: str | None, subkey: s
       }
    bisect.insort(data[key][subkey], value)
 
+def append_enum(data: dict[str, dict[str, EnumValue]], field_key: str, value_id: str, value_str: str, issue_id: str):
+   if field_key not in data:
+      data[field_key] = {}
+   if value_id not in data[field_key]:
+      data[field_key][value_id] = {
+         'name': value_str,
+         'issues': []
+      }
+   bisect.insort(data[field_key][value_id]['issues'], issue_id)
+
+def append_desc_enum(data: dict[str, dict[str, DescriptionEnumValue]], field_key: str, value_id: str, value_str: str, description: str | None, issue_id: str):
+   if field_key not in data:
+      data[field_key] = {}
+   if value_id not in data[field_key]:
+      data[field_key][value_id] = {
+         'name': value_str,
+         'description': description,
+         'issues': []
+      }
+   bisect.insort(data[field_key][value_id]['issues'], issue_id)
+
+def append_icon_enum(data: dict[str, dict[str, IconEnumValue]], field_key: str, value_id: str, value_str: str, icon: str, issue_id: str):
+   if field_key not in data:
+      data[field_key] = {}
+   if value_id not in data[field_key]:
+      data[field_key][value_id] = {
+         'name': value_str,
+         'icon': icon,
+         'issues': []
+      }
+   bisect.insort(data[field_key][value_id]['issues'], issue_id)
+
+def append_field(data: dict[str, dict[str, list[str]]], field_key: str | None, value_id: str, issue_id: str):
+   if field_key is None:
+      field_key = ''
+   if field_key not in data:
+      data[field_key] = {}
+   if value_id not in data[field_key]:
+      data[field_key][value_id] = []
+   bisect.insort(data[field_key][value_id], issue_id)
+
 @dataclasses.dataclass
 class RelationsBundle:
    keys: KeyLookups
@@ -206,10 +254,37 @@ class RelationsBundle:
       self.main.save(folder)
       self.fields.save(folder)
 
-def create_relations(archive: mojira.Archive) -> RelationsBundle:
+FIELD_TYPE = typing.Literal['enum', 'enum_list', 'labels', 'jira_enum', 'jira_enum_list', 'jira_enum_icon', 'item', 'unknown']
+
+def field_type(field: Field) -> FIELD_TYPE:
+   if 'schema' in field:
+      if field['schema']['type'] == 'option':
+         return 'enum'
+      if field['schema']['type'] == 'array' and 'items' in field['schema'] and field['schema']['items'] == 'option':
+         return 'enum_list'
+      if 'system' in field['schema'] and field['schema']['system'] == 'labels':
+         return 'labels'
+      if field['schema']['type'] == 'securitylevel':
+         return 'jira_enum'
+      if 'system' in field['schema'] and field['schema']['system'] == 'components':
+         return 'jira_enum_list'
+      if field['schema']['type'] == 'priority':
+         return 'jira_enum_icon'
+      if field['schema']['type'] in ('resolution', 'project', 'status'):
+         return 'item'
+   return 'unknown'
+
+def create_relations(archive: mojira.Archive, metas: mojira.ArchiveMetas) -> RelationsBundle:
    key_rel = KeyLookups()
    main_rel = MainRelations()
    field_rel = FieldRelations()
+   print('Metas...')
+   ftypes: dict[str, FIELD_TYPE] = {}
+   ftypes['customfield_12400'] = 'enum'
+   ftypes['customfield_12900'] = 'enum'
+   for key, field in metas.fields.items():
+      ftype = field_type(field)
+      ftypes[key] = ftype
    print('Tickets...')
    issue_ids = list(archive.issue_ids())
    total = len(issue_ids)
@@ -220,42 +295,39 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
          print(f'{i+1} / {total} - {issue['key']}')
       key_rel.issue_keys[issue['key']] = issue_id
       fields = issue['fields']
-      append(field_rel.resolution, fields['resolution'], issue_id)
-      append(main_rel.projects, fields['project'], issue_id)
+      for field_key, field_val in fields.items():
+         ftype = ftypes[field_key]
+         match ftype:
+            case 'enum':
+               if field_val is not None:
+                  append_enum(field_rel.enum_fields, field_key, field_val['id'], field_val['value'], issue_id)
+            case 'enum_list':
+               if field_val is not None:
+                  for entry in field_val:
+                     append_enum(field_rel.enum_fields, field_key, entry['id'], entry['value'], issue_id)
+            case 'labels':
+               for entry in field_val:
+                  append_field(field_rel.labels, field_key, entry, issue_id)
+            case 'jira_enum':
+               if field_val is not None:
+                  append_desc_enum(field_rel.description_enum_fields, field_key, field_val['id'], field_val['name'], field_val['description'] if 'description' in field_val else None, issue_id)
+            case 'jira_enum_list':
+               if field_val is not None:
+                  for entry in field_val:
+                     append_desc_enum(field_rel.description_enum_fields, field_key, entry['id'], entry['name'], entry['description'] if 'description' in entry else None, issue_id)
+            case 'jira_enum_icon':
+               if field_val is not None:
+                  append_icon_enum(field_rel.icon_enum_fields, field_key, field_val['id'], field_val['name'], field_val['iconUrl'], issue_id)
+            case 'item':
+               append_field(field_rel.item_fields, field_key, field_val, issue_id)
+            case 'unknown':
+               continue
       if 'versions' in fields:
          for version in fields['versions']:
             append_version(main_rel.versions, version, 'affected', issue_id)
       if 'fixVersions' in fields:
          for version in fields['fixVersions']:
             append_version(main_rel.versions, version, 'fixed', issue_id)
-      for label in fields['labels']:
-         append(field_rel.label, label, issue_id)
-      if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
-         append(field_rel.area, fields['customfield_12800']['id'], issue_id)
-      if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
-         append(field_rel.mojang_priority, fields['customfield_12200']['id'], issue_id)
-      if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
-         for entry in fields['customfield_11901']:
-            append(field_rel.category, entry['id'], issue_id)
-      if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
-         append(field_rel.confirmation_status, fields['customfield_10500']['id'], issue_id)
-      if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
-         append(field_rel.game_mode, fields['customfield_10501']['id'], issue_id)
-      if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
-         append(field_rel.platform, fields['customfield_10402']['id'], issue_id)
-      if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
-         append(field_rel.realms_platform, fields['customfield_12301']['id'], issue_id)
-      if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
-         append(field_rel.dungeons_platform, fields['customfield_12400']['id'], issue_id)
-      if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
-         append(field_rel.legends_platform, fields['customfield_12900']['id'], issue_id)
-      if 'security' in fields:
-         append(field_rel.security, fields['security']['id'], issue_id)
-      if 'priority' in fields and fields['priority'] is not None:
-         append(field_rel.priority, fields['priority']['id'], issue_id)
-      if 'components' in fields:
-         for entry in fields['components']:
-            append(field_rel.component, entry['id'], issue_id)
       append_user(main_rel.users, fields['creator'], 'created', issue_id)
       append_user(main_rel.users, fields['reporter'], 'reported', issue_id)
       if 'assignee' in fields:
@@ -291,7 +363,9 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
 
 def main():
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
-   relations = create_relations(archive)
+   metas = mojira.ArchiveMetas()
+   metas.load(archive.folder)
+   relations = create_relations(archive, metas)
    print('Writing...')
    relations.save(pathlib.Path('/d/Archives/Mojira/relations'))
 

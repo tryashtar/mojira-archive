@@ -32,9 +32,15 @@ Status = typing.TypedDict('Status', {
    'name': str,
    'description': str
 })
+FieldSchema = typing.TypedDict('FieldSchema', {
+   'type': str,
+   'items': typing.NotRequired[str],
+   'system': typing.NotRequired[str]
+})
 Field = typing.TypedDict('Field', {
    'id': str,
-   'name': str
+   'name': str,
+   'schema': typing.NotRequired[FieldSchema]
 })
 IssueType = typing.TypedDict('IssueType', {
    'id': str,
@@ -139,13 +145,13 @@ IssueLink = typing.TypedDict('IssueLink', {
 Security = typing.TypedDict('Security', {
    'id': str,
    'name': str,
-   'description': str
+   'description': typing.NotRequired[str]
 })
 
 Component = typing.TypedDict('Component', {
    'id': str,
    'name': str,
-   'description': str
+   'description': typing.NotRequired[str]
 })
 
 Priority = typing.TypedDict('Priority', {
@@ -185,6 +191,8 @@ IssueFields = typing.TypedDict('IssueFields', {
    'customfield_12301': typing.NotRequired[CustomField | None], # Realms Platform
    'customfield_12400': typing.NotRequired[CustomField | None], # Dungeons Platform
    'customfield_12900': typing.NotRequired[CustomField | None], # Legends Platform
+   'customfield_11802': typing.NotRequired[str | None], # Regression Builds
+   'customfield_11300': typing.NotRequired[str | None], # Operating System Version
    'comment': CommentField,
    'votes': VotesField,
    'watches': WatchesField,
