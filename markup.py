@@ -118,7 +118,7 @@ def main():
    print('Loading...')
    archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
    keys = relations.KeyLookups()
-   keys.load(pathlib.Path('/d/Archives/Mojira/relations'))
+   keys.load(pathlib.Path('/d/Archives/Mojira/relations/keys'))
    secret_comments = mojira.SecretComments(pathlib.Path('/d/Archives/Mojira/secret_comments.json'))
    markup_out = pathlib.Path('/d/Archives/Mojira/markup')
    process = get_process(archive, keys, '.')

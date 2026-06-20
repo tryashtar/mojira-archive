@@ -145,19 +145,15 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    html_find_replace(diff, CONTROL_MAP_REV)
    return diff
 
+def same_day(day1: datetime.datetime, day2: datetime.datetime) -> bool:
+   return day1.astimezone(datetime.UTC).date() == day2.astimezone(datetime.UTC).date()
+
 def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: datetime.datetime) -> bs4.Tag:
-   start = start.astimezone(datetime.UTC)
-   end = end.astimezone(datetime.UTC)
-   if start == end:
+   if start.astimezone(datetime.UTC) == end.astimezone(datetime.UTC):
       return render_datetime(soup, start)
    else:
-      same_tz = start.tzinfo == end.tzinfo
-      same_day = start.date() == end.date()
-      if same_tz:
-         first_part = new_content_tag(soup, 'time', start.strftime('%Y-%m-%d, %I:%M:%S %p'), attrs={'datetime': start.isoformat()})
-      else:
-         first_part = render_datetime(soup, start)
-      if same_day and same_tz:
+      first_part = new_content_tag(soup, 'time', start.strftime('%Y-%m-%d, %I:%M:%S %p'), attrs={'datetime': start.isoformat()})
+      if same_day(start, end):
          second_part = end.strftime('%I:%M:%S %p %Z')
       else:
          second_part = render_datetime(soup, end)

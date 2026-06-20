@@ -5,7 +5,7 @@ import jira.exceptions
 import json
 import urllib.request
 import urllib.parse
-from jiratypes import Project, User
+from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, User
 from mojira import Archive, ArchiveMetas, key_by
 
 def main():
@@ -31,20 +31,22 @@ def main():
          break
 
 class FetchedUsers:
+   new_users: dict[str, dict[str, typing.Any]]
+
    def __init__(self):
-      self.new_users: dict[str, dict[str, typing.Any]] = {}
+      self.new_users = {}
 
 def fetch_metas(metas: ArchiveMetas, users: FetchedUsers, client: jira.JIRA):
    for field in client.fields():
-      metas.import_field(field)
+      metas.import_field(typing.cast(Field, field))
    for issue_type in client.issue_types():
-      metas.import_issue_type(issue_type.raw)
+      metas.import_issue_type(typing.cast(IssueType, issue_type.raw))
    for link_type in client.issue_link_types():
-      metas.import_link_type(link_type.raw)
+      metas.import_link_type(typing.cast(LinkType, link_type.raw))
    for resolution in client.resolutions():
-      metas.import_resolution(resolution.raw)
+      metas.import_resolution(typing.cast(Resolution, resolution.raw))
    for status in client.statuses():
-      metas.import_status(status.raw)
+      metas.import_status(typing.cast(Status, status.raw))
    for entry in client.projects():
       project = client.project(entry.id, expand='description,lead,url').raw
       simplify_user(users, project, 'lead')
@@ -57,7 +59,7 @@ def flush_users(archive: Archive, users: FetchedUsers, client: jira.JIRA, dry: b
       full_data: User | None = None
       try:
          fetched = fetch_user(client, key, expand='groups').raw
-         full_data = fetched
+         full_data = typing.cast(User, fetched)
       except jira.exceptions.JIRAError as exc:
          if not exc.text == f'The user with the key \'{key}\' does not exist':
             raise
@@ -106,7 +108,7 @@ def update_issue(archive: Archive, users: FetchedUsers, issue: jira.Issue, dry: 
                attachment_data = attachment.raw
                json.dump(attachment_data, file, indent=3)
    if not dry:
-      archive.import_issue(data)
+      archive.import_issue(typing.cast(Issue, data))
    return True
 
 def save_project_avatars(archive: Archive, metas: ArchiveMetas, client: jira.JIRA, dry: bool):
