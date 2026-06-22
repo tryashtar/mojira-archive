@@ -84,7 +84,7 @@ def main():
       )
    print('Rendering...')
 
-   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765']:
+   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938']:
       file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
       save_file(website, file)
    return
@@ -748,6 +748,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       'key': typing.NotRequired[str],
       'summary': typing.NotRequired[str],
    })
+
    def to_historic_link(link: IssueLink) -> tuple[str, str]:
       link_type = website.metas.link_types[link['type']]
       if 'inwardIssue' in link:
@@ -759,13 +760,16 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          issue_data = website.archive.get_issue_data(link['outwardIssue'])
       assert issue_data is not None
       return (issue_data['key'], f'This issue {dir} {issue_data['key']}')
+
    def to_historic_attachment(attach_id: str) -> tuple[str, str]:
       attach_data = website.archive.get_attachment_data(attach_id)
       assert attach_data is not None
       return (attach_id, attach_data['filename'])
+
    def to_historic_version(version_id: str) -> tuple[str, str]:
       version_data = website.metas.projects[issue['fields']['project']]['versions'][version_id]
       return (version_id, version_data['name'])
+
    def render_initial_issue() -> bs4.Tag:
       historic_fields: HistoricFields = {
          'issuelinks': [to_historic_link(x) for x in issue['fields']['issuelinks']],
@@ -785,31 +789,6 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                case 'Category':
                   if 'customfield_11901' not in historic_fields:
                      historic_fields['customfield_11901'] = category_splitter(change['from'], change['fromString'])
-               case 'Link':
-                  if change['from'] is not None:
-                     assert change['fromString'] is not None
-                     assert change['to'] is None
-                     historic_fields['issuelinks'][:] = [(key, msg) for (key, msg) in historic_fields['issuelinks'] if key == change['from'] and msg == change['toString']]
-               case 'Attachment':
-                  if change['from'] is not None:
-                     assert change['fromString'] is not None
-                     assert change['to'] is None
-                     historic_fields['attachments'][:] = [x for x in historic_fields['attachments'] if x[0] == change['from']]
-               case 'Component':
-                  if change['from'] is not None:
-                     assert change['fromString'] is not None
-                     assert change['to'] is None
-                     historic_fields['components'][:] = [x for x in historic_fields['components'] if x[0] == change['from']]
-               case 'Version':
-                  if change['from'] is not None:
-                     assert change['fromString'] is not None
-                     assert change['to'] is None
-                     historic_fields['versions'][:] = [x for x in historic_fields['versions'] if x[0] == change['from']]
-               case 'Fix Version':
-                  if change['from'] is not None:
-                     assert change['fromString'] is not None
-                     assert change['to'] is None
-                     historic_fields['fixVersions'][:] = [x for x in historic_fields['fixVersions'] if x[0] == change['from']]
                case 'Confirmation Status':
                   if 'customfield_10500' not in historic_fields:
                      if change['from'] is None:
@@ -935,6 +914,56 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                      environment_revision = revision['id']
                case _:
                   pass
+      for revision in reversed(revisions):
+         for change in reversed(revision['items']):
+            match change['field']:
+               case 'Link':
+                  if change['to'] is not None:
+                     assert change['from'] is None
+                     assert change['toString'] is not None
+                     historic_fields['issuelinks'][:] = [(key, msg) for (key, msg) in historic_fields['issuelinks'] if key != change['to'] and msg != change['toString']]
+                  elif change['from'] is not None:
+                     assert change['to'] is None
+                     assert change['fromString'] is not None
+                     historic_fields['issuelinks'].append((change['from'], change['fromString']))
+               case 'Attachment':
+                  if change['to'] is not None:
+                     assert change['from'] is None
+                     assert change['toString'] is not None
+                     historic_fields['attachments'][:] = [x for x in historic_fields['attachments'] if x[0] != change['to']]
+                  elif change['from'] is not None:
+                     assert change['to'] is None
+                     assert change['fromString'] is not None
+                     historic_fields['attachments'].append((change['from'], change['fromString']))
+               case 'Component':
+                  if change['to'] is not None:
+                     assert change['from'] is None
+                     assert change['toString'] is not None
+                     historic_fields['components'][:] = [x for x in historic_fields['components'] if x[0] != change['to']]
+                  elif change['from'] is not None:
+                     assert change['to'] is None
+                     assert change['fromString'] is not None
+                     historic_fields['components'].append((change['from'], change['fromString']))
+               case 'Version':
+                  if change['to'] is not None:
+                     assert change['from'] is None
+                     assert change['toString'] is not None
+                     historic_fields['versions'][:] = [x for x in historic_fields['versions'] if x[0] != change['to']]
+                  elif change['from'] is not None:
+                     assert change['to'] is None
+                     assert change['fromString'] is not None
+                     historic_fields['versions'].append((change['from'], change['fromString']))
+               case 'Fix Version':
+                  if change['to'] is not None:
+                     assert change['from'] is None
+                     assert change['toString'] is not None
+                     historic_fields['fixVersions'][:] = [x for x in historic_fields['fixVersions'] if x[0] != change['to']]
+                  elif change['from'] is not None:
+                     assert change['to'] is None
+                     assert change['fromString'] is not None
+                     historic_fields['fixVersions'].append((change['from'], change['fromString']))
+               case _:
+                  pass
       if 'labels' not in historic_fields:
          historic_fields['labels'] = [(x, x) for x in issue['fields']['labels']]
       if 'customfield_11901' not in historic_fields and 'customfield_11901' in issue['fields']:
@@ -993,6 +1022,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          historic_fields['key'] = issue['key']
       if 'summary' not in historic_fields:
          historic_fields['summary'] = issue['fields']['summary']
+
       def render_historic_details(fields: HistoricFields) -> bs4.Tag:
          issue_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
          resolution_tag = render_meta('resolution', None if historic_fields['resolution'] is None else historic_fields['resolution'][0], None if historic_fields['resolution'] is None else historic_fields['resolution'][1])
@@ -1041,7 +1071,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                'Area:',
                render_field('customfield_12800', fields['customfield_12800'][0], fields['customfield_12800'][1])
             )
-         if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
+         if 'customfield_11901' in fields and fields['customfield_11901'] is not None and len(fields['customfield_11901']) > 0:
             category_list = render_field_list('customfield_11901', fields['customfield_11901'])
             append_desc_item(soup, issue_details,
                'Category:',
@@ -1098,39 +1128,61 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                'Regression Builds:',
                fields['customfield_11802']
             )
-         if 'fixVersions' in fields:
+         if 'fixVersions' in fields and len(fields['fixVersions']) > 0:
             append_desc_item(soup, issue_details,
                'Fix Versions:',
                render_version_list(fields['fixVersions'])
             )
          return issue_details
 
+      def render_historic_links(links: list[tuple[str, str]]) -> bs4.Tag | None:
+         link_types: dict[str, list[bs4.Tag]] = {}
+         for ticket_key, full in links:
+            identity = get_link_dir(full, ticket_key)
+            if identity not in link_types:
+               link_types[identity] = []
+            link_types[identity].append(render_link(ticket_key))
+         if len(link_types) == 0:
+            return None
+         return build_link_section(soup, link_types)
+
+      def render_historic_attachments(attachments: list[tuple[str, str]]) -> bs4.Tag:
+         attach_list: list[bs4.Tag] = []
+         for attach_id, filename in attachments:
+            attach_info = website.archive.get_attachment_data(attach_id)
+            assert attach_info is not None
+            attach_div = render_attach(attach_id, filename)
+            attach_list.append(attach_div)
+         return build_attachment_list(soup, len(attachments), attach_list)
+
       issue_top = render_issue_top(website, file, historic_fields['key'], historic_fields['summary'])
       if description_revision is not None:
          desc = website.markup_source.get_issue_description_revision(issue['id'], description_revision)[0]
-         if desc is not None:
-            fix_markup(website, file, desc)
+      elif issue['fields']['description'] is not None:
+         desc = website.markup_source.get_issue_description(issue['id'])
       else:
          desc = None
+      if desc is not None:
+         fix_markup(website, file, desc)
       if environment_revision is not None:
          env = website.markup_source.get_issue_environment_revision(issue['id'], environment_revision)[0]
-         if env is not None:
-            fix_markup(website, file, env)
+      elif 'environment' in issue['fields'] and issue['fields']['environment'] is not None:
+         env = website.markup_source.get_issue_environment(issue['id'])
       else:
          env = None
+      if env is not None:
+         fix_markup(website, file, env)
       if 'customfield_11801' in historic_fields:
          impact = historic_fields['customfield_11801']
       else:
          impact = None
       issue_body = build_issue_body(soup, desc, env, impact)
       issue_details = render_historic_details(historic_fields)
-      #issue_links = render_historic_links(website, file, historic_fields['issuelinks'])
-      #if len(historic_fields['attachments']) > 0:
-      #   issue_attaches = render_historic_attachments(website, file, historic_fields['attachments'])
-      #else:
-      #   issue_attaches = None
-      issue_links=None
-      issue_attaches=None
+      issue_links = render_historic_links(historic_fields['issuelinks'])
+      if len(historic_fields['attachments']) > 0:
+         issue_attaches = render_historic_attachments(historic_fields['attachments'])
+      else:
+         issue_attaches = None
       return build_issue_content(soup, issue_top, issue_body, issue_details, issue_links, issue_attaches)
 
    revisions_list: list[bs4.Tag] = []
@@ -1143,9 +1195,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          date_tag
       ]),
       new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
-         new_content_tag(soup, 'p', 'Created Issue:', attrs={'class': 'history-label'}),
-         new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
-            render_initial_issue()
+         new_content_tag(soup, 'details', attrs={'open': ''}, content=[
+            new_content_tag(soup, 'summary', 'Created Issue:', attrs={'class': 'history-label'}),
+            new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
+               render_initial_issue()
+            ])
          ])
       ])
    ]))
@@ -1412,20 +1466,22 @@ def render_issue_attachments(website: Website, file: HtmlFile, attachments: list
       assert attach_info is not None
       attach_div = render_attachment(website, file, attach_info, include_upload=True)
       attach_list.append(attach_div)
-   issue_attaches = new_content_tag(soup, 'details', attrs={'class': 'issue-body', 'open': ''}, content=[
+   return build_attachment_list(soup, len(attachments), attach_list)
+
+def build_attachment_list(soup: bs4.BeautifulSoup, count: int, attachments: list[bs4.Tag]) -> bs4.Tag:
+   return new_content_tag(soup, 'details', attrs={'class': 'issue-body', 'open': ''}, content=[
       new_content_tag(soup, 'summary', [
          new_content_tag(soup, 'h2', content=[
             'Attachments',
-            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(attachments)))
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(count))
          ])
       ]),
-      new_content_tag(soup, 'div', attrs={'class': 'attachments'}, content=attach_list)
+      new_content_tag(soup, 'div', attrs={'class': 'attachments'}, content=attachments)
    ])
-   return issue_attaches
 
 def render_issue_links(website: Website, file: HtmlFile, links: list[IssueLink]) -> bs4.Tag | None:
    soup = file.page.soup
-   link_types: dict[str, list[Issue]] = {}
+   link_types: dict[str, list[bs4.Tag]] = {}
    for link in links:
       if 'inwardIssue' in link:
          identity = website.metas.link_types[link['type']]['inward']
@@ -1439,14 +1495,17 @@ def render_issue_links(website: Website, file: HtmlFile, links: list[IssueLink])
          link_types[identity] = []
       linked_data = website.archive.get_issue_data(linked_issue)
       assert linked_data is not None
-      link_types[identity].append(linked_data)
+      link_types[identity].append(big_issue_link(website, file, linked_data))
    if len(link_types) == 0:
       return None
+   return build_link_section(soup, link_types)
+
+def build_link_section(soup: bs4.BeautifulSoup, link_types: dict[str, list[bs4.Tag]]) -> bs4.Tag:
    link_lists: list[bs4.Tag] = []
    for link_desc, issues in link_types.items():
       link_list: list[bs4.Tag] = []
       for linked_issue in issues:
-         link_list.append(big_issue_link(website, file, linked_issue))
+         link_list.append(linked_issue)
       link_block = new_content_tag(soup, 'details', attrs={'open': ''}, content=[
          new_content_tag(soup, 'summary', attrs={'class': 'issue-link-type'}, content=[
             new_content_tag(soup, 'h3', content=[
