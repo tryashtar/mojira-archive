@@ -1,6 +1,6 @@
 import dataclasses
 import typing
-from jiratypes import Attachment, Comment, CustomValue, DescriptionValue, IconValue, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, Version
+from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, Version
 import mojira
 import relations
 import pathlib
@@ -84,7 +84,7 @@ def main():
       )
    print('Rendering...')
 
-   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938']:
+   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938', 'MCPE-166983']:
       file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
       save_file(website, file)
    return
@@ -450,20 +450,20 @@ def build_issue_body(soup: bs4.BeautifulSoup, desc: bs4.BeautifulSoup | None, en
    return issue_body
 
 class TrackedMultiSetRevision:
-   def __init__(self, name: str, creator: typing.Callable[[list[tuple[str, str]]], bs4.Tag], inline: bool):
-      self.added: list[tuple[str, str]] = []
-      self.removed: list[tuple[str, str]] = []
+   def __init__(self, name: str, creator: typing.Callable[[list[tuple[str, str, str]]], bs4.Tag], inline: bool):
+      self.added: list[tuple[str, str, str]] = []
+      self.removed: list[tuple[str, str, str]] = []
       self.name = name
       self.creator = creator
       self.inline = inline
 
-   def import_change(self, entry: RevisionChange):
+   def import_change(self, entry: RevisionChange, project_id: str):
       if entry['to'] is not None:
          assert entry['toString'] is not None
-         self.added.append((entry['to'], entry['toString']))
+         self.added.append((entry['to'], entry['toString'], project_id))
       if entry['from'] is not None:
          assert entry['fromString'] is not None
-         self.removed.append((entry['from'], entry['fromString']))
+         self.removed.append((entry['from'], entry['fromString'], project_id))
 
    def handle(self, soup: bs4.BeautifulSoup) -> typing.Generator[bs4.Tag]:
       if len(self.added) > 0:
@@ -595,17 +595,19 @@ def merge_revisions(revisions: list[Revision]) -> list[MergedRevision]:
 
 def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> bs4.Tag:
    soup = file.page.soup
-   project = website.metas.projects[issue['fields']['project']]
+   issue_project = website.metas.projects[issue['fields']['project']]
 
    # revisions can include references to versions, attachments, issues, or fields that no longer exist
    # we still display them, just without full data or links
-   def render_version(version_id: str, version_name: str) -> bs4.Tag:
-      if version_id in project['versions']:
-         return version_link(website, file, project, project['versions'][version_id])
+   def render_version(project_id: str, version_id: str, version_name: str) -> bs4.Tag:
+      if project_id in website.metas.projects:
+         project = website.metas.projects[project_id]
+         if version_id in project['versions']:
+            return version_link(website, file, project, project['versions'][version_id])
       return new_content_tag(file.page.soup, 'span', version_name, attrs={'class': 'status-badge'})
 
-   def render_version_list(versions: list[tuple[str, str]]) -> bs4.Tag:
-      return inline_list(file.page.soup, map(lambda x: render_version(x[0], x[1]), versions))
+   def render_version_list(versions: list[tuple[str, str, str]]) -> bs4.Tag:
+      return inline_list(file.page.soup, map(lambda x: render_version(x[2], x[0], x[1]), versions))
 
    def render_attach(attach_id: str, filename: str) -> bs4.Tag:
       attachment = website.archive.get_attachment_data(attach_id)
@@ -614,7 +616,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       broken = soup.new_tag('img', attrs={'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
       return new_content_tag(soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, filename])
 
-   def render_attach_list(attaches: list[tuple[str, str]]) -> bs4.Tag:
+   def render_attach_list(attaches: list[tuple[str, str, str]]) -> bs4.Tag:
       return new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
          new_content_tag(soup, 'div', attrs={'class': 'attachments'}, content=list(
             map(lambda x: render_attach(x[0], x[1]), attaches)
@@ -633,9 +635,9 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    def get_link_dir(full_str: str, issue_key: str) -> str:
       return full_str[len('This issue '):-(len(issue_key) + 1)]
 
-   def render_link_list(links: list[tuple[str, str]]) -> bs4.Tag:
+   def render_link_list(links: list[tuple[str, str, str]]) -> bs4.Tag:
       link_dict: dict[str, list[bs4.Tag]] = {}
-      for ticket, full in links:
+      for ticket, full, _prj in links:
          link_dir = get_link_dir(full, ticket)
          if link_dir not in link_dict:
             link_dict[link_dir] = []
@@ -724,8 +726,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       'issuelinks': list[tuple[str, str]],
       'attachments': list[tuple[str, str]],
       'components': list[tuple[str, str]],
-      'versions': list[tuple[str, str]],
-      'fixVersions': list[tuple[str, str]],
+      'versions': list[tuple[str, str, str]],
+      'fixVersions': list[tuple[str, str, str]],
       'customfield_10500': typing.NotRequired[tuple[str, str] | None],
       'customfield_12800': typing.NotRequired[tuple[str, str] | None],
       'customfield_10501': typing.NotRequired[tuple[str, str] | None],
@@ -747,6 +749,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       'reporter': typing.NotRequired[tuple[str, str] | None],
       'key': typing.NotRequired[str],
       'summary': typing.NotRequired[str],
+      'project': str,
    })
 
    def to_historic_link(link: IssueLink) -> tuple[str, str]:
@@ -766,9 +769,28 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       assert attach_data is not None
       return (attach_id, attach_data['filename'])
 
-   def to_historic_version(version_id: str) -> tuple[str, str]:
-      version_data = website.metas.projects[issue['fields']['project']]['versions'][version_id]
-      return (version_id, version_data['name'])
+   def to_historic_version(version_id: str) -> tuple[str, str, str]:
+      project = website.metas.projects[issue['fields']['project']]
+      version_data = project['versions'][version_id]
+      return (version_id, version_data['name'], issue['fields']['project'])
+
+   def revision_order_key(change: RevisionChange) -> int:
+      if change['field'] == 'Key':
+         return 0
+      if change['field'] in ('Version', 'Fix Version'):
+         return 1 if change['to'] is None else 3
+      if change['field'] in ('project', 'Project'):
+         return 2
+      return 4
+
+   def reverse_revision_order_key(change: RevisionChange) -> int:
+      if change['field'] == 'Key':
+         return 0
+      if change['field'] in ('Version', 'Fix Version'):
+         return 3 if change['to'] is None else 1
+      if change['field'] in ('project', 'Project'):
+         return 2
+      return 4
 
    def render_initial_issue() -> bs4.Tag:
       historic_fields: HistoricFields = {
@@ -777,6 +799,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          'components': [(x['id'], x['name']) for x in issue['fields']['components']] if 'components' in issue['fields'] else [],
          'versions': [to_historic_version(x) for x in issue['fields']['versions']] if 'versions' in issue['fields'] else [],
          'fixVersions': [to_historic_version(x) for x in issue['fields']['fixVersions']] if 'fixVersions' in issue['fields'] else [],
+         'project': issue['fields']['project']
       }
       description_revision: str | None = None
       environment_revision: str | None = None
@@ -915,8 +938,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                case _:
                   pass
       for revision in reversed(revisions):
-         for change in reversed(revision['items']):
+         for change in reversed(sorted(revision['items'], key=revision_order_key)):
             match change['field']:
+               case 'project' | 'Project':
+                  assert change['from'] is not None
+                  historic_fields['project'] = change['from']
                case 'Link':
                   if change['to'] is not None:
                      assert change['from'] is None
@@ -952,7 +978,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   elif change['from'] is not None:
                      assert change['to'] is None
                      assert change['fromString'] is not None
-                     historic_fields['versions'].append((change['from'], change['fromString']))
+                     historic_fields['versions'].append((change['from'], change['fromString'], historic_fields['project']))
                case 'Fix Version':
                   if change['to'] is not None:
                      assert change['from'] is None
@@ -961,7 +987,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   elif change['from'] is not None:
                      assert change['to'] is None
                      assert change['fromString'] is not None
-                     historic_fields['fixVersions'].append((change['from'], change['fromString']))
+                     historic_fields['fixVersions'].append((change['from'], change['fromString'], historic_fields['project']))
                case _:
                   pass
       if 'labels' not in historic_fields:
@@ -1206,14 +1232,16 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    labels = TrackedMultiValueRevision('Labels', label_splitter, lambda x: render_field_list('labels', x))
    categories = TrackedMultiValueRevision('Category', category_splitter, lambda x: render_field_list('customfield_11901', x))
    merged = merge_revisions(revisions)
+   issue_project = issue['fields']['project']
    for entry in merged:
       history_items: list[bs4.Tag] = []
       affected_versions = TrackedMultiSetRevision('Affects Versions', render_version_list, inline=True)
       fixed_versions = TrackedMultiSetRevision('Fixed Versions', render_version_list, inline=True)
       attachments = TrackedMultiSetRevision('Attachments', render_attach_list, inline=False)
       links = TrackedMultiSetRevision('Linked Issues', render_link_list, inline=False)
-      components = TrackedMultiSetRevision('Components', lambda x: render_field_list('components', x), inline=False)
-      for rev_id, item in entry.changes:
+      components = TrackedMultiSetRevision('Components', lambda x: render_field_list('components', [(y[0], y[1]) for y in x]), inline=False)
+      sorted_changes = sorted(entry.changes, key=lambda x: reverse_revision_order_key(x[1]))
+      for rev_id, item in sorted_changes:
          new_tags: typing.Iterator[bs4.Tag] | None = None
          match item['field']:
             # tracked changes
@@ -1223,17 +1251,17 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                new_tags = categories.handle(soup, item)
             # special batched changes
             case 'Link': # source/string are either null or 'key'/'This issue ...'
-               links.import_change(item)
+               links.import_change(item, issue_project)
             case 'Attachment': # source/string are either null or 'id'/'filename'
-               attachments.import_change(item)
+               attachments.import_change(item, issue_project)
             # other batched changes
             # source/string are either null or 'id'/'Name'
             case 'Component':
-               components.import_change(item)
+               components.import_change(item, issue_project)
             case 'Version':
-               affected_versions.import_change(item)
+               affected_versions.import_change(item, issue_project)
             case 'Fix Version':
-               fixed_versions.import_change(item)
+               fixed_versions.import_change(item, issue_project)
             # custom enum field changes
             # source/string are either null/null, null/empty, or 'id'/'Name'
             case 'Confirmation Status':
@@ -1294,7 +1322,14 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['toString'] is not None
                old_tag = issue_key(website, file, item['fromString'])
                new_tag = issue_key(website, file, item['toString'])
-               new_tags = revision_change(soup, 'Key', old_tag, new_tag)
+               new_tags = iter([
+                  new_content_tag(soup, 'p', [
+                     new_content_tag(soup, 'span', 'Moved Issue: ', attrs={'class': 'history-label'}),
+                     old_tag,
+                     new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
+                     new_tag
+                  ])
+               ])
             # html or markup changes
             case 'summary': # source always null, string always text
                assert item['fromString'] is not None
@@ -1320,9 +1355,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                            new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=comment)
                         ])
                   ])
+            case 'project' | 'Project':
+               assert item['from'] is not None
+               issue_project = item['from']
             case (
                'status' # redundant with resolution
-               | 'project' | 'Project' # redundant with Key
                | 'RemoteIssueLink' # unfortunately these were not preserved in the archive
                | 'CHK' | 'Linked' | 'Pinned' # pointless fields
                | 'Workflow' # noise
