@@ -1,8 +1,6 @@
 import dataclasses
-import json
 import typing
-import fieldinfo
-from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, Version
+from jiratypes import Attachment, Comment, CustomValue, DescriptionValue, IconValue, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, Version
 import mojira
 import relations
 import pathlib
@@ -33,7 +31,6 @@ class Website:
    field_pages: dict[str, FieldPage]
    archive: mojira.Archive
    metas: mojira.ArchiveMetas
-   field_info: fieldinfo.FieldsInfo
    relations: relations.RelationsBundle
    markup_source: markup.MarkupSource
    secret_comments: mojira.SecretComments
@@ -63,9 +60,6 @@ def main():
       fields=relations.FieldRelations()
    )
    rels.load(root / 'relations')
-   with open(root / 'extra_field_info.json', 'r', encoding='utf-8') as file:
-      extra_info: fieldinfo.ExtraFieldInfo = json.load(file)
-   fields = fieldinfo.FieldsInfo(metas.fields, extra_info)
    markup_source = markup.MarkupSource(root / 'markup')
    secret_comments = mojira.SecretComments(root / 'secret_comments.json')
    website = Website(
@@ -78,15 +72,14 @@ def main():
       archive=archive,
       metas=metas,
       relations=rels,
-      field_info=fields,
       markup_source=markup_source,
       secret_comments=secret_comments
    )
    for key in [*rels.fields.fields.keys(), *rels.fields.metas.keys()]:
-      field_name = fields.field_map[key].name
-      id_name = urllib.parse.quote_plus(field_name)
+      fname = field_name(metas, key)
+      id_name = urllib.parse.quote_plus(fname)
       website.field_pages[key] = FieldPage(
-         make_jira_file(root, pathlib.PurePath('web/fields') / (id_name + '.html'), field_name),
+         make_jira_file(root, pathlib.PurePath('web/fields') / (id_name + '.html'), fname),
          pathlib.PurePath('web/fields') / id_name
       )
    print('Rendering...')
@@ -349,9 +342,37 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    file.page.body.append(content)
    file.page.body.append(make_generic_footer(website, file))
 
-   issue_div = render_issue_content(website, file, issue, full=True)
+   issue_top = render_issue_top(website, file, issue['key'], issue['fields']['summary'])
+   if fields['description'] is not None:
+      desc = website.markup_source.get_issue_description(issue['id'])
+      fix_markup(website, file, desc)
+   else:
+      desc = None
+   if 'environment' in fields and fields['environment'] is not None:
+      env = website.markup_source.get_issue_environment(issue['id'])
+      fix_markup(website, file, env)
+   else:
+      env = None
+   if 'customfield_11801' in fields and fields['customfield_11801'] is not None:
+      impact = fields['customfield_11801']
+   else:
+      impact = None
+   issue_body = build_issue_body(soup, desc, env, impact)
+   issue_details = render_issue_details(website, file, issue)
+   issue_links = render_issue_links(website, file, issue['fields']['issuelinks'])
+   if len(issue['fields']['attachment']) > 0:
+      issue_attaches = render_issue_attachments(website, file, issue['fields']['attachment'])
+   else:
+      issue_attaches = None
+   issue_div = build_issue_content(soup, issue_top, issue_body, issue_details, issue_links, issue_attaches)
    issue_div.attrs['id'] = 'issue'
    content.append(issue_div)
+
+   if desc is not None:
+      desc_text = html_to_text(desc)
+      file.page.head.append(soup.new_tag('meta', attrs={'name': 'description', 'content': desc_text}))
+      file.page.head.append(soup.new_tag('meta', attrs={'property': 'og:description', 'content': desc_text}))
+      file.page.head.append(soup.new_tag('meta', attrs={'property': 'twitter:description', 'content': desc_text}))
 
    tabbed_content = soup.new_tag('div', attrs={'class': 'issue-tabs-content'})
    all_comments: list[RenderableComment] = []
@@ -385,58 +406,46 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    )
    return file
 
-def render_issue_content(website: Website, file: HtmlFile, issue: Issue, full: bool) -> bs4.Tag:
+def render_issue_top(website: Website, file: HtmlFile, key: str, summary: str) -> bs4.Tag:
    soup = file.page.soup
-   issue_div = soup.new_tag('div', attrs={'class': 'issue'})
-   issue_div.append(new_content_tag(soup, 'div', attrs={'class': 'issue-top'}, content=[
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-top'}, content=[
       new_content_tag(soup, 'div', attrs={'class': 'issue-title'}, content=[
-         new_content_tag(soup, 'div', attrs={'class': 'issue-key', 'data-copy': issue['key']}, content=[
+         new_content_tag(soup, 'div', attrs={'class': 'issue-key', 'data-copy': key}, content=[
             bug_icon(website, file),
-            new_content_tag(soup, 'span', issue['key'])
+            new_content_tag(soup, 'span', key)
          ]),
-         new_content_tag(soup, 'h1', attrs={'class': 'issue-summary'}, content=issue['fields']['summary'])
+         new_content_tag(soup, 'h1', attrs={'class': 'issue-summary'}, content=summary)
       ])
-   ]))
-   issue_body = render_issue_body(website, file, issue)
-   issue_details = render_issue_details(website, file, issue, full=full)
+   ])
+
+def build_issue_content(soup: bs4.BeautifulSoup, top: bs4.Tag, body: bs4.Tag, details: bs4.Tag, links: bs4.Tag | None, attachments: bs4.Tag | None) -> bs4.Tag:
+   issue_div = soup.new_tag('div', attrs={'class': 'issue'})
+   issue_div.append(top)
    issue_div.append(new_content_tag(soup, 'div', attrs={'class': 'issue-split'}, content=[
-      issue_body,
-      issue_details
+      body,
+      details
    ]))
-   if full:
-      link_section = render_issue_links(website, file, issue['fields']['issuelinks'])
-      if link_section is not None:
-         issue_body.append(link_section)
-      if len(issue['fields']['attachment']) > 0:
-         attach_section = render_issue_attachments(website, file, issue['fields']['attachment'])
-         issue_body.append(attach_section)
+   if links is not None:
+      body.append(links)
+   if attachments is not None:
+      body.append(attachments)
    return issue_div
 
-def render_issue_body(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
-   soup = file.page.soup
-   fields = issue['fields']
+def build_issue_body(soup: bs4.BeautifulSoup, desc: bs4.BeautifulSoup | None, env: bs4.BeautifulSoup | None, impact: str | None) -> bs4.Tag:
    issue_body = soup.new_tag('main', attrs={'class': 'issue-body'})
-   if fields['description'] is not None:
-      desc = website.markup_source.get_issue_description(issue['id'])
-      fix_markup(website, file, desc)
-      desc_text = html_to_text(desc)
+   if desc is not None:
       issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-description'}, content=[
          new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=desc)
       ]))
-      file.page.head.append(soup.new_tag('meta', attrs={'name': 'description', 'content': desc_text}))
-      file.page.head.append(soup.new_tag('meta', attrs={'property': 'og:description', 'content': desc_text}))
-      file.page.head.append(soup.new_tag('meta', attrs={'property': 'twitter:description', 'content': desc_text}))
-   if 'environment' in fields and fields['environment'] is not None:
-      env = website.markup_source.get_issue_environment(issue['id'])
-      fix_markup(website, file, env)
+   if env is not None:
       issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-environment-section issue-body'}, content=[
          new_content_tag(soup, 'h2', 'Environment'),
          new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=env)
       ]))
-   if 'customfield_11801' in fields and fields['customfield_11801'] is not None:
+   if impact is not None:
       issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-impact-section issue-body'}, content=[
          new_content_tag(soup, 'h2', 'Impact'),
-         new_content_tag(soup, 'p', content=fields['customfield_11801'])
+         new_content_tag(soup, 'p', content=impact)
       ]))
    return issue_body
 
@@ -621,10 +630,13 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       else:
          return new_content_tag(soup, 'div', issue_key(website, file, ticket))
 
+   def get_link_dir(full_str: str, issue_key: str) -> str:
+      return full_str[len('This issue '):-(len(issue_key) + 1)]
+
    def render_link_list(links: list[tuple[str, str]]) -> bs4.Tag:
       link_dict: dict[str, list[bs4.Tag]] = {}
       for ticket, full in links:
-         link_dir = full[len('This issue '):-(len(ticket) + 1)]
+         link_dir = get_link_dir(full, ticket)
          if link_dir not in link_dict:
             link_dict[link_dir] = []
          link_dict[link_dir].append(render_link(ticket))
@@ -634,12 +646,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          result.extend(tags)
       return result
 
-   def render_field(field_id: str, value: fieldinfo.NameValue) -> bs4.Tag:
-      if value['id'] in website.relations.fields.fields[field_id]:
-         value_def = website.relations.fields.fields[field_id][value['id']]['value']
-         return field_link(website, file, field_id, value_def)
+   def render_field(field_id: str, value_id: str, value_text: str) -> bs4.Tag:
+      if value_id in website.relations.fields.fields[field_id]:
+         return field_link(website, file, field_id, value_id)
       else:
-         return new_content_tag(file.page.soup, 'span', value_name, attrs={'class': 'status-badge'})
+         return new_content_tag(file.page.soup, 'span', value_text, attrs={'class': 'status-badge'})
 
    def render_field_list(field_id: str, values: list[tuple[str, str]]) -> bs4.Tag:
       return inline_list(file.page.soup, map(lambda x: render_field(field_id, x[0], x[1]), values))
@@ -673,6 +684,14 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          new_tag = None
       return revision_change(soup, label, old_tag, new_tag)
 
+   def render_meta(meta_id: mojira.META_TYPE, source: str | None, string: str | None) -> bs4.Tag | None:
+      display =  website.metas.display_value(meta_id, source)
+      if display is not None:
+         return meta_link(website, file, meta_id, source)
+      if string is not None:
+         return new_content_tag(file.page.soup, 'span', string, attrs={'class': 'status-badge'})
+      return None
+
    def handle_text(revision: RevisionChange, label: str) -> typing.Iterator[bs4.Tag]:
       assert revision['from'] is None
       assert revision['to'] is None
@@ -699,6 +718,421 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          after_tag = None
       return revision_html_diff(soup, label, before_tag, after_tag, 'diff-panel-side')
 
+   HistoricFields = typing.TypedDict('HistoricFields', {
+      'labels': typing.NotRequired[list[tuple[str, str]]],
+      'customfield_11901': typing.NotRequired[list[tuple[str, str]] | None],
+      'issuelinks': list[tuple[str, str]],
+      'attachments': list[tuple[str, str]],
+      'components': list[tuple[str, str]],
+      'versions': list[tuple[str, str]],
+      'fixVersions': list[tuple[str, str]],
+      'customfield_10500': typing.NotRequired[tuple[str, str] | None],
+      'customfield_12800': typing.NotRequired[tuple[str, str] | None],
+      'customfield_10501': typing.NotRequired[tuple[str, str] | None],
+      'customfield_10402': typing.NotRequired[tuple[str, str] | None],
+      'customfield_12301': typing.NotRequired[tuple[str, str] | None],
+      'customfield_12400': typing.NotRequired[tuple[str, str] | None],
+      'customfield_12900': typing.NotRequired[tuple[str, str] | None],
+      'customfield_12200': typing.NotRequired[tuple[str, str] | None],
+      'priority': typing.NotRequired[tuple[str, str] | None],
+      'security': typing.NotRequired[tuple[str, str] | None],
+      'resolution': typing.NotRequired[tuple[str, str] | None],
+      'customfield_11500': typing.NotRequired[str | None],
+      'customfield_11801': typing.NotRequired[str | None],
+      'customfield_11802': typing.NotRequired[str | None],
+      'customfield_11800': typing.NotRequired[str | None],
+      'customfield_11300': typing.NotRequired[str | None],
+      'customfield_12201': typing.NotRequired[str | None],
+      'assignee': typing.NotRequired[tuple[str, str] | None],
+      'reporter': typing.NotRequired[tuple[str, str] | None],
+      'key': typing.NotRequired[str],
+      'summary': typing.NotRequired[str],
+   })
+   def to_historic_link(link: IssueLink) -> tuple[str, str]:
+      link_type = website.metas.link_types[link['type']]
+      if 'inwardIssue' in link:
+         dir = link_type['inward']
+         issue_data = website.archive.get_issue_data(link['inwardIssue'])
+      else:
+         assert 'outwardIssue' in link
+         dir = link_type['outward']
+         issue_data = website.archive.get_issue_data(link['outwardIssue'])
+      assert issue_data is not None
+      return (issue_data['key'], f'This issue {dir} {issue_data['key']}')
+   def to_historic_attachment(attach_id: str) -> tuple[str, str]:
+      attach_data = website.archive.get_attachment_data(attach_id)
+      assert attach_data is not None
+      return (attach_id, attach_data['filename'])
+   def to_historic_version(version_id: str) -> tuple[str, str]:
+      version_data = website.metas.projects[issue['fields']['project']]['versions'][version_id]
+      return (version_id, version_data['name'])
+   def render_initial_issue() -> bs4.Tag:
+      historic_fields: HistoricFields = {
+         'issuelinks': [to_historic_link(x) for x in issue['fields']['issuelinks']],
+         'attachments': [to_historic_attachment(x) for x in issue['fields']['attachment']],
+         'components': [(x['id'], x['name']) for x in issue['fields']['components']] if 'components' in issue['fields'] else [],
+         'versions': [to_historic_version(x) for x in issue['fields']['versions']] if 'versions' in issue['fields'] else [],
+         'fixVersions': [to_historic_version(x) for x in issue['fields']['fixVersions']] if 'fixVersions' in issue['fields'] else [],
+      }
+      description_revision: str | None = None
+      environment_revision: str | None = None
+      for revision in revisions:
+         for change in revision['items']:
+            match change['field']:
+               case 'labels':
+                  if 'labels' not in historic_fields:
+                     historic_fields['labels'] = label_splitter(change['from'], change['fromString'])
+               case 'Category':
+                  if 'customfield_11901' not in historic_fields:
+                     historic_fields['customfield_11901'] = category_splitter(change['from'], change['fromString'])
+               case 'Link':
+                  if change['from'] is not None:
+                     assert change['fromString'] is not None
+                     assert change['to'] is None
+                     historic_fields['issuelinks'][:] = [(key, msg) for (key, msg) in historic_fields['issuelinks'] if key == change['from'] and msg == change['toString']]
+               case 'Attachment':
+                  if change['from'] is not None:
+                     assert change['fromString'] is not None
+                     assert change['to'] is None
+                     historic_fields['attachments'][:] = [x for x in historic_fields['attachments'] if x[0] == change['from']]
+               case 'Component':
+                  if change['from'] is not None:
+                     assert change['fromString'] is not None
+                     assert change['to'] is None
+                     historic_fields['components'][:] = [x for x in historic_fields['components'] if x[0] == change['from']]
+               case 'Version':
+                  if change['from'] is not None:
+                     assert change['fromString'] is not None
+                     assert change['to'] is None
+                     historic_fields['versions'][:] = [x for x in historic_fields['versions'] if x[0] == change['from']]
+               case 'Fix Version':
+                  if change['from'] is not None:
+                     assert change['fromString'] is not None
+                     assert change['to'] is None
+                     historic_fields['fixVersions'][:] = [x for x in historic_fields['fixVersions'] if x[0] == change['from']]
+               case 'Confirmation Status':
+                  if 'customfield_10500' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_10500'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_10500'] = (change['from'], change['fromString'])
+               case 'Area':
+                  if 'customfield_12800' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_12800'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_12800'] = (change['from'], change['fromString'])
+               case 'Game Mode':
+                  if 'customfield_10501' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_10501'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_10501'] = (change['from'], change['fromString'])
+               case 'Platform' | 'Device':
+                  if 'customfield_10402' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_10402'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_10402'] = (change['from'], change['fromString'])
+               case 'Realms Platform':
+                  if 'customfield_12301' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_12301'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_12301'] = (change['from'], change['fromString'])
+               case 'Dungeons Platform':
+                  if 'customfield_12400' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_12400'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_12400'] = (change['from'], change['fromString'])
+               case 'Legends Platform':
+                  if 'customfield_12900' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_12900'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_12900'] = (change['from'], change['fromString'])
+               case 'Mojang Priority':
+                  if 'customfield_12200' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['customfield_12200'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['customfield_12200'] = (change['from'], change['fromString'])
+               case 'priority':
+                  if 'priority' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['priority'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['priority'] = (change['from'], change['fromString'])
+               case 'security':
+                  if 'security' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['security'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['security'] = (change['from'], change['fromString'])
+               case 'resolution':
+                  if 'resolution' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['resolution'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['resolution'] = (change['from'], change['fromString'])
+               case 'ADO' | 'VSO':
+                  if 'customfield_11500' not in historic_fields:
+                     historic_fields['customfield_11500'] = change['fromString']
+               case 'Impact':
+                  if 'customfield_11801' not in historic_fields:
+                     historic_fields['customfield_11801'] = change['fromString']
+               case 'Regression Builds':
+                  if 'customfield_11802' not in historic_fields:
+                     historic_fields['customfield_11802'] = change['fromString']
+               case 'Partner Team Reporting':
+                  if 'customfield_11800' not in historic_fields:
+                     historic_fields['customfield_11800'] = change['fromString']
+               case 'Operating System Version':
+                  if 'customfield_11300' not in historic_fields:
+                     historic_fields['customfield_11300'] = change['fromString']
+               case 'Triaged Time':
+                  if 'customfield_12201' not in historic_fields:
+                     historic_fields['customfield_12201'] = change['from']
+               case 'assignee':
+                  if 'assignee' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['assignee'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['assignee'] = (change['from'], change['fromString'])
+               case 'reporter':
+                  if 'reporter' not in historic_fields:
+                     if change['from'] is None:
+                        historic_fields['reporter'] = None
+                     else:
+                        assert change['fromString'] is not None
+                        historic_fields['reporter'] = (change['from'], change['fromString'])
+               case 'Key':
+                  if 'key' not in historic_fields:
+                     assert change['fromString'] is not None
+                     historic_fields['key'] = change['fromString']
+               case 'summary':
+                  if 'summary' not in historic_fields:
+                     assert change['fromString'] is not None
+                     historic_fields['summary'] = change['fromString']
+               case 'description':
+                  if description_revision is None:
+                     description_revision = revision['id']
+               case 'environment':
+                  if environment_revision is None:
+                     environment_revision = revision['id']
+               case _:
+                  pass
+      if 'labels' not in historic_fields:
+         historic_fields['labels'] = [(x, x) for x in issue['fields']['labels']]
+      if 'customfield_11901' not in historic_fields and 'customfield_11901' in issue['fields']:
+         if issue['fields']['customfield_11901'] is None:
+            historic_fields['customfield_11901'] = None
+         else:
+            historic_fields['customfield_11901'] = [(x['id'], x['value']) for x in issue['fields']['customfield_11901']]
+      if 'customfield_10500' not in historic_fields and 'customfield_10500' in issue['fields']:
+         historic_fields['customfield_10500'] = None if issue['fields']['customfield_10500'] is None else (issue['fields']['customfield_10500']['id'], issue['fields']['customfield_10500']['value'])
+      if 'customfield_12800' not in historic_fields and 'customfield_12800' in issue['fields']:
+         historic_fields['customfield_12800'] = None if issue['fields']['customfield_12800'] is None else (issue['fields']['customfield_12800']['id'], issue['fields']['customfield_12800']['value'])
+      if 'customfield_10501' not in historic_fields and 'customfield_10501' in issue['fields']:
+         historic_fields['customfield_10501'] = None if issue['fields']['customfield_10501'] is None else (issue['fields']['customfield_10501']['id'], issue['fields']['customfield_10501']['value'])
+      if 'customfield_10402' not in historic_fields and 'customfield_10402' in issue['fields']:
+         historic_fields['customfield_10402'] = None if issue['fields']['customfield_10402'] is None else (issue['fields']['customfield_10402']['id'], issue['fields']['customfield_10402']['value'])
+      if 'customfield_12301' not in historic_fields and 'customfield_12301' in issue['fields']:
+         historic_fields['customfield_12301'] = None if issue['fields']['customfield_12301'] is None else (issue['fields']['customfield_12301']['id'], issue['fields']['customfield_12301']['value'])
+      if 'customfield_12400' not in historic_fields and 'customfield_12400' in issue['fields']:
+         historic_fields['customfield_12400'] = None if issue['fields']['customfield_12400'] is None else (issue['fields']['customfield_12400']['id'], issue['fields']['customfield_12400']['value'])
+      if 'customfield_12900' not in historic_fields and 'customfield_12900' in issue['fields']:
+         historic_fields['customfield_12900'] = None if issue['fields']['customfield_12900'] is None else (issue['fields']['customfield_12900']['id'], issue['fields']['customfield_12900']['value'])
+      if 'customfield_12200' not in historic_fields and 'customfield_12200' in issue['fields']:
+         historic_fields['customfield_12200'] = None if issue['fields']['customfield_12200'] is None else (issue['fields']['customfield_12200']['id'], issue['fields']['customfield_12200']['value'])
+      if 'priority' not in historic_fields and 'priority' in issue['fields']:
+         historic_fields['priority'] = None if issue['fields']['priority'] is None else (issue['fields']['priority']['id'], issue['fields']['priority']['name'])
+      if 'security' not in historic_fields and 'security' in issue['fields']:
+         historic_fields['security'] = None if issue['fields']['security'] is None else (issue['fields']['security']['id'], issue['fields']['security']['name'])
+      if 'resolution' not in historic_fields:
+         if issue['fields']['resolution'] is None:
+            historic_fields['resolution'] = None
+         else:
+            resolution = website.metas.resolutions[issue['fields']['resolution']]
+            historic_fields['resolution'] = (issue['fields']['resolution'], resolution['name'])
+      if 'customfield_11500' not in historic_fields and 'customfield_11500' in issue['fields']:
+         historic_fields['customfield_11500'] = issue['fields']['customfield_11500']
+      if 'customfield_11802' not in historic_fields and 'customfield_11802' in issue['fields']:
+         historic_fields['customfield_11802'] = issue['fields']['customfield_11802']
+      if 'customfield_11800' not in historic_fields and 'customfield_11800' in issue['fields']:
+         historic_fields['customfield_11800'] = issue['fields']['customfield_11800']
+      if 'customfield_11300' not in historic_fields and 'customfield_11300' in issue['fields']:
+         historic_fields['customfield_11300'] = issue['fields']['customfield_11300']
+      if 'customfield_12201' not in historic_fields and 'customfield_12201' in issue['fields']:
+         historic_fields['customfield_12201'] = issue['fields']['customfield_12201']
+      if 'assignee' not in historic_fields and 'assignee' in issue['fields']:
+         if issue['fields']['assignee'] is None:
+            historic_fields['assignee'] = None
+         else:
+            user_data = website.archive.get_user_data(issue['fields']['assignee'])
+            assert user_data is not None
+            historic_fields['assignee'] = (issue['fields']['assignee'], user_data['displayName'])
+      if 'reporter' not in historic_fields:
+         user_data = website.archive.get_user_data(issue['fields']['reporter'])
+         assert user_data is not None
+         historic_fields['reporter'] = (issue['fields']['reporter'], user_data['displayName'])
+      if 'key' not in historic_fields:
+         historic_fields['key'] = issue['key']
+      if 'summary' not in historic_fields:
+         historic_fields['summary'] = issue['fields']['summary']
+      def render_historic_details(fields: HistoricFields) -> bs4.Tag:
+         issue_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
+         resolution_tag = render_meta('resolution', None if historic_fields['resolution'] is None else historic_fields['resolution'][0], None if historic_fields['resolution'] is None else historic_fields['resolution'][1])
+         assert resolution_tag is not None
+         append_desc_item(soup, issue_details,
+            'Status:',
+            resolution_tag
+         )
+         if 'security' in fields and fields['security'] is not None:
+            append_desc_item(soup, issue_details,
+               'Security Level:',
+               render_field('security', fields['security'][0], fields['security'][1])
+            )
+         if 'customfield_11800' in fields and fields['customfield_11800'] is not None:
+            append_desc_item(soup, issue_details,
+               'Partner Team:',
+               fields['customfield_11800']
+            )
+         if 'assignee' in fields and fields['assignee'] is not None:
+            append_desc_item(soup, issue_details,
+               'Assignee:',
+               user_link(website, file, fields['assignee'][0])
+            )
+         if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
+            append_desc_item(soup, issue_details,
+               'Confirmation Status:',
+               render_field('customfield_10500', fields['customfield_10500'][0], fields['customfield_10500'][1])
+            )
+         if 'priority' in fields and fields['priority'] is not None:
+            append_desc_item(soup, issue_details,
+               'Priority:',
+               render_field('priority', fields['priority'][0], fields['priority'][1])
+            )
+         if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
+            append_desc_item(soup, issue_details,
+               'Mojang Priority:',
+               render_field('customfield_12200', fields['customfield_12200'][0], fields['customfield_12200'][1])
+            )
+         if 'customfield_11500' in fields and fields['customfield_11500'] is not None:
+            append_desc_item(soup, issue_details,
+               'ADO:',
+               fields['customfield_11500']
+            )
+         if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
+            append_desc_item(soup, issue_details,
+               'Area:',
+               render_field('customfield_12800', fields['customfield_12800'][0], fields['customfield_12800'][1])
+            )
+         if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
+            category_list = render_field_list('customfield_11901', fields['customfield_11901'])
+            append_desc_item(soup, issue_details,
+               'Category:',
+               category_list
+            )
+         if 'components' in fields and len(fields['components']) > 0:
+            component_list = render_field_list('components', fields['components'])
+            append_desc_item(soup, issue_details,
+               'Component:',
+               component_list
+            )
+         if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
+            append_desc_item(soup, issue_details,
+               'Game Mode:',
+               render_field('customfield_10501', fields['customfield_10501'][0], fields['customfield_10501'][1])
+            )
+         if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
+            append_desc_item(soup, issue_details,
+               'Platform:',
+               render_field('customfield_10402', fields['customfield_10402'][0], fields['customfield_10402'][1])
+            )
+         if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
+            append_desc_item(soup, issue_details,
+               'Platform:',
+               render_field('customfield_12301', fields['customfield_12301'][0], fields['customfield_12301'][1])
+            )
+         if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
+            append_desc_item(soup, issue_details,
+               'Platform:',
+               render_field('customfield_12400', fields['customfield_12400'][0], fields['customfield_12400'][1])
+            )
+         if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
+            append_desc_item(soup, issue_details,
+               'Platform:',
+               render_field('customfield_12400', fields['customfield_12900'][0], fields['customfield_12900'][1])
+            )
+         if 'customfield_11300' in fields and fields['customfield_11300'] is not None:
+            append_desc_item(soup, issue_details,
+               'OS Version:',
+               fields['customfield_11300']
+            )
+         if 'labels' in fields:
+            append_desc_item(soup, issue_details,
+               'Labels:',
+               render_field_list('labels', fields['labels'])
+            )
+         if 'versions' in fields:
+            append_desc_item(soup, issue_details,
+               'Affects Versions:',
+               render_version_list(fields['versions'])
+            )
+         if 'customfield_11802' in fields and fields['customfield_11802'] is not None:
+            append_desc_item(soup, issue_details,
+               'Regression Builds:',
+               fields['customfield_11802']
+            )
+         if 'fixVersions' in fields:
+            append_desc_item(soup, issue_details,
+               'Fix Versions:',
+               render_version_list(fields['fixVersions'])
+            )
+         return issue_details
+
+      issue_top = render_issue_top(website, file, historic_fields['key'], historic_fields['summary'])
+      if description_revision is not None:
+         desc = website.markup_source.get_issue_description_revision(issue['id'], description_revision)[0]
+         if desc is not None:
+            fix_markup(website, file, desc)
+      else:
+         desc = None
+      if environment_revision is not None:
+         env = website.markup_source.get_issue_environment_revision(issue['id'], environment_revision)[0]
+         if env is not None:
+            fix_markup(website, file, env)
+      else:
+         env = None
+      if 'customfield_11801' in historic_fields:
+         impact = historic_fields['customfield_11801']
+      else:
+         impact = None
+      issue_body = build_issue_body(soup, desc, env, impact)
+      issue_details = render_historic_details(historic_fields)
+      #issue_links = render_historic_links(website, file, historic_fields['issuelinks'])
+      #if len(historic_fields['attachments']) > 0:
+      #   issue_attaches = render_historic_attachments(website, file, historic_fields['attachments'])
+      #else:
+      #   issue_attaches = None
+      issue_links=None
+      issue_attaches=None
+      return build_issue_content(soup, issue_top, issue_body, issue_details, issue_links, issue_attaches)
+
    revisions_list: list[bs4.Tag] = []
    date_tag = render_datetime(soup, datetime.datetime.fromisoformat(issue['fields']['created']))
    date_tag.attrs['class'] = 'comment-time'
@@ -709,23 +1143,22 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          date_tag
       ]),
       new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
-         new_content_tag(soup, 'p', 'Created issue:', attrs={'class': 'history-label'}),
+         new_content_tag(soup, 'p', 'Created Issue:', attrs={'class': 'history-label'}),
          new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
-            render_issue_content(website, file, issue, full=False)
+            render_initial_issue()
          ])
       ])
    ]))
-   labels = TrackedMultiValueRevision('labels', label_splitter, lambda x: render_field_list('labels', x))
+   labels = TrackedMultiValueRevision('Labels', label_splitter, lambda x: render_field_list('labels', x))
    categories = TrackedMultiValueRevision('Category', category_splitter, lambda x: render_field_list('customfield_11901', x))
    merged = merge_revisions(revisions)
    for entry in merged:
-      continue
       history_items: list[bs4.Tag] = []
-      affected_versions = TrackedMultiSetRevision('affects versions', render_version_list, inline=True)
-      fixed_versions = TrackedMultiSetRevision('fixed versions', render_version_list, inline=True)
-      attachments = TrackedMultiSetRevision('attachments', render_attach_list, inline=False)
-      links = TrackedMultiSetRevision('links', render_link_list, inline=False)
-      components = TrackedMultiSetRevision('component', lambda x: render_field_list('component', x), inline=False)
+      affected_versions = TrackedMultiSetRevision('Affects Versions', render_version_list, inline=True)
+      fixed_versions = TrackedMultiSetRevision('Fixed Versions', render_version_list, inline=True)
+      attachments = TrackedMultiSetRevision('Attachments', render_attach_list, inline=False)
+      links = TrackedMultiSetRevision('Linked Issues', render_link_list, inline=False)
+      components = TrackedMultiSetRevision('Components', lambda x: render_field_list('components', x), inline=False)
       for rev_id, item in entry.changes:
          new_tags: typing.Iterator[bs4.Tag] | None = None
          match item['field']:
@@ -772,18 +1205,15 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             case 'security':
                new_tags = handle_field(item, 'Security Level', 'security')
             case 'resolution':
-               fake_item: RevisionChange = {
-                  'field': 'resolution',
-                  'from': '0' if item['from'] is None else item['from'],
-                  'fromString': 'Unresolved' if item['fromString'] is None else item['fromString'],
-                  'to': '0' if item['to'] is None else item['to'],
-                  'toString': 'Unresolved' if item['toString'] is None else item['toString'],
-               }
-               new_tags = handle_field(fake_item, 'Resolution', 'resolution')
+               old_tag = render_meta('resolution', item['from'], item['fromString'])
+               new_tag = render_meta('resolution', item['to'], item['toString'])
+               new_tags = revision_change(soup, 'Resolution', old_tag, new_tag)
             # text field changes
             # source always null, string either null or empty or text
             case 'ADO' | 'VSO': # field was renamed at some point, but old name persists in history
                new_tags = handle_text(item, 'ADO')
+            case 'Impact':
+               new_tags = handle_text(item, 'Impact')
             case 'Regression Builds':
                new_tags = handle_text(item, 'Regression Builds')
             case 'Partner Team Reporting':
@@ -804,7 +1234,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['to'] is not None
                old_tag = user_link(website, file, item['from'])
                new_tag = user_link(website, file, item['to'])
-               new_tags = revision_change(soup, 'Assignee', old_tag, new_tag)
+               new_tags = iter([revision_from_to(soup, 'Reporter', old_tag, new_tag)])
             case 'Key': # source always null, string always 'key'
                assert item['fromString'] is not None
                assert item['toString'] is not None
@@ -817,13 +1247,13 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['toString'] is not None
                before = new_content_tag(soup, 'span', item['fromString'])
                after = new_content_tag(soup, 'span', item['toString'])
-               new_tags = revision_html_diff(soup, 'summary', before, after, 'diff-panel-top')
+               new_tags = revision_html_diff(soup, 'Summary', before, after, 'diff-panel-top')
             case 'description': # source always null, string either null or text
                before, after = website.markup_source.get_issue_description_revision(issue['id'], rev_id)
-               new_tags = handle_large_diff(before, after, 'description')
+               new_tags = handle_large_diff(before, after, 'Description')
             case 'environment': # source always null, string either null or text
                before, after = website.markup_source.get_issue_environment_revision(issue['id'], rev_id)
-               new_tags = handle_large_diff(before, after, 'environment')
+               new_tags = handle_large_diff(before, after, 'Environment')
             case 'Comment': # from always text, all the rest always null
                assert item['from'] is not None
                assert item['to'] is None
@@ -831,7 +1261,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   comment = website.markup_source.get_deleted_comment_body(issue['id'], rev_id)
                   fix_markup(website, file, comment)
                   new_tags = iter([
-                     new_content_tag(soup, 'p', 'Deleted comment: ', attrs={'class': 'history-label'}),
+                     new_content_tag(soup, 'p', 'Deleted Comment: ', attrs={'class': 'history-label'}),
                      new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
                            new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=comment)
                         ])
@@ -1037,7 +1467,7 @@ def render_issue_links(website: Website, file: HtmlFile, links: list[IssueLink])
    ])
    return link_section
 
-def render_issue_details(website: Website, file: HtmlFile, issue: Issue, full: bool) -> bs4.Tag:
+def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    fields = issue['fields']
    soup = file.page.soup
    project = website.metas.projects[fields['project']]
@@ -1048,56 +1478,54 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue, full: b
    )
    if 'security' in fields:
       append_desc_item(soup, issue_details,
-         'Security:',
+         'Security Level:',
          field_link(website, file, 'security', fields['security']['id'])
       )
-   if full:
+   append_desc_item(soup, issue_details,
+      'Reporter:',
+      user_link(website, file, fields['reporter'])
+   )
+   if fields['reporter'] != fields['creator']:
       append_desc_item(soup, issue_details,
-         'Reporter:',
-         user_link(website, file, fields['reporter'])
+         'Creator:',
+         user_link(website, file, fields['creator'])
       )
-      if fields['reporter'] != fields['creator']:
-         append_desc_item(soup, issue_details,
-            'Creator:',
-            user_link(website, file, fields['creator'])
-         )
    if 'customfield_11800' in fields and fields['customfield_11800'] is not None:
       append_desc_item(soup, issue_details,
          'Partner Team:',
          fields['customfield_11800']
       )
-   if full:
-      if 'assignee' in fields and fields['assignee'] is not None:
-         append_desc_item(soup, issue_details,
-            'Assignee:',
-            user_link(website, file, fields['assignee'])
-         )
+   if 'assignee' in fields and fields['assignee'] is not None:
       append_desc_item(soup, issue_details,
-         'Created:',
-         render_datetime(soup, datetime.datetime.fromisoformat(fields['created']))
+         'Assignee:',
+         user_link(website, file, fields['assignee'])
       )
+   append_desc_item(soup, issue_details,
+      'Created:',
+      render_datetime(soup, datetime.datetime.fromisoformat(fields['created']))
+   )
+   append_desc_item(soup, issue_details,
+      'Updated:',
+      render_datetime(soup, datetime.datetime.fromisoformat(fields['updated']))
+   )
+   if 'customfield_12201'in fields and fields['customfield_12201'] is not None:
       append_desc_item(soup, issue_details,
-         'Updated:',
-         render_datetime(soup, datetime.datetime.fromisoformat(fields['updated']))
+         'Triaged:',
+         render_datetime(soup, datetime.datetime.fromisoformat(fields['customfield_12201']))
       )
-      if 'customfield_12201'in fields and fields['customfield_12201'] is not None:
-         append_desc_item(soup, issue_details,
-            'Triaged:',
-            render_datetime(soup, datetime.datetime.fromisoformat(fields['customfield_12201']))
-         )
-      if fields['resolutiondate'] is not None:
-         append_desc_item(soup, issue_details,
-            'Resolved:',
-            render_datetime(soup, datetime.datetime.fromisoformat(fields['resolutiondate']))
-         )
+   if fields['resolutiondate'] is not None:
       append_desc_item(soup, issue_details,
-         'Votes:',
-         new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['votes']['votes']))
+         'Resolved:',
+         render_datetime(soup, datetime.datetime.fromisoformat(fields['resolutiondate']))
       )
-      append_desc_item(soup, issue_details,
-         'Watchers:',
-         new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['watches']['watchCount']))
-      )
+   append_desc_item(soup, issue_details,
+      'Votes:',
+      new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['votes']['votes']))
+   )
+   append_desc_item(soup, issue_details,
+      'Watchers:',
+      new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(fields['watches']['watchCount']))
+   )
    if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
       append_desc_item(soup, issue_details,
          'Confirmation Status:',
@@ -1180,24 +1608,23 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue, full: b
          'Regression Builds:',
          fields['customfield_11802']
       )
-   if full:
-      if 'fixVersions' in fields:
-         versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
-         append_desc_item(soup, issue_details,
-            'Fix Versions:',
-            render_version_list(website, file, project, versions)
-         )
-      data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
+   if 'fixVersions' in fields:
+      versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
       append_desc_item(soup, issue_details,
-         'Links:',
-         new_content_tag(soup, 'ul', content=[
-            new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': urllib.parse.quote(str(data_link))}, content='JSON')),
-            new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.dev/{issue['key']}'}, content='mojira.dev')),
-            new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://bugs.mojang.com/browse/{issue['key']}'}, content='bugs.mojang.com')),
-            new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://report.bugs.mojang.com/servicedesk/customer/portal/2/{issue['key']}'}, content='report.bugs.mojang.com')),
-            new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.atlassian.net/browse/{issue['key']}'}, content='mojira.atlassian.net')),
-         ])
+         'Fix Versions:',
+         render_version_list(website, file, project, versions)
       )
+   data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
+   append_desc_item(soup, issue_details,
+      'Links:',
+      new_content_tag(soup, 'ul', content=[
+         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': urllib.parse.quote(str(data_link))}, content='JSON')),
+         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.dev/{issue['key']}'}, content='mojira.dev')),
+         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://bugs.mojang.com/browse/{issue['key']}'}, content='bugs.mojang.com')),
+         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://report.bugs.mojang.com/servicedesk/customer/portal/2/{issue['key']}'}, content='report.bugs.mojang.com')),
+         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.atlassian.net/browse/{issue['key']}'}, content='mojira.atlassian.net')),
+      ])
+   )
    return issue_details
 
 def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment) -> bs4.Tag:
@@ -1312,8 +1739,14 @@ def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value
       return new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=tag)
    return tag
 
+def field_name(metas: mojira.ArchiveMetas, field_id: str):
+   extras = {'customfield_12400': 'Dungeons Platform', 'customfield_12900': 'Legends Platform'}
+   if field_id in extras:
+      return extras[field_id]
+   return metas.fields[field_id]['name']
+
 def field_link(website: Website, file: HtmlFile, field_id: str, value_key: str) -> bs4.Tag:
-   field_name_str = website.metas.fields[field_id]['name'].lower().replace(' ', '-')
+   field_name_str = field_name(website.metas, field_id).lower().replace(' ', '-')
    display = website.relations.fields.display_value(field_id, value_key)
    assert display is not None
    link = relative_link(website.root, file.path, website.field_pages[field_id].get_value_path(display.name))

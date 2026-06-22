@@ -1,7 +1,6 @@
 import dataclasses
 import pathlib
 import typing
-import fieldinfo
 from jiratypes import CustomValue, DescriptionValue, IconValue
 import mojira
 import bisect
@@ -164,7 +163,7 @@ class RelationsBundle:
       self.user.save(folder / 'user')
       self.fields.save(folder)
 
-def create_relations(archive: mojira.Archive, fields_info: fieldinfo.FieldsInfo) -> RelationsBundle:
+def create_relations(archive: mojira.Archive) -> RelationsBundle:
    key_rel = KeyLookups()
    user_rel = UserRelations()
    field_rel = FieldRelations()
@@ -178,47 +177,48 @@ def create_relations(archive: mojira.Archive, fields_info: fieldinfo.FieldsInfo)
          print(f'{i + 1} / {total} - {issue['key']}')
       key_rel.issue_keys[issue['key']] = issue_id
       fields = issue['fields']
-      for field_key, field_info in fields_info.field_map.items():
-         if field_key in fields:
-            raw_val = fields[field_key]
-            if isinstance(field_info.field_type, fieldinfo.CustomField):
-               if raw_val is not None:
-                  assert isinstance(raw_val, dict)
-                  full_val = field_info.field_type.get_value(raw_val)
-                  append_field(field_rel.fields, field_key, full_val, issue_id)
-            elif isinstance(field_info.field_type, fieldinfo.CustomListField):
-               if raw_val is not None:
-                  assert isinstance(raw_val, list)
-                  full_val = field_info.field_type.get_value(raw_val)
-                  for val in full_val:
-                     append_field(field_rel.fields, field_key, val, issue_id)
-            elif isinstance(field_info.field_type, fieldinfo.DiscreteField):
-               if raw_val is not None:
-                  assert isinstance(raw_val, dict)
-                  full_val = field_info.field_type.get_value(raw_val)
-                  append_field(field_rel.fields, field_key, full_val, issue_id)
-            elif isinstance(field_info.field_type, fieldinfo.DiscreteListField):
-               if raw_val is not None:
-                  assert isinstance(raw_val, list)
-                  full_val = field_info.field_type.get_value(raw_val)
-                  for val in full_val:
-                     append_field(field_rel.fields, field_key, val, issue_id)
-            elif isinstance(field_info.field_type, fieldinfo.LabelField):
-               if raw_val is not None:
-                  assert isinstance(raw_val, list)
-                  full_val = field_info.field_type.get_value(raw_val)
-                  for val in full_val:
-                     append_field(field_rel.fields, field_key, val, issue_id)
-            elif isinstance(field_info.field_type, fieldinfo.MetaField):
-               assert isinstance(raw_val, str | None)
-               full_val = field_info.field_type.get_value(raw_val)
-               append_meta(field_rel.metas, field_key, full_val, issue_id)
-            elif isinstance(field_info.field_type, fieldinfo.MetaListField):
-               if raw_val is not None:
-                  assert isinstance(raw_val, list)
-                  full_val = field_info.field_type.get_value(raw_val)
-                  for val in full_val:
-                     append_meta(field_rel.metas, field_key, val, issue_id)
+      append_meta(field_rel.metas, 'resolution', fields['resolution'], issue_id)
+      append_meta(field_rel.metas, 'issuetype', fields['issuetype'], issue_id)
+      append_meta(field_rel.metas, 'project', fields['project'], issue_id)
+      append_meta(field_rel.metas, 'status', fields['status'], issue_id)
+      append_meta(field_rel.metas, 'creator', fields['creator'], issue_id)
+      append_meta(field_rel.metas, 'reporter', fields['reporter'], issue_id)
+      if 'assignee' in fields:
+         append_meta(field_rel.metas, 'assignee', fields['assignee'], issue_id)
+      if 'versions' in fields:
+         for val in fields['versions']:
+            append_meta(field_rel.metas, 'versions', val, issue_id)
+      if 'fixVersions' in fields:
+         for val in fields['fixVersions']:
+            append_meta(field_rel.metas, 'fixVersions', val, issue_id)
+      if 'security' in fields:
+         append_field(field_rel.fields, 'security', fields['security'], issue_id)
+      if 'priority' in fields and fields['priority'] is not None:
+         append_field(field_rel.fields, 'priority', fields['priority'], issue_id)
+      if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
+         append_field(field_rel.fields, 'customfield_12800', fields['customfield_12800'], issue_id)
+      if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
+         append_field(field_rel.fields, 'customfield_12200', fields['customfield_12200'], issue_id)
+      if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
+         append_field(field_rel.fields, 'customfield_10402', fields['customfield_10402'], issue_id)
+      if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
+         append_field(field_rel.fields, 'customfield_12301', fields['customfield_12301'], issue_id)
+      if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
+         append_field(field_rel.fields, 'customfield_12400', fields['customfield_12400'], issue_id)
+      if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
+         append_field(field_rel.fields, 'customfield_12900', fields['customfield_12900'], issue_id)
+      if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
+         append_field(field_rel.fields, 'customfield_10500', fields['customfield_10500'], issue_id)
+      if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
+         append_field(field_rel.fields, 'customfield_10501', fields['customfield_10501'], issue_id)
+      for val in fields['labels']:
+         append_field(field_rel.fields, 'labels', val, issue_id)
+      if 'components' in fields:
+         for val in fields['components']:
+            append_field(field_rel.fields, 'components', val, issue_id)
+      if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
+         for val in fields['customfield_11901']:
+            append_field(field_rel.fields, 'customfield_11901', val, issue_id)
       for comment in fields['comment']['comments']:
          append_user_action(user_rel.comments, comment.get('author'), issue_id, comment['id'])
          append_user_action(user_rel.edits, comment.get('updateAuthor'), issue_id, comment['id'])
@@ -253,10 +253,7 @@ def main():
    archive = mojira.Archive(folder=root / 'data')
    metas = mojira.ArchiveMetas()
    metas.load(archive.folder)
-   with open(root / 'extra_field_info.json', 'r', encoding='utf-8') as file:
-      extra_info: fieldinfo.ExtraFieldInfo = json.load(file)
-   fields_info = fieldinfo.FieldsInfo(metas.fields, extra_info)
-   relations = create_relations(archive, fields_info)
+   relations = create_relations(archive)
    print('Writing...')
    relations.save(root / 'relations')
 

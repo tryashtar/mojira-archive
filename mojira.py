@@ -99,11 +99,11 @@ class Archive:
       self.project_avatars_folder = self.folder / 'avatars/projects'
       self.users_avatars_folder = self.folder / 'avatars/users'
 
-   def issue_ids(self) -> typing.Generator[str, None, None]:
+   def issue_ids(self) -> typing.Generator[str]:
       for path in self.issues_folder.iterdir():
          yield path.stem
 
-   def issues(self) -> typing.Generator[Issue, None, None]:
+   def issues(self) -> typing.Generator[Issue]:
       for path in self.issues_folder.iterdir():
          with open(path, 'r', encoding='utf-8') as file:
             yield json.load(file)
@@ -118,12 +118,12 @@ class Archive:
       with open(path, 'r', encoding='utf-8') as file:
          return json.load(file)
 
-   def user_keys(self) -> typing.Generator[str, None, None]:
+   def user_keys(self) -> typing.Generator[str]:
       for path in self.users_folder.iterdir():
          if path.is_file():
             yield urllib.parse.unquote_plus(path.stem)
 
-   def users(self) -> typing.Generator[User, None, None]:
+   def users(self) -> typing.Generator[User]:
       for path in self.users_folder.iterdir():
          with open(path, 'r', encoding='utf-8') as file:
             yield json.load(file)

@@ -159,42 +159,44 @@ IssueFields = typing.TypedDict('IssueFields', {
    'summary': str,
    'description': str | None,
    'environment': typing.NotRequired[str | None],
-   'issuetype': str,
-   'project': str,
-   'versions': typing.NotRequired[list[str]],
-   'fixVersions': typing.NotRequired[list[str]],
-   'resolution': str | None,
-   'resolutiondate': str | None,
-   'updated': str,
    'created': str,
-   'labels': list[str],
-   'status': str,
-   'creator': str,
-   'reporter': str,
-   'assignee': typing.NotRequired[str | None],
+   'updated': str,
+   'resolutiondate': str | None,
    'attachment': list[str],
-   'customfield_12800': typing.NotRequired[CustomValue | None], # Area
-   'customfield_12200': typing.NotRequired[CustomValue | None], # Mojang Priority
-   'customfield_11901': typing.NotRequired[list[CustomValue] | None], # Category
-   'customfield_10500': typing.NotRequired[CustomValue | None], # Confirmation Status
-   'customfield_10501': typing.NotRequired[CustomValue | None], # Game Mode
-   'customfield_11500': typing.NotRequired[str | None], # ADO
-   'customfield_12201': typing.NotRequired[str | None], # Triaged Time
-   'customfield_11800': typing.NotRequired[str | None], # Partner Team Reporting
-   'customfield_11801': typing.NotRequired[str | None], # Impact
-   'customfield_10402': typing.NotRequired[CustomValue | None], # Platform
-   'customfield_12301': typing.NotRequired[CustomValue | None], # Realms Platform
-   'customfield_12400': typing.NotRequired[CustomValue | None], # Dungeons Platform
-   'customfield_12900': typing.NotRequired[CustomValue | None], # Legends Platform
-   'customfield_11802': typing.NotRequired[str | None], # Regression Builds
-   'customfield_11300': typing.NotRequired[str | None], # Operating System Version
    'comment': CommentField,
    'votes': VotesField,
    'watches': WatchesField,
    'issuelinks': list[IssueLink],
+   # metas
+   'resolution': str | None,
+   'issuetype': str,
+   'project': str,
+   'versions': typing.NotRequired[list[str]],
+   'fixVersions': typing.NotRequired[list[str]],
+   'status': str,
+   'creator': str,
+   'reporter': str,
+   'assignee': typing.NotRequired[str | None],
+   # discrete
+   'labels': list[str],
    'security': typing.NotRequired[DescriptionValue],
    'priority': typing.NotRequired[IconValue | None],
    'components': typing.NotRequired[list[DescriptionValue]],
+   'customfield_12800': typing.NotRequired[CustomValue | None], # Area
+   'customfield_12200': typing.NotRequired[CustomValue | None], # Mojang Priority
+   'customfield_10402': typing.NotRequired[CustomValue | None], # Platform
+   'customfield_12301': typing.NotRequired[CustomValue | None], # Realms Platform
+   'customfield_12400': typing.NotRequired[CustomValue | None], # Dungeons Platform
+   'customfield_12900': typing.NotRequired[CustomValue | None], # Legends Platform
+   'customfield_10500': typing.NotRequired[CustomValue | None], # Confirmation Status
+   'customfield_10501': typing.NotRequired[CustomValue | None], # Game Mode
+   'customfield_11901': typing.NotRequired[list[CustomValue] | None], # Category
+   'customfield_11500': typing.NotRequired[str | None], # ADO
+   'customfield_12201': typing.NotRequired[str | None], # Triaged Time
+   'customfield_11800': typing.NotRequired[str | None], # Partner Team Reporting
+   'customfield_11801': typing.NotRequired[str | None], # Impact
+   'customfield_11802': typing.NotRequired[str | None], # Regression Builds
+   'customfield_11300': typing.NotRequired[str | None], # Operating System Version
 })
 
 RevisionChange = typing.TypedDict('RevisionChange', {

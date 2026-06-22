@@ -197,7 +197,7 @@ def fetch_user(client: jira.JIRA, key: str, expand: str | None) -> jira.User:
    user.find(urllib.parse.quote_plus(key), params=params)
    return user
 
-def fetch_issues(client: jira.JIRA, query: str) -> typing.Generator[jira.Issue, None, None]:
+def fetch_issues(client: jira.JIRA, query: str) -> typing.Generator[jira.Issue]:
    i = 0
    chunk_size = 100
    while True:
