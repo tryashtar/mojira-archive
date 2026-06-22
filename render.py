@@ -84,7 +84,7 @@ def main():
       )
    print('Rendering...')
 
-   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938', 'MCPE-166983']:
+   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938', 'MCPE-166983', 'MCM-525']:
       file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
       save_file(website, file)
    return
@@ -450,10 +450,11 @@ def build_issue_body(soup: bs4.BeautifulSoup, desc: bs4.BeautifulSoup | None, en
    return issue_body
 
 class TrackedMultiSetRevision:
-   def __init__(self, name: str, creator: typing.Callable[[list[tuple[str, str, str]]], bs4.Tag], inline: bool):
+   def __init__(self, name: str, field_id: str | None, creator: typing.Callable[[list[tuple[str, str, str]]], bs4.Tag], inline: bool):
       self.added: list[tuple[str, str, str]] = []
       self.removed: list[tuple[str, str, str]] = []
       self.name = name
+      self.field_id = field_id
       self.creator = creator
       self.inline = inline
 
@@ -465,9 +466,11 @@ class TrackedMultiSetRevision:
          assert entry['fromString'] is not None
          self.removed.append((entry['from'], entry['fromString'], project_id))
 
-   def handle(self, soup: bs4.BeautifulSoup) -> typing.Generator[bs4.Tag]:
+   def handle(self, website: Website, file: HtmlFile) -> typing.Generator[bs4.Tag]:
+      soup = file.page.soup
       if len(self.added) > 0:
-         label = new_content_tag(soup, 'span', f'Added {self.name}: ', attrs={'class': 'history-label'})
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         label = new_content_tag(soup, 'span', ['Added ', link, ': '], attrs={'class': 'history-label'})
          contents = self.creator(self.added)
          if self.inline:
             yield new_content_tag(soup, 'p', [label, contents])
@@ -475,7 +478,8 @@ class TrackedMultiSetRevision:
             yield new_content_tag(soup, 'p', label)
             yield contents
       if len(self.removed) > 0:
-         label = new_content_tag(soup, 'span', f'Removed {self.name}: ', attrs={'class': 'history-label'})
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         label = new_content_tag(soup, 'span', ['Removed ', link, ': '], attrs={'class': 'history-label'})
          contents = self.creator(self.removed)
          if self.inline:
             yield new_content_tag(soup, 'p', [label, contents])
@@ -484,49 +488,53 @@ class TrackedMultiSetRevision:
             yield contents
 
 class TrackedMultiValueRevision:
-   def __init__(self, name: str, splitter: typing.Callable[[str | None, str | None], list[tuple[str, str]]], creator: typing.Callable[[list[tuple[str, str]]], bs4.Tag]):
+   def __init__(self, name: str, field_id: str, splitter: typing.Callable[[str | None, str | None], list[tuple[str, str]]], creator: typing.Callable[[list[tuple[str, str]]], bs4.Tag]):
       self.previous: list[tuple[str, str]] | None = None
       self.name = name
+      self.field_id = field_id
       self.splitter = splitter
       self.creator = creator
 
-   def handle(self, soup: bs4.BeautifulSoup, revision: RevisionChange) -> typing.Generator[bs4.Tag]:
+   def handle(self, website: Website, file: HtmlFile, revision: RevisionChange) -> typing.Generator[bs4.Tag]:
+      soup = file.page.soup
       if self.previous is None:
          self.previous = self.splitter(revision['from'], revision['fromString'])
       new_values = self.splitter(revision['to'], revision['toString'])
       added_values = [x for x in new_values if x not in self.previous]
       removed_values = [x for x in self.previous if x not in new_values]
       if len(added_values) > 0:
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)})
          yield new_content_tag(soup, 'p', [
-            new_content_tag(soup, 'span', f'Added {self.name}: ', attrs={'class': 'history-label'}),
+            new_content_tag(soup, 'span', ['Added ', link, ': '], attrs={'class': 'history-label'}),
             self.creator(added_values)
          ])
       if len(removed_values) > 0:
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)})
          yield new_content_tag(soup, 'p', [
-            new_content_tag(soup, 'span', f'Removed {self.name}: ', attrs={'class': 'history-label'}),
+            new_content_tag(soup, 'span', ['Removed ', link, ': '], attrs={'class': 'history-label'}),
             self.creator(removed_values)
          ])
       self.previous = new_values
 
-def revision_from_to(soup: bs4.BeautifulSoup, label: str, old_tag: bs4.Tag, new_tag: bs4.Tag) -> bs4.Tag:
+def revision_from_to(soup: bs4.BeautifulSoup, label: bs4.Tag | str, old_tag: bs4.Tag, new_tag: bs4.Tag) -> bs4.Tag:
    return new_content_tag(soup, 'p', [
-      new_content_tag(soup, 'span', f'Changed {label}: ', attrs={'class': 'history-label'}),
+      new_content_tag(soup, 'span', label, attrs={'class': 'history-label'}),
       old_tag,
       new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
       new_tag
    ])
 
-def revision_change(soup: bs4.BeautifulSoup, label: str, old_tag: bs4.Tag | None, new_tag: bs4.Tag | None) -> typing.Generator[bs4.Tag]:
+def revision_change(soup: bs4.BeautifulSoup, label: str | bs4.Tag, old_tag: bs4.Tag | None, new_tag: bs4.Tag | None) -> typing.Generator[bs4.Tag]:
    if old_tag is not None and new_tag is not None:
-      yield revision_from_to(soup, label, old_tag, new_tag)
+      yield revision_from_to(soup, new_content_tag(soup, 'span', ['Changed ', label, ': ']), old_tag, new_tag)
    elif new_tag is None and old_tag is not None:
       yield new_content_tag(soup, 'p', [
-         new_content_tag(soup, 'span', f'Removed {label}: ', attrs={'class': 'history-label'}),
+         new_content_tag(soup, 'span', new_content_tag(soup, 'span', ['Removed ', label, ': ']), attrs={'class': 'history-label'}),
          old_tag
       ])
    elif old_tag is None and new_tag is not None:
       yield new_content_tag(soup, 'p', [
-         new_content_tag(soup, 'span', f'Added {label}: ', attrs={'class': 'history-label'}),
+         new_content_tag(soup, 'span', new_content_tag(soup, 'span', ['Added ', label, ': ']), attrs={'class': 'history-label'}),
          new_tag
       ])
 
@@ -684,7 +692,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          new_tag = render_field(field_id, revision['to'], revision['toString'])
       else:
          new_tag = None
-      return revision_change(soup, label, old_tag, new_tag)
+      link = new_content_tag(soup, 'a', label, attrs={'href': relative_link(website.root, file.path, website.field_pages[field_id].page.path)})
+      return revision_change(soup, link, old_tag, new_tag)
 
    def render_meta(meta_id: mojira.META_TYPE, source: str | None, string: str | None) -> bs4.Tag | None:
       display =  website.metas.display_value(meta_id, source)
@@ -1025,6 +1034,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             historic_fields['resolution'] = (issue['fields']['resolution'], resolution['name'])
       if 'customfield_11500' not in historic_fields and 'customfield_11500' in issue['fields']:
          historic_fields['customfield_11500'] = issue['fields']['customfield_11500']
+      if 'customfield_11801' not in historic_fields and 'customfield_11801' in issue['fields']:
+         historic_fields['customfield_11801'] = issue['fields']['customfield_11801']
       if 'customfield_11802' not in historic_fields and 'customfield_11802' in issue['fields']:
          historic_fields['customfield_11802'] = issue['fields']['customfield_11802']
       if 'customfield_11800' not in historic_fields and 'customfield_11800' in issue['fields']:
@@ -1229,26 +1240,26 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          ])
       ])
    ]))
-   labels = TrackedMultiValueRevision('Labels', label_splitter, lambda x: render_field_list('labels', x))
-   categories = TrackedMultiValueRevision('Category', category_splitter, lambda x: render_field_list('customfield_11901', x))
+   labels = TrackedMultiValueRevision('Labels', 'labels', label_splitter, lambda x: render_field_list('labels', x))
+   categories = TrackedMultiValueRevision('Category', 'labels', category_splitter, lambda x: render_field_list('customfield_11901', x))
    merged = merge_revisions(revisions)
    issue_project = issue['fields']['project']
    for entry in merged:
       history_items: list[bs4.Tag] = []
-      affected_versions = TrackedMultiSetRevision('Affects Versions', render_version_list, inline=True)
-      fixed_versions = TrackedMultiSetRevision('Fixed Versions', render_version_list, inline=True)
-      attachments = TrackedMultiSetRevision('Attachments', render_attach_list, inline=False)
-      links = TrackedMultiSetRevision('Linked Issues', render_link_list, inline=False)
-      components = TrackedMultiSetRevision('Components', lambda x: render_field_list('components', [(y[0], y[1]) for y in x]), inline=False)
+      affected_versions = TrackedMultiSetRevision('Affects Versions', None, render_version_list, inline=True)
+      fixed_versions = TrackedMultiSetRevision('Fixed Versions', None, render_version_list, inline=True)
+      attachments = TrackedMultiSetRevision('Attachments', None, render_attach_list, inline=False)
+      links = TrackedMultiSetRevision('Linked Issues', None, render_link_list, inline=False)
+      components = TrackedMultiSetRevision('Components', 'components', lambda x: render_field_list('components', [(y[0], y[1]) for y in x]), inline=False)
       sorted_changes = sorted(entry.changes, key=lambda x: reverse_revision_order_key(x[1]))
       for rev_id, item in sorted_changes:
          new_tags: typing.Iterator[bs4.Tag] | None = None
          match item['field']:
             # tracked changes
             case 'labels': # source always null, string always 'id id'
-               new_tags = labels.handle(soup, item)
+               new_tags = labels.handle(website, file, item)
             case 'Category': # source/string are either null or '[id, id]'/'Name,Name'
-               new_tags = categories.handle(soup, item)
+               new_tags = categories.handle(website, file, item)
             # special batched changes
             case 'Link': # source/string are either null or 'key'/'This issue ...'
                links.import_change(item, issue_project)
@@ -1289,7 +1300,8 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             case 'resolution':
                old_tag = render_meta('resolution', item['from'], item['fromString'])
                new_tag = render_meta('resolution', item['to'], item['toString'])
-               new_tags = revision_change(soup, 'Resolution', old_tag, new_tag)
+               link = new_content_tag(soup, 'a', 'Resolution', attrs={'href': relative_link(website.root, file.path, website.field_pages['resolution'].page.path)})
+               new_tags = revision_change(soup, link, old_tag, new_tag)
             # text field changes
             # source always null, string either null or empty or text
             case 'ADO' | 'VSO': # field was renamed at some point, but old name persists in history
@@ -1316,19 +1328,14 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['to'] is not None
                old_tag = user_link(website, file, item['from'])
                new_tag = user_link(website, file, item['to'])
-               new_tags = iter([revision_from_to(soup, 'Reporter', old_tag, new_tag)])
+               new_tags = iter([revision_from_to(soup, 'Changed Reporter: ', old_tag, new_tag)])
             case 'Key': # source always null, string always 'key'
                assert item['fromString'] is not None
                assert item['toString'] is not None
                old_tag = issue_key(website, file, item['fromString'])
                new_tag = issue_key(website, file, item['toString'])
                new_tags = iter([
-                  new_content_tag(soup, 'p', [
-                     new_content_tag(soup, 'span', 'Moved Issue: ', attrs={'class': 'history-label'}),
-                     old_tag,
-                     new_content_tag(soup, 'span', ' → ', attrs={'class': 'history-label'}),
-                     new_tag
-                  ])
+                  revision_from_to(soup, 'Moved Issue: ', old_tag, new_tag)
                ])
             # html or markup changes
             case 'summary': # source always null, string always text
@@ -1372,15 +1379,15 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                raise ValueError()
          if new_tags is not None:
             history_items.extend(new_tags)
-      for tag in components.handle(soup):
+      for tag in components.handle(website, file):
          history_items.append(tag)
-      for tag in affected_versions.handle(soup):
+      for tag in affected_versions.handle(website, file):
          history_items.append(tag)
-      for tag in fixed_versions.handle(soup):
+      for tag in fixed_versions.handle(website, file):
          history_items.append(tag)
-      for tag in attachments.handle(soup):
+      for tag in attachments.handle(website, file):
          history_items.append(tag)
-      for tag in links.handle(soup):
+      for tag in links.handle(website, file):
          history_items.append(tag)
       if len(history_items) > 0:
          date_tag = render_date_range(soup, entry.start_time, entry.end_time)
