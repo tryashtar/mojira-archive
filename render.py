@@ -22,12 +22,22 @@ class FieldPage:
       return self.values_folder / (urllib.parse.quote_plus(value_name) + '.html')
 
 @dataclasses.dataclass
+class ProjectPage:
+   home: HtmlFile
+   versions: HtmlFile
+   issues: HtmlFile
+   versions_folder: pathlib.PurePath
+
+   def get_version_path(self, version: Version) -> pathlib.PurePath:
+      return self.versions_folder / (urllib.parse.quote_plus(version['name']) + '.html')
+
+@dataclasses.dataclass
 class Website:
    root: pathlib.Path
-   project_list: HtmlFile
-   project_folder: pathlib.PurePath
+   home: HtmlFile
    issues_folder: pathlib.PurePath
    users_folder: pathlib.PurePath
+   project_pages: dict[str, ProjectPage]
    field_pages: dict[str, FieldPage]
    archive: mojira.Archive
    metas: mojira.ArchiveMetas
@@ -64,10 +74,10 @@ def main():
    secret_comments = mojira.SecretComments(root / 'secret_comments.json')
    website = Website(
       root=root,
-      project_list=make_jira_file(root, pathlib.PurePath('web/index.html'), 'Mojira Archive'),
-      project_folder=pathlib.PurePath('web/projects'),
+      home=make_jira_file(root, pathlib.PurePath('web/home.html'), 'Mojira Archive'),
       issues_folder=pathlib.PurePath('web/issues'),
       users_folder=pathlib.PurePath('web/users'),
+      project_pages={},
       field_pages={},
       archive=archive,
       metas=metas,
@@ -75,6 +85,14 @@ def main():
       markup_source=markup_source,
       secret_comments=secret_comments
    )
+   for id, value in metas.projects.items():
+      full_title = f'[{value['key']}] {value['name']}'
+      website.project_pages[id] = ProjectPage(
+         make_jira_file(root, pathlib.PurePath('web/projects') / (value['key'] + '.html'), full_title),
+         make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'versions.html', full_title),
+         make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'issues.html', full_title),
+         pathlib.PurePath('web/projects') / value['key'] / 'versions'
+      )
    for key in [*rels.fields.fields.keys(), *rels.fields.metas.keys()]:
       fname = field_name(metas, key)
       id_name = urllib.parse.quote_plus(fname)
@@ -89,15 +107,15 @@ def main():
       save_file(website, file)
    return
 
-   make_project_list(website, website.project_list)
-   save_file(website, website.project_list)
+   make_project_list(website, website.home)
+   save_file(website, website.home)
    for project_id, project in metas.projects.items():
-      project_key = project['key']
-      print(project_key)
-      home = create_project_home_page(website, project)
-      save_file(website, home)
-      versions = create_project_versions_page(website, project)
-      save_file(website, versions)
+      print(project['key'])
+      project_page = website.project_pages[project_id]
+      make_project_home_page(website, project_page.home, project)
+      save_file(website, project_page.home)
+      make_project_versions_page(website, project_page.versions, project)
+      save_file(website, project_page.versions)
       for version in project['versions'].values():
          print(version['name'])
          page = create_version_page(website, project, version)
@@ -171,17 +189,15 @@ def make_project_list(website: Website, file: HtmlFile):
 def render_project_title(soup: bs4.BeautifulSoup, website: Website, file: HtmlFile, project: Project):
    return new_content_tag(soup, 'div', [
       new_content_tag(soup, 'h1', [
-         new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.project_list.path)}),
+         new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.home.path)}),
          ' / ',
          project_link(website, file, project)
       ])
    ], attrs={'class': 'title'})
 
-def create_project_home_page(website: Website, project: Project) -> HtmlFile:
+def make_project_home_page(website: Website, file: HtmlFile, project: Project):
    key = project['key']
    project_name = project['name']
-   full_title = f'[{key}] {project_name}'
-   file = make_jira_file(website.root, website.project_folder / key / 'index.html', full_title)
    soup = file.page.soup
    content = soup.new_tag('div', attrs={'class': 'content'})
    content.append(render_project_title(soup, website, file, project))
@@ -190,8 +206,8 @@ def create_project_home_page(website: Website, project: Project) -> HtmlFile:
    fields = make_desc_list(soup)
    append_desc_item(soup, fields, 'Name', project_name)
    append_desc_item(soup, fields, 'Project Lead', user_link(website, file, project['lead']))
-   append_desc_item(soup, fields, 'Issues', new_content_tag(soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'issues.html')}))
-   append_desc_item(soup, fields, 'Versions', new_content_tag(soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions.html')}))
+   append_desc_item(soup, fields, 'Issues', new_content_tag(soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].issues.path)}))
+   append_desc_item(soup, fields, 'Versions', new_content_tag(soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)}))
    append_desc_item(soup, fields, 'External Link', new_content_tag(soup, 'a', key, attrs={'href': f'https://bugs.mojang.com/projects/{key}/summary'}))
    content.append(fields)
    if len(project['description']) > 0:
@@ -199,43 +215,32 @@ def create_project_home_page(website: Website, project: Project) -> HtmlFile:
       desc = new_content_tag(soup, 'div', desc, attrs={'class': 'project-desc'})
       content.append(desc)
    file.page.body.append(content)
-   return file
 
-def create_project_versions_page(website: Website, project: Project) -> HtmlFile:
-   key = project['key']
-   project_name = project['name']
-   full_title = f'[{key}] {project_name}'
-   file = make_jira_file(website.root, website.project_folder / key / 'versions.html', full_title)
+def make_project_versions_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
    content = soup.new_tag('div', attrs={'class': 'content'})
    content.append(render_project_title(soup, website, file, project))
    table = render_versions_table(website, file, project, project['versions'].values())
    content.append(table)
    file.page.body.append(content)
-   return file
 
-def create_project_issues_page(website: Website, project: Project) -> HtmlFile:
-   key = project['key']
-   project_name = project['name']
-   full_title = f'[{key}] {project_name}'
-   file = make_jira_file(website.root, website.project_folder / key / 'issues.html', full_title)
+def create_project_issues_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
    content = soup.new_tag('div', attrs={'class': 'content'})
    content.append(render_project_title(soup, website, file, project))
    table = render_issues_table(website, file, website.relations.fields.fields['project'][project['id']]['issues'])
    content.append(table)
    file.page.body.append(content)
-   return file
 
 def create_version_page(website: Website, project: Project, version: Version) -> HtmlFile:
    full_title = f'[{project['key']}] {version['name']}'
    affected_issues = website.relations.fields.metas['versions'][version['id']]
    fixed_issues = website.relations.fields.metas['fixVersions'][version['id']]
-   file = make_jira_file(website.root, website.project_folder / project['key'] / 'versions' / (urllib.parse.quote_plus(version['name']) + '.html'), full_title)
+   file = make_jira_file(website.root, website.project_pages[project['id']].get_version_path(version), full_title)
    soup = file.page.soup
    content = soup.new_tag('div', attrs={'class': 'content'})
    header = new_content_tag(soup, 'h1', [
-      new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.project_list.path)}),
+      new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.home.path)}),
       ' / ',
       project_link(website, file, project),
       ' / ',
@@ -270,8 +275,8 @@ def render_projects_table(website: Website, file: HtmlFile, projects: typing.Ite
       append_row(file.page.soup, table, [
          project_key,
          project['name'],
-         new_content_tag(file.page.soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'issues.html')}),
-         new_content_tag(file.page.soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions.html')}),
+         new_content_tag(file.page.soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].issues.path)}),
+         new_content_tag(file.page.soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)}),
       ])
    return table
 
@@ -306,7 +311,7 @@ def render_issues_table(website: Website, file: HtmlFile, issues: list[str]) -> 
 
 def make_generic_header(website: Website, file: HtmlFile) -> bs4.Tag:
    header = new_content_tag(file.page.soup, 'header', [
-      new_content_tag(file.page.soup, 'a', 'Mojira Archive', attrs={'class': 'header-main', 'href': relative_link(website.root, file.path, website.project_list.path)})
+      new_content_tag(file.page.soup, 'a', 'Mojira Archive', attrs={'class': 'header-main', 'href': relative_link(website.root, file.path, website.home.path)})
    ])
    return header
 
@@ -1065,12 +1070,12 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          resolution_tag = render_meta('resolution', None if historic_fields['resolution'] is None else historic_fields['resolution'][0], None if historic_fields['resolution'] is None else historic_fields['resolution'][1])
          assert resolution_tag is not None
          append_desc_item(soup, issue_details,
-            'Status:',
+            issue_detail_field(website, file, 'Status', 'status'),
             resolution_tag
          )
          if 'security' in fields and fields['security'] is not None:
             append_desc_item(soup, issue_details,
-               'Security Level:',
+               issue_detail_field(website, file, 'Security Level', 'security'),
                render_field('security', fields['security'][0], fields['security'][1])
             )
          if 'customfield_11800' in fields and fields['customfield_11800'] is not None:
@@ -1085,17 +1090,17 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             )
          if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
             append_desc_item(soup, issue_details,
-               'Confirmation Status:',
+               issue_detail_field(website, file, 'Confirmation Status', 'customfield_10500'),
                render_field('customfield_10500', fields['customfield_10500'][0], fields['customfield_10500'][1])
             )
          if 'priority' in fields and fields['priority'] is not None:
             append_desc_item(soup, issue_details,
-               'Priority:',
+               issue_detail_field(website, file, 'Priority', 'priority'),
                render_field('priority', fields['priority'][0], fields['priority'][1])
             )
          if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
             append_desc_item(soup, issue_details,
-               'Mojang Priority:',
+               issue_detail_field(website, file, 'Mojang Priority', 'customfield_12200'),
                render_field('customfield_12200', fields['customfield_12200'][0], fields['customfield_12200'][1])
             )
          if 'customfield_11500' in fields and fields['customfield_11500'] is not None:
@@ -1105,44 +1110,44 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             )
          if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
             append_desc_item(soup, issue_details,
-               'Area:',
+               issue_detail_field(website, file, 'Area', 'customfield_12800'),
                render_field('customfield_12800', fields['customfield_12800'][0], fields['customfield_12800'][1])
             )
          if 'customfield_11901' in fields and fields['customfield_11901'] is not None and len(fields['customfield_11901']) > 0:
             category_list = render_field_list('customfield_11901', fields['customfield_11901'])
             append_desc_item(soup, issue_details,
-               'Category:',
+               issue_detail_field(website, file, 'Category', 'customfield_11901'),
                category_list
             )
          if 'components' in fields and len(fields['components']) > 0:
             component_list = render_field_list('components', fields['components'])
             append_desc_item(soup, issue_details,
-               'Component:',
+               issue_detail_field(website, file, 'Component', 'components'),
                component_list
             )
          if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
             append_desc_item(soup, issue_details,
-               'Game Mode:',
+               issue_detail_field(website, file, 'Game Mde:', 'fields'),
                render_field('customfield_10501', fields['customfield_10501'][0], fields['customfield_10501'][1])
             )
          if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
             append_desc_item(soup, issue_details,
-               'Platform:',
+               issue_detail_field(website, file, 'Platform', 'customfield_10402'),
                render_field('customfield_10402', fields['customfield_10402'][0], fields['customfield_10402'][1])
             )
          if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
             append_desc_item(soup, issue_details,
-               'Platform:',
+               issue_detail_field(website, file, 'Platform', 'customfield_12301'),
                render_field('customfield_12301', fields['customfield_12301'][0], fields['customfield_12301'][1])
             )
          if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
             append_desc_item(soup, issue_details,
-               'Platform:',
+               issue_detail_field(website, file, 'Platform', 'customfield_12400'),
                render_field('customfield_12400', fields['customfield_12400'][0], fields['customfield_12400'][1])
             )
          if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
             append_desc_item(soup, issue_details,
-               'Platform:',
+               issue_detail_field(website, file, 'Platform', 'customfield_12900'),
                render_field('customfield_12400', fields['customfield_12900'][0], fields['customfield_12900'][1])
             )
          if 'customfield_11300' in fields and fields['customfield_11300'] is not None:
@@ -1152,7 +1157,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             )
          if 'labels' in fields:
             append_desc_item(soup, issue_details,
-               'Labels:',
+               issue_detail_field(website, file, 'Labels', 'labels'),
                render_field_list('labels', fields['labels'])
             )
          if 'versions' in fields:
@@ -1570,18 +1575,22 @@ def build_link_section(soup: bs4.BeautifulSoup, link_types: dict[str, list[bs4.T
    ])
    return link_section
 
+def issue_detail_field(website: Website, file: HtmlFile, name: str, field_id: str) -> bs4.Tag:
+   link = relative_link(website.root, file.path, website.field_pages[field_id].page.path)
+   return new_content_tag(file.page.soup, 'a', name + ':', attrs={'href': link})
+
 def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    fields = issue['fields']
    soup = file.page.soup
    project = website.metas.projects[fields['project']]
    issue_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
    append_desc_item(soup, issue_details,
-      'Status:',
+      issue_detail_field(website, file, 'Status', 'resolution'),
       meta_link(website, file, 'resolution', fields['resolution'])
    )
    if 'security' in fields:
       append_desc_item(soup, issue_details,
-         'Security Level:',
+         issue_detail_field(website, file, 'Security Level', 'security'),
          field_link(website, file, 'security', fields['security']['id'])
       )
    append_desc_item(soup, issue_details,
@@ -1631,17 +1640,17 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
    )
    if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
       append_desc_item(soup, issue_details,
-         'Confirmation Status:',
+         issue_detail_field(website, file, 'Confirmation Status', 'customfield_10500'),
          field_link(website, file, 'customfield_10500', fields['customfield_10500']['id'])
       )
    if 'priority' in fields and fields['priority'] is not None:
       append_desc_item(soup, issue_details,
-         'Priority:',
+         issue_detail_field(website, file, 'Priority', 'priority'),
          field_link(website, file, 'priority', fields['priority']['id'])
       )
    if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
       append_desc_item(soup, issue_details,
-         'Mojang Priority:',
+         issue_detail_field(website, file, 'Mojang Priority', 'customfield_12200'),
          field_link(website, file, 'customfield_12200', fields['customfield_12200']['id'])
       )
    if 'customfield_11500' in fields and fields['customfield_11500'] is not None:
@@ -1651,44 +1660,44 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       )
    if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
       append_desc_item(soup, issue_details,
-         'Area:',
+         issue_detail_field(website, file, 'Area', 'customfield_12800'),
          field_link(website, file, 'customfield_12800', fields['customfield_12800']['id'])
       )
    if 'customfield_11901' in fields and fields['customfield_11901'] is not None:
       category_list = inline_list(soup, map(lambda x: field_link(website, file, 'customfield_11901', x['id']), fields['customfield_11901']))
       append_desc_item(soup, issue_details,
-         'Category:',
+         issue_detail_field(website, file, 'Category', 'customfield_11901'),
          category_list
       )
    if 'components' in fields and len(fields['components']) > 0:
       component_list = inline_list(soup, map(lambda x: field_link(website, file, 'components', x['id']), fields['components']))
       append_desc_item(soup, issue_details,
-         'Component:',
+         issue_detail_field(website, file, 'Component', 'components'),
          component_list
       )
    if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
       append_desc_item(soup, issue_details,
-         'Game Mode:',
+         issue_detail_field(website, file, 'Game Mode', 'customfield_10501'),
          field_link(website, file, 'customfield_10501', fields['customfield_10501']['id'])
       )
    if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
       append_desc_item(soup, issue_details,
-         'Platform:',
+         issue_detail_field(website, file, 'Platform', 'customfield_10402'),
          field_link(website, file, 'customfield_10402', fields['customfield_10402']['id'])
       )
    if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
       append_desc_item(soup, issue_details,
-         'Platform:',
+         issue_detail_field(website, file, 'Platform', 'customfield_12301'),
          field_link(website, file, 'customfield_12301', fields['customfield_12301']['id'])
       )
    if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
       append_desc_item(soup, issue_details,
-         'Platform:',
+         issue_detail_field(website, file, 'Platform', 'customfield_12400'),
          field_link(website, file, 'customfield_12400', fields['customfield_12400']['id'])
       )
    if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
       append_desc_item(soup, issue_details,
-         'Platform:',
+         issue_detail_field(website, file, 'Platform', 'customfield_12400'),
          field_link(website, file, 'customfield_12400', fields['customfield_12900']['id'])
       )
    if 'customfield_11300' in fields and fields['customfield_11300'] is not None:
@@ -1697,7 +1706,7 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
          fields['customfield_11300']
       )
    append_desc_item(soup, issue_details,
-      'Labels:',
+      issue_detail_field(website, file, 'Labels', 'labels'),
       inline_list(soup, map(lambda x: field_link(website, file, 'labels', x), fields['labels']))
    )
    if 'versions' in fields:
@@ -1767,7 +1776,7 @@ def project_link(website: Website, file: HtmlFile, project: Project) -> bs4.Tag:
          ], attrs={'class': 'project-avatar'}),
          key
       ], attrs={'class':'project-key'})
-   ], attrs={'href': relative_link(website.root, file.path, website.project_folder / key / 'index.html')})
+   ], attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].home.path)})
 
 def big_issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    cls = 'issue-link' if issue['fields']['resolution'] is None else 'issue-link issue-resolved'
@@ -1903,7 +1912,8 @@ def version_link(website: Website, file: HtmlFile, project: Project, version: Ve
    name = version['name']
    name = name.removeprefix('Minecraft ').removeprefix('Snapshot ')
    name = name.replace(' Pre-Release ', '-pre').replace(' Pre-release ', '-pre').replace(' Release Candidate ', '-rc')
-   return new_content_tag(file.page.soup, 'a', name, attrs={'class': 'status-badge', 'href': relative_link(website.root, file.path, website.project_folder / project['key'] / 'versions' / (urllib.parse.quote_plus(version['name']) + '.html'))})
+   link = relative_link(website.root, file.path, website.project_pages[project['id']].get_version_path(version))
+   return new_content_tag(file.page.soup, 'a', name, attrs={'class': 'status-badge', 'href': link})
 
 if __name__ == '__main__':
    main()
