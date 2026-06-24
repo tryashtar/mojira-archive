@@ -1,6 +1,6 @@
 import dataclasses
 import typing
-from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, Version
+from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, User, Version
 import mojira
 import relations
 import pathlib
@@ -44,6 +44,12 @@ class Website:
    relations: relations.RelationsBundle
    markup_source: markup.MarkupSource
    secret_comments: mojira.SecretComments
+
+   def get_issue_path(self, issue: Issue) -> pathlib.PurePath:
+      return self.issues_folder / (issue['key'] + '.html')
+
+   def get_user_path(self, user: User) -> pathlib.PurePath:
+      return self.users_folder / (urllib.parse.quote_plus(user['key']) + '.html')
 
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
@@ -454,10 +460,21 @@ def build_issue_body(soup: bs4.BeautifulSoup, desc: bs4.BeautifulSoup | None, en
       ]))
    return issue_body
 
+@dataclasses.dataclass
+class HistoryChangeValue:
+   id: str
+   name: str
+
+@dataclasses.dataclass
+class ProjectHistoryValue:
+   id: str
+   name: str
+   project: str
+
 class TrackedMultiSetRevision:
-   def __init__(self, name: str, field_id: str | None, creator: typing.Callable[[list[tuple[str, str, str]]], bs4.Tag], inline: bool):
-      self.added: list[tuple[str, str, str]] = []
-      self.removed: list[tuple[str, str, str]] = []
+   def __init__(self, name: str, field_id: str | None, creator: typing.Callable[[typing.Iterable[ProjectHistoryValue]], bs4.Tag], inline: bool):
+      self.added: list[ProjectHistoryValue] = []
+      self.removed: list[ProjectHistoryValue] = []
       self.name = name
       self.field_id = field_id
       self.creator = creator
@@ -466,10 +483,10 @@ class TrackedMultiSetRevision:
    def import_change(self, entry: RevisionChange, project_id: str):
       if entry['to'] is not None:
          assert entry['toString'] is not None
-         self.added.append((entry['to'], entry['toString'], project_id))
+         self.added.append(ProjectHistoryValue(entry['to'], entry['toString'], project_id))
       if entry['from'] is not None:
          assert entry['fromString'] is not None
-         self.removed.append((entry['from'], entry['fromString'], project_id))
+         self.removed.append(ProjectHistoryValue(entry['from'], entry['fromString'], project_id))
 
    def handle(self, website: Website, file: HtmlFile) -> typing.Generator[bs4.Tag]:
       soup = file.page.soup
@@ -493,8 +510,8 @@ class TrackedMultiSetRevision:
             yield contents
 
 class TrackedMultiValueRevision:
-   def __init__(self, name: str, field_id: str, splitter: typing.Callable[[str | None, str | None], list[tuple[str, str]]], creator: typing.Callable[[list[tuple[str, str]]], bs4.Tag]):
-      self.previous: list[tuple[str, str]] | None = None
+   def __init__(self, name: str, field_id: str, splitter: typing.Callable[[str | None, str | None], list[HistoryChangeValue]], creator: typing.Callable[[list[HistoryChangeValue]], bs4.Tag]):
+      self.previous: list[HistoryChangeValue] | None = None
       self.name = name
       self.field_id = field_id
       self.splitter = splitter
@@ -612,27 +629,27 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
 
    # revisions can include references to versions, attachments, issues, or fields that no longer exist
    # we still display them, just without full data or links
-   def render_version(project_id: str, version_id: str, version_name: str) -> bs4.Tag:
-      if project_id in website.metas.projects:
-         project = website.metas.projects[project_id]
-         if version_id in project['versions']:
-            return version_link(website, file, project, project['versions'][version_id])
-      return new_content_tag(file.page.soup, 'span', version_name, attrs={'class': 'status-badge'})
+   def render_version(version: ProjectHistoryValue) -> bs4.Tag:
+      if version.project in website.metas.projects:
+         project = website.metas.projects[version.project]
+         if version.id in project['versions']:
+            return version_link(website, file, project, project['versions'][version.id])
+      return new_content_tag(file.page.soup, 'span', version.name, attrs={'class': 'status-badge'})
 
-   def render_version_list(versions: list[tuple[str, str, str]]) -> bs4.Tag:
-      return inline_list(file.page.soup, map(lambda x: render_version(x[2], x[0], x[1]), versions))
+   def render_version_list(versions: typing.Iterable[ProjectHistoryValue]) -> bs4.Tag:
+      return inline_list(file.page.soup, map(render_version, versions))
 
-   def render_attach(attach_id: str, filename: str) -> bs4.Tag:
-      attachment = website.archive.get_attachment_data(attach_id)
+   def render_attach(attach: HistoryChangeValue) -> bs4.Tag:
+      attachment = website.archive.get_attachment_data(attach.id)
       if attachment is not None:
          return render_attachment(website, file, attachment, include_upload=False)
       broken = soup.new_tag('img', attrs={'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
-      return new_content_tag(soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, filename])
+      return new_content_tag(soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, attach.name])
 
-   def render_attach_list(attaches: list[tuple[str, str, str]]) -> bs4.Tag:
+   def render_attach_list(attaches: typing.Iterable[HistoryChangeValue]) -> bs4.Tag:
       return new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
          new_content_tag(soup, 'div', attrs={'class': 'attachments'}, content=list(
-            map(lambda x: render_attach(x[0], x[1]), attaches)
+            map(render_attach, attaches)
          ))
       ])
 
@@ -648,53 +665,53 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    def get_link_dir(full_str: str, issue_key: str) -> str:
       return full_str[len('This issue '):-(len(issue_key) + 1)]
 
-   def render_link_list(links: list[tuple[str, str, str]]) -> bs4.Tag:
+   def render_link_list(links: typing.Iterable[HistoryChangeValue]) -> bs4.Tag:
       link_dict: dict[str, list[bs4.Tag]] = {}
-      for ticket, full, _prj in links:
-         link_dir = get_link_dir(full, ticket)
+      for link in links:
+         link_dir = get_link_dir(link.id, link.name)
          if link_dir not in link_dict:
             link_dict[link_dir] = []
-         link_dict[link_dir].append(render_link(ticket))
+         link_dict[link_dir].append(render_link(link.name))
       result = soup.new_tag('blockquote', attrs={'class': 'history-quote'})
       for dir, tags in link_dict.items():
          result.append(new_content_tag(soup, 'p', dir))
          result.extend(tags)
       return result
 
-   def render_field(field_id: str, value_id: str, value_text: str) -> bs4.Tag:
-      if value_id in website.relations.fields.fields[field_id]:
-         return field_link(website, file, field_id, value_id)
+   def render_field(field_id: str, value: HistoryChangeValue) -> bs4.Tag:
+      if value.id in website.relations.fields.fields[field_id]:
+         return field_link(website, file, field_id, value.id)
       else:
-         return new_content_tag(file.page.soup, 'span', value_text, attrs={'class': 'status-badge'})
+         return new_content_tag(file.page.soup, 'span', value.name, attrs={'class': 'status-badge'})
 
-   def render_field_list(field_id: str, values: list[tuple[str, str]]) -> bs4.Tag:
-      return inline_list(file.page.soup, map(lambda x: render_field(field_id, x[0], x[1]), values))
+   def render_field_list(field_id: str, values: typing.Iterable[HistoryChangeValue]) -> bs4.Tag:
+      return inline_list(file.page.soup, map(lambda x: render_field(field_id, x), values))
 
-   def label_splitter(source: str | None, string: str | None) -> list[tuple[str, str]]:
+   def label_splitter(source: str | None, string: str | None) -> list[HistoryChangeValue]:
       assert source is None
       assert string is not None
       if string == '':
          return []
-      return [(x, x) for x in string.split(' ')]
+      return [HistoryChangeValue(x, x) for x in string.split(' ')]
 
-   def category_splitter(source: str | None, string: str | None) -> list[tuple[str, str]]:
+   def category_splitter(source: str | None, string: str | None) -> list[HistoryChangeValue]:
       if source is None or string is None or source == '' or string == '':
          return []
       source = source.removeprefix('[').removesuffix(']')
       source_list = source.split(', ')
       string_list = string.split(',')
       assert len(source_list) == len(string_list)
-      return list(zip(source_list, string_list))
+      return list(map(lambda x: HistoryChangeValue(x[0], x[1]), zip(source_list, string_list)))
 
    def handle_field(revision: RevisionChange, label: str, field_id: str) -> typing.Iterator[bs4.Tag]:
       if revision['from'] is not None:
          assert revision['fromString'] is not None
-         old_tag = render_field(field_id, revision['from'], revision['fromString'])
+         old_tag = render_field(field_id, HistoryChangeValue(revision['from'], revision['fromString']))
       else:
          old_tag = None
       if revision['to'] is not None:
          assert revision['toString'] is not None
-         new_tag = render_field(field_id, revision['to'], revision['toString'])
+         new_tag = render_field(field_id, HistoryChangeValue(revision['to'], revision['toString']))
       else:
          new_tag = None
       link = new_content_tag(soup, 'a', label, attrs={'href': relative_link(website.root, file.path, website.field_pages[field_id].page.path)})
@@ -735,38 +752,38 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       return revision_html_diff(soup, label, before_tag, after_tag, 'diff-panel-side')
 
    HistoricFields = typing.TypedDict('HistoricFields', {
-      'labels': typing.NotRequired[list[tuple[str, str]]],
-      'customfield_11901': typing.NotRequired[list[tuple[str, str]] | None],
-      'issuelinks': list[tuple[str, str]],
-      'attachments': list[tuple[str, str]],
-      'components': list[tuple[str, str]],
-      'versions': list[tuple[str, str, str]],
-      'fixVersions': list[tuple[str, str, str]],
-      'customfield_10500': typing.NotRequired[tuple[str, str] | None],
-      'customfield_12800': typing.NotRequired[tuple[str, str] | None],
-      'customfield_10501': typing.NotRequired[tuple[str, str] | None],
-      'customfield_10402': typing.NotRequired[tuple[str, str] | None],
-      'customfield_12301': typing.NotRequired[tuple[str, str] | None],
-      'customfield_12400': typing.NotRequired[tuple[str, str] | None],
-      'customfield_12900': typing.NotRequired[tuple[str, str] | None],
-      'customfield_12200': typing.NotRequired[tuple[str, str] | None],
-      'priority': typing.NotRequired[tuple[str, str] | None],
-      'security': typing.NotRequired[tuple[str, str] | None],
-      'resolution': typing.NotRequired[tuple[str, str] | None],
+      'labels': typing.NotRequired[list[HistoryChangeValue]],
+      'customfield_11901': typing.NotRequired[list[HistoryChangeValue] | None],
+      'issuelinks': list[HistoryChangeValue],
+      'attachments': list[HistoryChangeValue],
+      'components': list[HistoryChangeValue],
+      'versions': list[ProjectHistoryValue],
+      'fixVersions': list[ProjectHistoryValue],
+      'customfield_10500': typing.NotRequired[HistoryChangeValue | None],
+      'customfield_12800': typing.NotRequired[HistoryChangeValue | None],
+      'customfield_10501': typing.NotRequired[HistoryChangeValue | None],
+      'customfield_10402': typing.NotRequired[HistoryChangeValue | None],
+      'customfield_12301': typing.NotRequired[HistoryChangeValue | None],
+      'customfield_12400': typing.NotRequired[HistoryChangeValue | None],
+      'customfield_12900': typing.NotRequired[HistoryChangeValue | None],
+      'customfield_12200': typing.NotRequired[HistoryChangeValue | None],
+      'priority': typing.NotRequired[HistoryChangeValue | None],
+      'security': typing.NotRequired[HistoryChangeValue | None],
+      'resolution': typing.NotRequired[HistoryChangeValue | None],
       'customfield_11500': typing.NotRequired[str | None],
       'customfield_11801': typing.NotRequired[str | None],
       'customfield_11802': typing.NotRequired[str | None],
       'customfield_11800': typing.NotRequired[str | None],
       'customfield_11300': typing.NotRequired[str | None],
       'customfield_12201': typing.NotRequired[str | None],
-      'assignee': typing.NotRequired[tuple[str, str] | None],
-      'reporter': typing.NotRequired[tuple[str, str] | None],
+      'assignee': typing.NotRequired[HistoryChangeValue | None],
+      'reporter': typing.NotRequired[HistoryChangeValue | None],
       'key': typing.NotRequired[str],
       'summary': typing.NotRequired[str],
       'project': str,
    })
 
-   def to_historic_link(link: IssueLink) -> tuple[str, str]:
+   def to_historic_link(link: IssueLink) -> HistoryChangeValue:
       link_type = website.metas.link_types[link['type']]
       if 'inwardIssue' in link:
          dir = link_type['inward']
@@ -776,19 +793,19 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          dir = link_type['outward']
          issue_data = website.archive.get_issue_data(link['outwardIssue'])
       assert issue_data is not None
-      return (issue_data['key'], f'This issue {dir} {issue_data['key']}')
+      return HistoryChangeValue(issue_data['key'], f'This issue {dir} {issue_data['key']}')
 
-   def to_historic_attachment(attach_id: str) -> tuple[str, str]:
+   def to_historic_attachment(attach_id: str) -> HistoryChangeValue:
       attach_data = website.archive.get_attachment_data(attach_id)
       assert attach_data is not None
-      return (attach_id, attach_data['filename'])
+      return HistoryChangeValue(attach_id, attach_data['filename'])
 
-   def to_historic_version(version_id: str) -> tuple[str, str, str]:
+   def to_historic_version(version_id: str) -> ProjectHistoryValue:
       project = website.metas.projects[issue['fields']['project']]
       version_data = project['versions'][version_id]
-      return (version_id, version_data['name'], issue['fields']['project'])
+      return ProjectHistoryValue(version_id, version_data['name'], issue['fields']['project'])
 
-   def revision_order_key(change: RevisionChange) -> int:
+   def backwards_revision_order_key(change: RevisionChange) -> int:
       if change['field'] == 'Key':
          return 0
       if change['field'] in ('Version', 'Fix Version'):
@@ -797,7 +814,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          return 2
       return 4
 
-   def reverse_revision_order_key(change: RevisionChange) -> int:
+   def forwards_revision_order_key(change: RevisionChange) -> int:
       if change['field'] == 'Key':
          return 0
       if change['field'] in ('Version', 'Fix Version'):
@@ -810,7 +827,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       historic_fields: HistoricFields = {
          'issuelinks': [to_historic_link(x) for x in issue['fields']['issuelinks']],
          'attachments': [to_historic_attachment(x) for x in issue['fields']['attachment']],
-         'components': [(x['id'], x['name']) for x in issue['fields']['components']] if 'components' in issue['fields'] else [],
+         'components': [HistoryChangeValue(x['id'], x['name']) for x in issue['fields']['components']] if 'components' in issue['fields'] else [],
          'versions': [to_historic_version(x) for x in issue['fields']['versions']] if 'versions' in issue['fields'] else [],
          'fixVersions': [to_historic_version(x) for x in issue['fields']['fixVersions']] if 'fixVersions' in issue['fields'] else [],
          'project': issue['fields']['project']
@@ -832,77 +849,77 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                         historic_fields['customfield_10500'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_10500'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_10500'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Area':
                   if 'customfield_12800' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['customfield_12800'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_12800'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_12800'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Game Mode':
                   if 'customfield_10501' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['customfield_10501'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_10501'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_10501'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Platform' | 'Device':
                   if 'customfield_10402' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['customfield_10402'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_10402'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_10402'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Realms Platform':
                   if 'customfield_12301' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['customfield_12301'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_12301'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_12301'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Dungeons Platform':
                   if 'customfield_12400' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['customfield_12400'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_12400'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_12400'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Legends Platform':
                   if 'customfield_12900' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['customfield_12900'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_12900'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_12900'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Mojang Priority':
                   if 'customfield_12200' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['customfield_12200'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['customfield_12200'] = (change['from'], change['fromString'])
+                        historic_fields['customfield_12200'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'priority':
                   if 'priority' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['priority'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['priority'] = (change['from'], change['fromString'])
+                        historic_fields['priority'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'security':
                   if 'security' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['security'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['security'] = (change['from'], change['fromString'])
+                        historic_fields['security'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'resolution':
                   if 'resolution' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['resolution'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['resolution'] = (change['from'], change['fromString'])
+                        historic_fields['resolution'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'ADO' | 'VSO':
                   if 'customfield_11500' not in historic_fields:
                      historic_fields['customfield_11500'] = change['fromString']
@@ -927,14 +944,14 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                         historic_fields['assignee'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['assignee'] = (change['from'], change['fromString'])
+                        historic_fields['assignee'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'reporter':
                   if 'reporter' not in historic_fields:
                      if change['from'] is None:
                         historic_fields['reporter'] = None
                      else:
                         assert change['fromString'] is not None
-                        historic_fields['reporter'] = (change['from'], change['fromString'])
+                        historic_fields['reporter'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'Key':
                   if 'key' not in historic_fields:
                      assert change['fromString'] is not None
@@ -952,7 +969,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                case _:
                   pass
       for revision in reversed(revisions):
-         for change in reversed(sorted(revision['items'], key=revision_order_key)):
+         for change in reversed(sorted(revision['items'], key=backwards_revision_order_key)):
             match change['field']:
                case 'project' | 'Project':
                   assert change['from'] is not None
@@ -961,82 +978,82 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   if change['to'] is not None:
                      assert change['from'] is None
                      assert change['toString'] is not None
-                     historic_fields['issuelinks'][:] = [(key, msg) for (key, msg) in historic_fields['issuelinks'] if key != change['to'] and msg != change['toString']]
+                     historic_fields['issuelinks'][:] = [x for x in historic_fields['issuelinks'] if x.id != change['to'] and x.name != change['toString']]
                   elif change['from'] is not None:
                      assert change['to'] is None
                      assert change['fromString'] is not None
-                     historic_fields['issuelinks'].append((change['from'], change['fromString']))
+                     historic_fields['issuelinks'].append(HistoryChangeValue(change['from'], change['fromString']))
                case 'Attachment':
                   if change['to'] is not None:
                      assert change['from'] is None
                      assert change['toString'] is not None
-                     historic_fields['attachments'][:] = [x for x in historic_fields['attachments'] if x[0] != change['to']]
+                     historic_fields['attachments'][:] = [x for x in historic_fields['attachments'] if x.id != change['to']]
                   elif change['from'] is not None:
                      assert change['to'] is None
                      assert change['fromString'] is not None
-                     historic_fields['attachments'].append((change['from'], change['fromString']))
+                     historic_fields['attachments'].append(HistoryChangeValue(change['from'], change['fromString']))
                case 'Component':
                   if change['to'] is not None:
                      assert change['from'] is None
                      assert change['toString'] is not None
-                     historic_fields['components'][:] = [x for x in historic_fields['components'] if x[0] != change['to']]
+                     historic_fields['components'][:] = [x for x in historic_fields['components'] if x.id != change['to']]
                   elif change['from'] is not None:
                      assert change['to'] is None
                      assert change['fromString'] is not None
-                     historic_fields['components'].append((change['from'], change['fromString']))
+                     historic_fields['components'].append(HistoryChangeValue(change['from'], change['fromString']))
                case 'Version':
                   if change['to'] is not None:
                      assert change['from'] is None
                      assert change['toString'] is not None
-                     historic_fields['versions'][:] = [x for x in historic_fields['versions'] if x[0] != change['to']]
+                     historic_fields['versions'][:] = [x for x in historic_fields['versions'] if x.id != change['to']]
                   elif change['from'] is not None:
                      assert change['to'] is None
                      assert change['fromString'] is not None
-                     historic_fields['versions'].append((change['from'], change['fromString'], historic_fields['project']))
+                     historic_fields['versions'].append(ProjectHistoryValue(change['from'], change['fromString'], historic_fields['project']))
                case 'Fix Version':
                   if change['to'] is not None:
                      assert change['from'] is None
                      assert change['toString'] is not None
-                     historic_fields['fixVersions'][:] = [x for x in historic_fields['fixVersions'] if x[0] != change['to']]
+                     historic_fields['fixVersions'][:] = [x for x in historic_fields['fixVersions'] if x.id != change['to']]
                   elif change['from'] is not None:
                      assert change['to'] is None
                      assert change['fromString'] is not None
-                     historic_fields['fixVersions'].append((change['from'], change['fromString'], historic_fields['project']))
+                     historic_fields['fixVersions'].append(ProjectHistoryValue(change['from'], change['fromString'], historic_fields['project']))
                case _:
                   pass
       if 'labels' not in historic_fields:
-         historic_fields['labels'] = [(x, x) for x in issue['fields']['labels']]
+         historic_fields['labels'] = [HistoryChangeValue(x, x) for x in issue['fields']['labels']]
       if 'customfield_11901' not in historic_fields and 'customfield_11901' in issue['fields']:
          if issue['fields']['customfield_11901'] is None:
             historic_fields['customfield_11901'] = None
          else:
-            historic_fields['customfield_11901'] = [(x['id'], x['value']) for x in issue['fields']['customfield_11901']]
+            historic_fields['customfield_11901'] = [HistoryChangeValue(x['id'], x['value']) for x in issue['fields']['customfield_11901']]
       if 'customfield_10500' not in historic_fields and 'customfield_10500' in issue['fields']:
-         historic_fields['customfield_10500'] = None if issue['fields']['customfield_10500'] is None else (issue['fields']['customfield_10500']['id'], issue['fields']['customfield_10500']['value'])
+         historic_fields['customfield_10500'] = None if issue['fields']['customfield_10500'] is None else HistoryChangeValue(issue['fields']['customfield_10500']['id'], issue['fields']['customfield_10500']['value'])
       if 'customfield_12800' not in historic_fields and 'customfield_12800' in issue['fields']:
-         historic_fields['customfield_12800'] = None if issue['fields']['customfield_12800'] is None else (issue['fields']['customfield_12800']['id'], issue['fields']['customfield_12800']['value'])
+         historic_fields['customfield_12800'] = None if issue['fields']['customfield_12800'] is None else HistoryChangeValue(issue['fields']['customfield_12800']['id'], issue['fields']['customfield_12800']['value'])
       if 'customfield_10501' not in historic_fields and 'customfield_10501' in issue['fields']:
-         historic_fields['customfield_10501'] = None if issue['fields']['customfield_10501'] is None else (issue['fields']['customfield_10501']['id'], issue['fields']['customfield_10501']['value'])
+         historic_fields['customfield_10501'] = None if issue['fields']['customfield_10501'] is None else HistoryChangeValue(issue['fields']['customfield_10501']['id'], issue['fields']['customfield_10501']['value'])
       if 'customfield_10402' not in historic_fields and 'customfield_10402' in issue['fields']:
-         historic_fields['customfield_10402'] = None if issue['fields']['customfield_10402'] is None else (issue['fields']['customfield_10402']['id'], issue['fields']['customfield_10402']['value'])
+         historic_fields['customfield_10402'] = None if issue['fields']['customfield_10402'] is None else HistoryChangeValue(issue['fields']['customfield_10402']['id'], issue['fields']['customfield_10402']['value'])
       if 'customfield_12301' not in historic_fields and 'customfield_12301' in issue['fields']:
-         historic_fields['customfield_12301'] = None if issue['fields']['customfield_12301'] is None else (issue['fields']['customfield_12301']['id'], issue['fields']['customfield_12301']['value'])
+         historic_fields['customfield_12301'] = None if issue['fields']['customfield_12301'] is None else HistoryChangeValue(issue['fields']['customfield_12301']['id'], issue['fields']['customfield_12301']['value'])
       if 'customfield_12400' not in historic_fields and 'customfield_12400' in issue['fields']:
-         historic_fields['customfield_12400'] = None if issue['fields']['customfield_12400'] is None else (issue['fields']['customfield_12400']['id'], issue['fields']['customfield_12400']['value'])
+         historic_fields['customfield_12400'] = None if issue['fields']['customfield_12400'] is None else HistoryChangeValue(issue['fields']['customfield_12400']['id'], issue['fields']['customfield_12400']['value'])
       if 'customfield_12900' not in historic_fields and 'customfield_12900' in issue['fields']:
-         historic_fields['customfield_12900'] = None if issue['fields']['customfield_12900'] is None else (issue['fields']['customfield_12900']['id'], issue['fields']['customfield_12900']['value'])
+         historic_fields['customfield_12900'] = None if issue['fields']['customfield_12900'] is None else HistoryChangeValue(issue['fields']['customfield_12900']['id'], issue['fields']['customfield_12900']['value'])
       if 'customfield_12200' not in historic_fields and 'customfield_12200' in issue['fields']:
-         historic_fields['customfield_12200'] = None if issue['fields']['customfield_12200'] is None else (issue['fields']['customfield_12200']['id'], issue['fields']['customfield_12200']['value'])
+         historic_fields['customfield_12200'] = None if issue['fields']['customfield_12200'] is None else HistoryChangeValue(issue['fields']['customfield_12200']['id'], issue['fields']['customfield_12200']['value'])
       if 'priority' not in historic_fields and 'priority' in issue['fields']:
-         historic_fields['priority'] = None if issue['fields']['priority'] is None else (issue['fields']['priority']['id'], issue['fields']['priority']['name'])
+         historic_fields['priority'] = None if issue['fields']['priority'] is None else HistoryChangeValue(issue['fields']['priority']['id'], issue['fields']['priority']['name'])
       if 'security' not in historic_fields and 'security' in issue['fields']:
-         historic_fields['security'] = None if issue['fields']['security'] is None else (issue['fields']['security']['id'], issue['fields']['security']['name'])
+         historic_fields['security'] = None if issue['fields']['security'] is None else HistoryChangeValue(issue['fields']['security']['id'], issue['fields']['security']['name'])
       if 'resolution' not in historic_fields:
          if issue['fields']['resolution'] is None:
             historic_fields['resolution'] = None
          else:
             resolution = website.metas.resolutions[issue['fields']['resolution']]
-            historic_fields['resolution'] = (issue['fields']['resolution'], resolution['name'])
+            historic_fields['resolution'] = HistoryChangeValue(issue['fields']['resolution'], resolution['name'])
       if 'customfield_11500' not in historic_fields and 'customfield_11500' in issue['fields']:
          historic_fields['customfield_11500'] = issue['fields']['customfield_11500']
       if 'customfield_11801' not in historic_fields and 'customfield_11801' in issue['fields']:
@@ -1055,11 +1072,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          else:
             user_data = website.archive.get_user_data(issue['fields']['assignee'])
             assert user_data is not None
-            historic_fields['assignee'] = (issue['fields']['assignee'], user_data['displayName'])
+            historic_fields['assignee'] = HistoryChangeValue(issue['fields']['assignee'], user_data['displayName'])
       if 'reporter' not in historic_fields:
          user_data = website.archive.get_user_data(issue['fields']['reporter'])
          assert user_data is not None
-         historic_fields['reporter'] = (issue['fields']['reporter'], user_data['displayName'])
+         historic_fields['reporter'] = HistoryChangeValue(issue['fields']['reporter'], user_data['displayName'])
       if 'key' not in historic_fields:
          historic_fields['key'] = issue['key']
       if 'summary' not in historic_fields:
@@ -1067,7 +1084,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
 
       def render_historic_details(fields: HistoricFields) -> bs4.Tag:
          issue_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
-         resolution_tag = render_meta('resolution', None if historic_fields['resolution'] is None else historic_fields['resolution'][0], None if historic_fields['resolution'] is None else historic_fields['resolution'][1])
+         resolution_tag = render_meta('resolution', None if historic_fields['resolution'] is None else historic_fields['resolution'].id, None if historic_fields['resolution'] is None else historic_fields['resolution'].name)
          assert resolution_tag is not None
          append_desc_item(soup, issue_details,
             issue_detail_field(website, file, 'Status', 'status'),
@@ -1076,7 +1093,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          if 'security' in fields and fields['security'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Security Level', 'security'),
-               render_field('security', fields['security'][0], fields['security'][1])
+               render_field('security', fields['security'])
             )
          if 'customfield_11800' in fields and fields['customfield_11800'] is not None:
             append_desc_item(soup, issue_details,
@@ -1086,22 +1103,22 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          if 'assignee' in fields and fields['assignee'] is not None:
             append_desc_item(soup, issue_details,
                'Assignee:',
-               user_link(website, file, fields['assignee'][0])
+               user_link(website, file, fields['assignee'].id)
             )
          if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Confirmation Status', 'customfield_10500'),
-               render_field('customfield_10500', fields['customfield_10500'][0], fields['customfield_10500'][1])
+               render_field('customfield_10500', fields['customfield_10500'])
             )
          if 'priority' in fields and fields['priority'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Priority', 'priority'),
-               render_field('priority', fields['priority'][0], fields['priority'][1])
+               render_field('priority', fields['priority'])
             )
          if 'customfield_12200' in fields and fields['customfield_12200'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Mojang Priority', 'customfield_12200'),
-               render_field('customfield_12200', fields['customfield_12200'][0], fields['customfield_12200'][1])
+               render_field('customfield_12200', fields['customfield_12200'])
             )
          if 'customfield_11500' in fields and fields['customfield_11500'] is not None:
             append_desc_item(soup, issue_details,
@@ -1111,7 +1128,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          if 'customfield_12800' in fields and fields['customfield_12800'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Area', 'customfield_12800'),
-               render_field('customfield_12800', fields['customfield_12800'][0], fields['customfield_12800'][1])
+               render_field('customfield_12800', fields['customfield_12800'])
             )
          if 'customfield_11901' in fields and fields['customfield_11901'] is not None and len(fields['customfield_11901']) > 0:
             category_list = render_field_list('customfield_11901', fields['customfield_11901'])
@@ -1128,27 +1145,27 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          if 'customfield_10501' in fields and fields['customfield_10501'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Game Mde:', 'fields'),
-               render_field('customfield_10501', fields['customfield_10501'][0], fields['customfield_10501'][1])
+               render_field('customfield_10501', fields['customfield_10501'])
             )
          if 'customfield_10402' in fields and fields['customfield_10402'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Platform', 'customfield_10402'),
-               render_field('customfield_10402', fields['customfield_10402'][0], fields['customfield_10402'][1])
+               render_field('customfield_10402', fields['customfield_10402'])
             )
          if 'customfield_12301' in fields and fields['customfield_12301'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Platform', 'customfield_12301'),
-               render_field('customfield_12301', fields['customfield_12301'][0], fields['customfield_12301'][1])
+               render_field('customfield_12301', fields['customfield_12301'])
             )
          if 'customfield_12400' in fields and fields['customfield_12400'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Platform', 'customfield_12400'),
-               render_field('customfield_12400', fields['customfield_12400'][0], fields['customfield_12400'][1])
+               render_field('customfield_12400', fields['customfield_12400'])
             )
          if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Platform', 'customfield_12900'),
-               render_field('customfield_12400', fields['customfield_12900'][0], fields['customfield_12900'][1])
+               render_field('customfield_12400', fields['customfield_12900'])
             )
          if 'customfield_11300' in fields and fields['customfield_11300'] is not None:
             append_desc_item(soup, issue_details,
@@ -1177,23 +1194,23 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             )
          return issue_details
 
-      def render_historic_links(links: list[tuple[str, str]]) -> bs4.Tag | None:
+      def render_historic_links(links: typing.Iterable[HistoryChangeValue]) -> bs4.Tag | None:
          link_types: dict[str, list[bs4.Tag]] = {}
-         for ticket_key, full in links:
-            identity = get_link_dir(full, ticket_key)
+         for link in links:
+            identity = get_link_dir(link.name, link.id)
             if identity not in link_types:
                link_types[identity] = []
-            link_types[identity].append(render_link(ticket_key))
+            link_types[identity].append(render_link(link.id))
          if len(link_types) == 0:
             return None
          return build_link_section(soup, link_types)
 
-      def render_historic_attachments(attachments: list[tuple[str, str]]) -> bs4.Tag:
+      def render_historic_attachments(attachments: list[HistoryChangeValue]) -> bs4.Tag:
          attach_list: list[bs4.Tag] = []
-         for attach_id, filename in attachments:
-            attach_info = website.archive.get_attachment_data(attach_id)
+         for attach in attachments:
+            attach_info = website.archive.get_attachment_data(attach.id)
             assert attach_info is not None
-            attach_div = render_attach(attach_id, filename)
+            attach_div = render_attach(attach)
             attach_list.append(attach_div)
          return build_attachment_list(soup, len(attachments), attach_list)
 
@@ -1253,10 +1270,10 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       history_items: list[bs4.Tag] = []
       affected_versions = TrackedMultiSetRevision('Affects Versions', None, render_version_list, inline=True)
       fixed_versions = TrackedMultiSetRevision('Fixed Versions', None, render_version_list, inline=True)
-      attachments = TrackedMultiSetRevision('Attachments', None, render_attach_list, inline=False)
-      links = TrackedMultiSetRevision('Linked Issues', None, render_link_list, inline=False)
-      components = TrackedMultiSetRevision('Components', 'components', lambda x: render_field_list('components', [(y[0], y[1]) for y in x]), inline=False)
-      sorted_changes = sorted(entry.changes, key=lambda x: reverse_revision_order_key(x[1]))
+      attachments = TrackedMultiSetRevision('Attachments', None, lambda x: render_attach_list([HistoryChangeValue(y.id, y.name) for y in x]), inline=False)
+      links = TrackedMultiSetRevision('Linked Issues', None, lambda x: render_link_list([HistoryChangeValue(y.id, y.name) for y in x]), inline=False)
+      components = TrackedMultiSetRevision('Components', 'components', lambda x: render_field_list('components', [HistoryChangeValue(y.id, y.name) for y in x]), inline=False)
+      sorted_changes = sorted(entry.changes, key=lambda x: forwards_revision_order_key(x[1]))
       for rev_id, item in sorted_changes:
          new_tags: typing.Iterator[bs4.Tag] | None = None
          match item['field']:
