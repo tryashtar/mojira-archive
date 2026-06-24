@@ -7,6 +7,7 @@ import bs4.element
 import pathlib
 import urllib.parse
 import lxml.html.soupparser
+import lxml.etree
 import xmldiff.main
 import xmldiff.formatting
 
@@ -117,8 +118,25 @@ def html_to_text(soup: bs4.Tag) -> str:
    doc = '\n'.join(text)
    return doc
 
-CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i:04x}___' for i in list(range(32)) + [127]}
+CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i:04x}___' for i in list(range(32)) + [127] if i not in (9, 10, 13)}
 CONTROL_MAP_REV = {v: k for k, v in CONTROL_MAP.items()}
+
+def wrap_text_nodes(root: lxml.etree.Element):
+   for child in list(root):
+      wrap_text_nodes(child)
+   if not isinstance(root.tag, str):
+      return
+   if len(root) > 0 and root.text is not None and len(root.text.strip()) > 0:
+      span = lxml.etree.Element('span')
+      span.text = root.text
+      root.text = None
+      root.insert(0, span)
+   for child in list(root):
+      if child.tail is not None and len(child.tail.strip()) > 0:
+         span = lxml.etree.Element('span')
+         span.text = child.tail
+         child.tail = None
+         root.insert(root.index(child) + 1, span)
 
 def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.Tag:
    # xml throws if the tree has control characters
@@ -133,8 +151,11 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    after_xml = lxml.html.soupparser.convert_tree(
       new_content_tag(soup, 'html', new_content_tag(soup, 'body', after))
    )[0]
+   wrap_text_nodes(before_xml)
+   wrap_text_nodes(after_xml)
    diff = xmldiff.main.diff_trees(before_xml, after_xml,
-      diff_options={'fast_match': True}, # without fast_match, I tend to get lots of nodes moving around
+      # without fast_match, I tend to get lots of nodes moving around
+      diff_options={'fast_match': True},
       formatter=xmldiff.formatting.XMLFormatter()
    )
    # have to use lxml parser to expand self-closing XML tags that aren't valid HTML
