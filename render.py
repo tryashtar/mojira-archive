@@ -55,11 +55,13 @@ class Website:
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
    file.page.head.append(file.page.soup.new_tag('link', rel='icon', type='image/x-icon', href=relative_link(root, file.path, pathlib.PurePath('data/assets/favicon.ico'))))
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/misode-reset.css'))))
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/misode-style.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/misode-reset.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/misode-style.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('data/assets/mojira.css'))))
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/style.css'))))
-   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href':relative_link(root, file.path, pathlib.PurePath('web/jira-wiki.css'))}))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/diff.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/style.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href':relative_link(root, file.path, pathlib.PurePath('web/css/jira-wiki.css'))}))
+   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href':relative_link(root, file.path, pathlib.PurePath('web/css/wiki-tweaks.css'))}))
    file.page.head.append(file.page.soup.new_tag('script', src=relative_link(root, file.path, pathlib.PurePath('web/script.js'))))
    return file
 
@@ -105,7 +107,7 @@ def main():
          make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'issues.html', full_title),
          pathlib.PurePath('web/projects') / value['key'] / 'versions'
       )
-   for key in [*rels.fields.fields.keys(), *rels.fields.metas.keys()]:
+   for key in [*rels.fields.fields.keys(), 'resolution']:
       fname = field_name(metas, key)
       id_name = urllib.parse.quote_plus(fname)
       website.field_pages[key] = FieldPage(
@@ -115,8 +117,8 @@ def main():
 
    print('Rendering...')
    for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938', 'MCPE-166983', 'MCM-525']:
-      file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
-      save_file(website, file)
+      #file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
+      #save_file(website, file)
       print(test)
    make_home_page(website, website.home)
    save_file(website, website.home)
@@ -125,14 +127,23 @@ def main():
       project_page = website.project_pages[project_id]
       make_project_home_page(website, project_page.home, project)
       save_file(website, project_page.home)
+   for project_id, project in metas.projects.items():
+      print(project['key'])
+      project_page = website.project_pages[project_id]
       make_project_versions_page(website, project_page.versions, project)
       save_file(website, project_page.versions)
+   for project_id, project in metas.projects.items():
+      print(project['key'])
+      project_page = website.project_pages[project_id]
+      make_project_issues_page(website, project_page.issues, project)
+      save_file(website, project_page.issues)
+   for project_id, project in metas.projects.items():
+      print(project['key'])
+      project_page = website.project_pages[project_id]
       for version in project['versions'].values():
          print(version['name'])
          page = create_version_page(website, project, version)
          save_file(website, page)
-      make_project_issues_page(website, project_page.issues, project)
-      save_file(website, project_page.issues)
 
 def fix_markup(website: Website, file: HtmlFile, html: bs4.BeautifulSoup):
    # jira emits issue-link class, but misode uses that for linked issues
@@ -184,39 +195,45 @@ def make_home_page(website: Website, file: HtmlFile):
    file.page.body.append(content)
    file.page.body.append(make_generic_footer(website, file))
 
-   content.append(new_content_tag(soup, 'h1', 'Projects'))
+   home_main = soup.new_tag('div', attrs={'class': 'home-main'})
+   content.append(home_main)
+   home_main.append(new_content_tag(soup, 'h2', 'Projects'))
    table = render_projects_grid(website, file, sorted(website.metas.projects.values(), key=lambda x: len(website.relations.fields.metas['project'][x['id']]), reverse=True))
-   content.append(table)
-
-def render_project_title(soup: bs4.BeautifulSoup, website: Website, file: HtmlFile, project: Project):
-   return new_content_tag(soup, 'div', [
-      new_content_tag(soup, 'h1', [
-         new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.home.path)}),
-         ' / ',
-         project_link(website, file, project)
-      ])
-   ], attrs={'class': 'title'})
+   home_main.append(table)
+   home_main.append(new_content_tag(soup, 'h2', 'Fields'))
+   def relevant_tickets(field_id: str) -> int:
+      if field_id in website.relations.fields.fields:
+         return sum(len(x['issues']) for x in website.relations.fields.fields[field_id].values())
+      return sum(len(x) for x in website.relations.fields.metas[field_id].values())
+   table = render_fields_grid(website, file, sorted(website.field_pages.keys(), key=relevant_tickets, reverse=True))
+   home_main.append(table)
+   home_main.append(new_content_tag(soup, 'h2', 'User Groups'))
+   table = render_groups_grid(website, file, sorted(website.relations.user.groups.keys(), key=lambda x: len(website.relations.user.groups[x]), reverse=True))
+   home_main.append(table)
 
 def make_project_home_page(website: Website, file: HtmlFile, project: Project):
-   key = project['key']
+   soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   file.page.body.append(content)
+   file.page.body.append(make_generic_footer(website, file))
+
+   project_main = soup.new_tag('div', attrs={'class': 'project-main'})
+   content.append(project_main)
    project_name = project['name']
    soup = file.page.soup
-   content = soup.new_tag('div', attrs={'class': 'content'})
-   content.append(render_project_title(soup, website, file, project))
+   project_main.append(new_content_tag(soup, 'h1', project_link(website, file, project)))
+   project_main.append(new_content_tag(soup, 'h2', project_name))
    issues = website.relations.fields.metas['project'][project['id']]
    versions = project['versions']
-   fields = make_desc_list(soup)
-   append_desc_item(soup, fields, 'Name', project_name)
-   append_desc_item(soup, fields, 'Project Lead', user_link(website, file, project['lead']))
-   append_desc_item(soup, fields, 'Issues', new_content_tag(soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].issues.path)}))
-   append_desc_item(soup, fields, 'Versions', new_content_tag(soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)}))
-   append_desc_item(soup, fields, 'External Link', new_content_tag(soup, 'a', key, attrs={'href': f'https://bugs.mojang.com/projects/{key}/summary'}))
-   content.append(fields)
+   project_main.append(new_content_tag(soup, 'p', ['Project Lead: ', user_link(website, file, project['lead'])]))
+   project_main.append(new_content_tag(soup, 'p', ['Issues:', new_content_tag(soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].issues.path)})]))
+   project_main.append(new_content_tag(soup, 'p', ['Versions:', new_content_tag(soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)})]))
    if len(project['description']) > 0:
       desc = bs4.BeautifulSoup(project['description'], 'html.parser')
       desc = new_content_tag(soup, 'div', desc, attrs={'class': 'project-desc'})
-      content.append(desc)
-   file.page.body.append(content)
+      project_main.append(desc)
 
 def make_project_versions_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
@@ -267,6 +284,51 @@ def create_version_page(website: Website, project: Project, version: Version) ->
    file.page.body.append(content)
    return file
 
+def render_groups_grid(website: Website, file: HtmlFile, group_ids: typing.Iterable[str]) -> bs4.Tag:
+   soup = file.page.soup
+   entries: list[bs4.Tag] = []
+   for group_id in group_ids:
+      users = website.relations.user.groups[group_id]
+      link = relative_link(website.root, file.path, website.group_page.get_value_path(group_id))
+      content = [
+         new_content_tag(soup, 'a', attrs={'class': 'home-grid-name', 'href': link}, content=group_id),
+         f'{len(users)} users'
+      ]
+      entries.append(new_content_tag(soup, 'div', content=content))
+   return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
+
+def render_fields_grid(website: Website, file: HtmlFile, field_ids: typing.Iterable[str | mojira.META_TYPE]) -> bs4.Tag:
+   soup = file.page.soup
+   entries: list[bs4.Tag] = []
+   for field_id in field_ids:
+      name = field_name(website.metas, field_id)
+      link = relative_link(website.root, file.path, website.field_pages[field_id].page.path)
+      content: list[bs4.Tag | str] = [
+         new_content_tag(soup, 'a', attrs={'class': 'home-grid-name', 'href': link}, content=name),
+      ]
+      if field_id in website.relations.fields.fields:
+         values = website.relations.fields.fields[field_id].values()
+         def transform_field(value: relations.FieldRelation):
+            return field_link(website, file, field_id, value['value'] if isinstance(value['value'], str) else value['value']['id'])
+         if len(values) > 15:
+            content.append(f'{len(values)} values')
+         else:
+            tags = inline_list(soup, map(transform_field, sorted(values, key=lambda x: len(x['issues']), reverse=True)))
+            content.append(tags)
+      else:
+         meta_id = typing.cast(mojira.META_TYPE, field_id)
+         values = [None] + [x['id'] for x in website.metas.metas[meta_id].values()]
+         def transform_meta(value: str | None):
+            meta_id = typing.cast(mojira.META_TYPE, field_id)
+            return meta_link(website, file, meta_id, value)
+         if len(values) > 15:
+            content.append(f'{len(values)} values')
+         else:
+            tags = inline_list(soup, map(transform_meta, sorted(values, key=lambda x: len(website.relations.fields.metas[meta_id]['' if x is None else x]), reverse=True)))
+            content.append(tags)
+      entries.append(new_content_tag(soup, 'div', content=content))
+   return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
+
 def render_projects_grid(website: Website, file: HtmlFile, projects: typing.Iterable[Project]) -> bs4.Tag:
    soup = file.page.soup
    entries: list[bs4.Tag] = []
@@ -274,13 +336,15 @@ def render_projects_grid(website: Website, file: HtmlFile, projects: typing.Iter
       issues = website.relations.fields.metas['project'][project['id']]
       versions = project['versions']
       project_key = project_link(website, file, project)
-      entries.append(new_content_tag(soup, 'div', attrs={'class': 'project-grid-entry'}, content=[
+      content = [
          project_key,
-         new_content_tag(soup, 'span', attrs={'class': 'project-grid-name'}, content=project['name']),
+         new_content_tag(soup, 'span', attrs={'class': 'home-grid-name'}, content=project['name']),
          new_content_tag(file.page.soup, 'a', f'{len(issues)} issues', attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].issues.path)}),
-         new_content_tag(file.page.soup, 'a', f'{len(versions)} versions', attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)}),
-      ]))
-   return new_content_tag(soup, 'div', attrs={'class': 'project-grid'}, content=entries)
+      ]
+      if len(versions) > 0:
+         content.append(new_content_tag(file.page.soup, 'a', f'{len(versions)} versions', attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)}))
+      entries.append(new_content_tag(soup, 'div', content=content))
+   return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
 
 def render_versions_table(website: Website, file: HtmlFile, project: Project, versions: typing.Iterable[Version]) -> bs4.Tag:
    table = make_table(file.page.soup, ['Name', 'Description', 'Date', 'Affected Issues', 'Fixed Issues'])
@@ -410,6 +474,8 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
             'History',
             new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(issue['changelog']['histories'])))
          ]),
+         soup.new_tag('input', attrs={'type': 'checkbox', 'name': 'issue-order', 'id': 'issue-tab-order'}),
+         new_content_tag(soup, 'label', attrs={'for': 'issue-tab-order'}, content=''),
          tabbed_content
       ])
    )
@@ -556,7 +622,7 @@ def revision_change(soup: bs4.BeautifulSoup, label: str | bs4.Tag, old_tag: bs4.
          new_tag
       ])
 
-def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, panel_class: str) -> typing.Generator[bs4.Tag]:
+def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, process: typing.Callable[[bs4.Tag], bs4.Tag], panel_class: str) -> typing.Generator[bs4.Tag]:
    if before is not None and after is not None:
       diff = html_diff(soup, before, after)
       has_insertions = diff.find('diff:insert') is not None or diff.find(attrs={'diff:insert': True})
@@ -574,20 +640,20 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
             tag.extract()
          yield new_content_tag(soup, 'p', f'Changed {label}: ', attrs={'class': 'history-label'})
          yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
-               new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[before_diff, after_diff])
+            new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[process(before_diff), process(after_diff)])
             ])
       elif has_insertions:
          yield new_content_tag(soup, 'p', f'Changed {label}: ', attrs={'class': 'history-label'})
-         yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
+         yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=process(diff))
       elif has_deletions:
          yield new_content_tag(soup, 'p', f'Changed {label}: ', attrs={'class': 'history-label'})
-         yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=diff)
+         yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=process(diff))
    elif before is not None and after is None:
       yield new_content_tag(soup, 'p', f'Removed {label}: ', attrs={'class': 'history-label'})
-      yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=before)
+      yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=process(before))
    elif after is not None and before is None:
       yield new_content_tag(soup, 'p', f'Added {label}: ', attrs={'class': 'history-label'})
-      yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=after)
+      yield new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=process(after))
 
 @dataclasses.dataclass
 class MergedRevision:
@@ -739,15 +805,21 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    def handle_large_diff(before: bs4.BeautifulSoup | None, after: bs4.BeautifulSoup | None, label: str) -> typing.Iterator[bs4.Tag]:
       if before is not None:
          fix_markup(website, file, before)
-         before_tag = embed_wiki(website, file, before)
+         before_tag = before
       else:
          before_tag = None
       if after is not None:
          fix_markup(website, file, after)
-         after_tag = embed_wiki(website, file, after)
+         after_tag = after
       else:
          after_tag = None
-      return revision_html_diff(soup, label, before_tag, after_tag, 'diff-panel-side')
+      def process(tag: bs4.Tag) -> bs4.Tag:
+         wiki =  embed_wiki(website, file, tag)
+         template = wiki.find('template')
+         assert template is not None
+         template.insert(0, file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
+         return wiki
+      return revision_html_diff(soup, label, before_tag, after_tag, process, 'diff-panel-side')
 
    HistoricFields = typing.TypedDict('HistoricFields', {
       'labels': typing.NotRequired[list[HistoryChangeValue]],
@@ -1369,7 +1441,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['toString'] is not None
                before = new_content_tag(soup, 'span', item['fromString'])
                after = new_content_tag(soup, 'span', item['toString'])
-               new_tags = revision_html_diff(soup, 'Summary', before, after, 'diff-panel-top')
+               new_tags = revision_html_diff(soup, 'Summary', before, after, lambda x: x, 'diff-panel-top')
             case 'description': # source always null, string either null or text
                before, after = website.markup_source.get_issue_description_revision(issue['id'], rev_id)
                new_tags = handle_large_diff(before, after, 'Description')
@@ -1511,11 +1583,12 @@ def render_issue_comments(website: Website, file: HtmlFile, comments: list[Rende
       comments_list.append(comment_div)
    return new_content_tag(soup, 'div', attrs={'class': 'issue-comment-section'}, content=comments_list)
 
-def embed_wiki(website: Website, file: HtmlFile, wiki: bs4.BeautifulSoup) -> bs4.Tag:
+def embed_wiki(website: Website, file: HtmlFile, wiki: bs4.Tag) -> bs4.Tag:
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'jira-wiki'}, content=[
       new_content_tag(file.page.soup, 'template', attrs={'shadowrootmode': 'open'}, content=[
-         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/jira-wiki.css'))),
+         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/jira-wiki.css'))),
          file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('data/assets/mojira.css'))),
+         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/wiki-tweaks.css'))),
          new_content_tag(file.page.soup, 'div', wiki)
       ])
    ])
@@ -1879,7 +1952,7 @@ def mojang_priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Ta
    return img
 
 def priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
-   prio = {'Low': 'trivial', 'Normal': 'minor', 'Important': 'major', 'Blocker': 'blocker', 'Critical': 'critical'}[value]
+   prio = {'Low': 'trivial', 'Normal': 'minor', 'Important': 'major', 'Blocker': 'blocker', 'Critical': 'critical', 'Minor': 'minor'}[value]
    img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / f'data/assets/images/icons/priorities/{prio}.svg'))})
    return img
 
