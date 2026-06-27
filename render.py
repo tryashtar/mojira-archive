@@ -59,6 +59,7 @@ def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> Ht
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/misode-style.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('data/assets/mojira.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/style.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href':relative_link(root, file.path, pathlib.PurePath('web/jira-wiki.css'))}))
    file.page.head.append(file.page.soup.new_tag('script', src=relative_link(root, file.path, pathlib.PurePath('web/script.js'))))
    return file
 
@@ -113,6 +114,10 @@ def main():
       )
 
    print('Rendering...')
+   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938', 'MCPE-166983', 'MCM-525']:
+      file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
+      save_file(website, file)
+      print(test)
    make_home_page(website, website.home)
    save_file(website, website.home)
    for project_id, project in metas.projects.items():
@@ -348,11 +353,13 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    if fields['description'] is not None:
       desc = website.markup_source.get_issue_description(issue['id'])
       fix_markup(website, file, desc)
+      desc = embed_wiki(website, file, desc)
    else:
       desc = None
    if 'environment' in fields and fields['environment'] is not None:
       env = website.markup_source.get_issue_environment(issue['id'])
       fix_markup(website, file, env)
+      env = embed_wiki(website, file, env)
    else:
       env = None
    if 'customfield_11801' in fields and fields['customfield_11801'] is not None:
@@ -412,7 +419,7 @@ def render_issue_top(website: Website, file: HtmlFile, key: str, summary: str) -
    soup = file.page.soup
    return new_content_tag(soup, 'div', attrs={'class': 'issue-top'}, content=[
       new_content_tag(soup, 'div', attrs={'class': 'issue-title'}, content=[
-         new_content_tag(soup, 'div', attrs={'class': 'issue-key', 'data-copy': key}, content=[
+         new_content_tag(soup, 'div', attrs={'class': 'issue-key'}, content=[
             bug_icon(website, file),
             new_content_tag(soup, 'span', key)
          ]),
@@ -433,19 +440,17 @@ def build_issue_content(soup: bs4.BeautifulSoup, top: bs4.Tag, body: bs4.Tag, de
       body.append(attachments)
    return issue_div
 
-def build_issue_body(soup: bs4.BeautifulSoup, desc: bs4.BeautifulSoup | None, env: bs4.BeautifulSoup | None, impact: str | None) -> bs4.Tag:
+def build_issue_body(soup: bs4.BeautifulSoup, desc: bs4.Tag | None, env: bs4.Tag | None, impact: str | None) -> bs4.Tag:
    issue_body = soup.new_tag('main', attrs={'class': 'issue-body'})
    if desc is not None:
-      issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-description'}, content=[
-         new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=desc)
-      ]))
+      issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-description'}, content=desc))
    if env is not None:
-      issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-environment-section issue-body'}, content=[
+      issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-environment-section'}, content=[
          new_content_tag(soup, 'h2', 'Environment'),
-         new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=env)
+         env
       ]))
    if impact is not None:
-      issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-impact-section issue-body'}, content=[
+      issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-impact-section'}, content=[
          new_content_tag(soup, 'h2', 'Impact'),
          new_content_tag(soup, 'p', content=impact)
       ]))
@@ -734,12 +739,12 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    def handle_large_diff(before: bs4.BeautifulSoup | None, after: bs4.BeautifulSoup | None, label: str) -> typing.Iterator[bs4.Tag]:
       if before is not None:
          fix_markup(website, file, before)
-         before_tag = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=before)
+         before_tag = embed_wiki(website, file, before)
       else:
          before_tag = None
       if after is not None:
          fix_markup(website, file, after)
-         after_tag = new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=after)
+         after_tag = embed_wiki(website, file, after)
       else:
          after_tag = None
       return revision_html_diff(soup, label, before_tag, after_tag, 'diff-panel-side')
@@ -1216,6 +1221,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          desc = None
       if desc is not None:
          fix_markup(website, file, desc)
+         desc = embed_wiki(website, file, desc)
       if environment_revision is not None:
          env = website.markup_source.get_issue_environment_revision(issue['id'], environment_revision)[0]
       elif 'environment' in issue['fields'] and issue['fields']['environment'] is not None:
@@ -1224,6 +1230,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          env = None
       if env is not None:
          fix_markup(website, file, env)
+         env = embed_wiki(website, file, env)
       if 'customfield_11801' in historic_fields:
          impact = historic_fields['customfield_11801']
       else:
@@ -1378,7 +1385,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                   new_tags = iter([
                      new_content_tag(soup, 'p', 'Deleted Comment: ', attrs={'class': 'history-label'}),
                      new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=[
-                           new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=comment)
+                           embed_wiki(website, file, comment)
                         ])
                   ])
             case 'project' | 'Project':
@@ -1423,7 +1430,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             ]),
             new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=history_items)
          ]))
-   return new_content_tag(soup, 'div', attrs={'class': 'issue-history-section issue-body'}, content=revisions_list)
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-history-section'}, content=revisions_list)
 
 def comment_author(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
    user_tag = user_link(website, file, user_key)
@@ -1499,10 +1506,19 @@ def render_issue_comments(website: Website, file: HtmlFile, comments: list[Rende
          comment_authorship(website, file, entry.comment, entry.secret)
       ])
       comment_div.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
-         new_content_tag(soup, 'div', attrs={'class': 'adf'}, content=entry.rendered_body)
+         embed_wiki(website, file, entry.rendered_body)
       ]))
       comments_list.append(comment_div)
-   return new_content_tag(soup, 'div', attrs={'class': 'issue-comment-section issue-body'}, content=comments_list)
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-comment-section'}, content=comments_list)
+
+def embed_wiki(website: Website, file: HtmlFile, wiki: bs4.BeautifulSoup) -> bs4.Tag:
+   return new_content_tag(file.page.soup, 'div', attrs={'class': 'jira-wiki'}, content=[
+      new_content_tag(file.page.soup, 'template', attrs={'shadowrootmode': 'open'}, content=[
+         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/jira-wiki.css'))),
+         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('data/assets/mojira.css'))),
+         new_content_tag(file.page.soup, 'div', wiki)
+      ])
+   ])
 
 def render_attachment(website: Website, file: HtmlFile, attachment: Attachment, include_upload: bool) -> bs4.Tag:
    soup = file.page.soup
@@ -1537,7 +1553,7 @@ def render_issue_attachments(website: Website, file: HtmlFile, attachments: list
    return build_attachment_list(soup, len(attachments), attach_list)
 
 def build_attachment_list(soup: bs4.BeautifulSoup, count: int, attachments: list[bs4.Tag]) -> bs4.Tag:
-   return new_content_tag(soup, 'details', attrs={'class': 'issue-body', 'open': ''}, content=[
+   return new_content_tag(soup, 'details', attrs={'open': '', 'class': 'issue-attachment-section'}, content=[
       new_content_tag(soup, 'summary', [
          new_content_tag(soup, 'h2', content=[
             'Attachments',
@@ -1574,23 +1590,23 @@ def build_link_section(soup: bs4.BeautifulSoup, link_types: dict[str, list[bs4.T
       link_list: list[bs4.Tag] = []
       for linked_issue in issues:
          link_list.append(linked_issue)
-      link_block = new_content_tag(soup, 'details', attrs={'open': ''}, content=[
+      link_block = new_content_tag(soup, 'details', attrs={'open': '', 'class': 'issue-links-category'}, content=[
          new_content_tag(soup, 'summary', attrs={'class': 'issue-link-type'}, content=[
             new_content_tag(soup, 'h3', content=[
                link_desc,
                new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(issues)))
             ]),
          ]),
-         new_content_tag(soup, 'div', attrs={'class': 'issue-links-category'}, content=link_list)
+         new_content_tag(soup, 'div', content=link_list)
       ])
       link_lists.append(link_block)
-   link_section = new_content_tag(soup, 'details', attrs={'class': 'issue-body', 'open': ''}, content=[
+   link_section = new_content_tag(soup, 'details', attrs={'open': '', 'class': 'issue-link-section'}, content=[
       new_content_tag(soup, 'summary', [
          new_content_tag(soup, 'h2', content=[
             'Linked Issues'
          ])
       ]),
-      new_content_tag(soup, 'div', attrs={'class': 'issue-link-section issue-body'}, content=link_lists)
+      new_content_tag(soup, 'div', attrs={'class': 'issue-link-section'}, content=link_lists)
    ])
    return link_section
 
@@ -1804,12 +1820,8 @@ def project_link(website: Website, file: HtmlFile, project: Project) -> bs4.Tag:
    avatar_path = get_avatar_path(website.archive, website.archive.project_avatars_folder, avatar_url)
    assert avatar_path is not None
    img = file.page.soup.new_tag('img', attrs={'class': 'project-avatar', 'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, avatar_path))})
-   return new_content_tag(file.page.soup, 'a', [
-      new_content_tag(file.page.soup, 'span', [
-         img,
-         key
-      ], attrs={'class': 'project-key'})
-   ], attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].home.path)})
+   link = relative_link(website.root, file.path, website.project_pages[project['id']].home.path)
+   return new_content_tag(file.page.soup, 'a', [img, key], attrs={'class': 'project-key', 'href': link})
 
 def big_issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    cls = 'issue-link' if issue['fields']['resolution'] is None else 'issue-link issue-resolved'
