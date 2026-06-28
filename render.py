@@ -23,8 +23,8 @@ class FieldPage:
 
 @dataclasses.dataclass
 class ProjectPage:
-   home: HtmlFile
-   versions: HtmlFile
+   main: HtmlFile
+   versions: HtmlFile | None
    issues: HtmlFile
    versions_folder: pathlib.PurePath
 
@@ -103,7 +103,7 @@ def main():
       full_title = f'[{value['key']}] {value['name']}'
       website.project_pages[id] = ProjectPage(
          make_jira_file(root, pathlib.PurePath('web/projects') / (value['key'] + '.html'), full_title),
-         make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'versions.html', full_title),
+         make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'versions.html', full_title) if len(value['versions']) > 0 else None,
          make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'issues.html', full_title),
          pathlib.PurePath('web/projects') / value['key'] / 'versions'
       )
@@ -125,18 +125,19 @@ def main():
    for project_id, project in metas.projects.items():
       print(project['key'])
       project_page = website.project_pages[project_id]
-      make_project_home_page(website, project_page.home, project)
-      save_file(website, project_page.home)
-   for project_id, project in metas.projects.items():
-      print(project['key'])
-      project_page = website.project_pages[project_id]
-      make_project_versions_page(website, project_page.versions, project)
-      save_file(website, project_page.versions)
+      make_project_main_page(website, project_page.main, project)
+      save_file(website, project_page.main)
    for project_id, project in metas.projects.items():
       print(project['key'])
       project_page = website.project_pages[project_id]
       make_project_issues_page(website, project_page.issues, project)
       save_file(website, project_page.issues)
+   for project_id, project in metas.projects.items():
+      print(project['key'])
+      project_page = website.project_pages[project_id]
+      if project_page.versions is not None:
+         make_project_versions_page(website, project_page.versions, project)
+         save_file(website, project_page.versions)
    for project_id, project in metas.projects.items():
       print(project['key'])
       project_page = website.project_pages[project_id]
@@ -146,10 +147,6 @@ def main():
          save_file(website, page)
 
 def fix_markup(website: Website, file: HtmlFile, html: bs4.BeautifulSoup):
-   # jira emits issue-link class, but misode uses that for linked issues
-   # so we have to change it to inline-issue-link
-   for tag in html.find_all(class_='issue-link'):
-      tag.attrs['class'] = 'inline-issue-link'
    # our markup is generated with '.' as the site root, but otherwise normal jira paths
    # we detect and correct these to point to our own resources
    for tag in html.find_all(name='a', attrs={'href': True}):
@@ -211,29 +208,58 @@ def make_home_page(website: Website, file: HtmlFile):
    table = render_groups_grid(website, file, sorted(website.relations.user.groups.keys(), key=lambda x: len(website.relations.user.groups[x]), reverse=True))
    home_main.append(table)
 
-def make_project_home_page(website: Website, file: HtmlFile, project: Project):
+def make_project_main_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
+   project_page = website.project_pages[project['id']]
 
    file.page.body.append(make_generic_header(website, file))
    content = soup.new_tag('div', attrs={'class': 'content'})
    file.page.body.append(content)
    file.page.body.append(make_generic_footer(website, file))
 
-   project_main = soup.new_tag('div', attrs={'class': 'project-main'})
-   content.append(project_main)
-   project_name = project['name']
-   soup = file.page.soup
-   project_main.append(new_content_tag(soup, 'h1', project_link(website, file, project)))
-   project_main.append(new_content_tag(soup, 'h2', project_name))
-   issues = website.relations.fields.metas['project'][project['id']]
-   versions = project['versions']
-   project_main.append(new_content_tag(soup, 'p', ['Project Lead: ', user_link(website, file, project['lead'])]))
-   project_main.append(new_content_tag(soup, 'p', ['Issues:', new_content_tag(soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].issues.path)})]))
-   project_main.append(new_content_tag(soup, 'p', ['Versions:', new_content_tag(soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)})]))
+   project_top = render_generic_top(soup, project_link(website, file, project), project['name'])
    if len(project['description']) > 0:
       desc = bs4.BeautifulSoup(project['description'], 'html.parser')
       desc = new_content_tag(soup, 'div', desc, attrs={'class': 'project-desc'})
-      project_main.append(desc)
+      project_body = new_content_tag(soup, 'main', attrs={'class': 'issue-body'}, content=desc)
+   else:
+      project_body = new_content_tag(soup, 'main', attrs={'class': 'issue-body'}, content=[])
+   project_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
+   append_desc_item(soup, project_details,
+      'Project Lead:',
+      user_link(website, file, project['lead'])
+   )
+   issues = website.relations.fields.metas['project'][project['id']]
+   append_desc_item(soup, project_details,
+      'Issues:',
+      new_content_tag(soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, project_page.issues.path)})
+   )
+   versions = project['versions']
+   if project_page.versions is not None:
+      append_desc_item(soup, project_details,
+         'Versions:',
+         new_content_tag(soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, project_page.versions.path)})
+      )
+   data_link = relative_path(website.root, file.path, website.archive.folder / website.metas.projects_path)
+   portal_num = portal_number(project['key'])
+   link_content = [
+      new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': urllib.parse.quote(str(data_link))}, content='JSON')),
+      new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://bugs.mojang.com/browse/{project['key']}'}, content='bugs.mojang.com')),
+   ]
+   if portal_num is not None:
+      link_content.append(new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://report.bugs.mojang.com/servicedesk/customer/portal/{portal_num}'}, content='report.bugs.mojang.com')))
+   link_content.extend([
+      new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.atlassian.net/browse/{project['key']}'}, content='mojira.atlassian.net')),
+   ])
+   append_desc_item(soup, project_details,
+      'Links:',
+      new_content_tag(soup, 'ul', content=link_content)
+   )
+   project_div = build_issue_content(soup, project_top, project_body, project_details, None, None)
+   content.append(project_div)
+
+def portal_number(project_key: str) -> int | None:
+   return {'MCPE': 6, 'MC': 2, 'MCL': 7, 'REALMS': 9, 'WEB': 10, 'BDS': 4, 'MCM': 11}.get(project_key)
 
 def make_project_versions_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
@@ -245,11 +271,52 @@ def make_project_versions_page(website: Website, file: HtmlFile, project: Projec
 
 def make_project_issues_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
    content = soup.new_tag('div', attrs={'class': 'content'})
-   content.append(render_project_title(soup, website, file, project))
-   table = render_issues_table(website, file, website.relations.fields.metas['project'][project['id']])
-   content.append(table)
    file.page.body.append(content)
+   file.page.body.append(make_generic_footer(website, file))
+
+   issue_ids = website.relations.fields.metas['project'][project['id']]
+   content.append(render_issue_list(website, file, (website.archive.get_issue_data(x) for x in issue_ids)))
+
+def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[Issue]) -> bs4.Tag:
+   soup = file.page.soup
+   issue_table = make_table(soup, [
+      new_content_tag(soup, 'div', 'Key', attrs={'class': 'issue-table-key'}),
+      new_content_tag(soup, 'div', 'Summary', attrs={'class': 'issue-table-summary'}),
+      new_content_tag(soup, 'div', 'Status', attrs={'class': 'issue-table-status'}),
+      new_content_tag(soup, 'div', 'Reporter', attrs={'class': 'issue-table-user'}),
+      new_content_tag(soup, 'div', 'Assignee', attrs={'class': 'issue-table-user'}),
+      new_content_tag(soup, 'div', 'Created', attrs={'class': 'issue-table-time'}),
+   ])
+   issue_table.attrs['class'] = 'issue-table'
+   for issue in issues:
+      print(issue['key'])
+      key = new_content_tag(soup, 'a', issue['key'], attrs={'class': 'issue-table-key', 'href': relative_link(website.root, file.path, website.get_issue_path(issue))})
+      if issue['fields']['reporter'] is not None:
+         reporter = user_link(website, file, issue['fields']['reporter'])
+         reporter.attrs['class'].append('issue-table-user')
+      else:
+         reporter = soup.new_tag('span')
+      if 'assignee' in issue['fields'] and issue['fields']['assignee'] is not None:
+         assignee = user_link(website, file, issue['fields']['assignee'])
+         assignee.attrs['class'].append('issue-table-user')
+      else:
+         assignee = soup.new_tag('span')
+      row = append_row(soup, issue_table, [
+         key,
+         new_content_tag(soup, 'div', issue['fields']['summary'], attrs={'class': 'issue-table-summary', 'title': issue['fields']['summary']}),
+         new_content_tag(soup, 'div', merged_status(website, file, issue), attrs={'class': 'issue-table-status'}),
+         reporter,
+         assignee,
+         render_datetime(soup, datetime.datetime.fromisoformat(issue['fields']['created']))
+      ])
+      if issue['fields']['resolution'] is not None:
+         row.attrs['class'] = 'issue-resolved'
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
+      new_content_tag(soup, 'div', attrs={'class': 'issue-table-container'}, content=issue_table)
+   ])
 
 def create_version_page(website: Website, project: Project, version: Version) -> HtmlFile:
    full_title = f'[{project['key']}] {version['name']}'
@@ -336,13 +403,14 @@ def render_projects_grid(website: Website, file: HtmlFile, projects: typing.Iter
       issues = website.relations.fields.metas['project'][project['id']]
       versions = project['versions']
       project_key = project_link(website, file, project)
+      project_page = website.project_pages[project['id']]
       content = [
          project_key,
          new_content_tag(soup, 'span', attrs={'class': 'home-grid-name'}, content=project['name']),
-         new_content_tag(file.page.soup, 'a', f'{len(issues)} issues', attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].issues.path)}),
+         new_content_tag(file.page.soup, 'a', f'{len(issues)} issues', attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}),
       ]
-      if len(versions) > 0:
-         content.append(new_content_tag(file.page.soup, 'a', f'{len(versions)} versions', attrs={'href': relative_link(website.root, file.path, website.project_pages[project['id']].versions.path)}))
+      if project_page.versions is not None:
+         content.append(new_content_tag(file.page.soup, 'a', f'{len(versions)} versions', attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
       entries.append(new_content_tag(soup, 'div', content=content))
    return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
 
@@ -359,20 +427,6 @@ def render_versions_table(website: Website, file: HtmlFile, project: Project, ve
          str(len(affected_issues)),
          str(len(fixed_issues)),
       ])
-   return table
-
-def render_issues_table(website: Website, file: HtmlFile, issues: list[str]) -> bs4.Tag:
-   table = make_table(file.page.soup, ['Issue', 'Summary', 'Reporter', 'Created'])
-   table.attrs['class'] = 'issues-table sortable'
-   for i, issue_key in enumerate(issues):
-      if len(issues) >= 1000 and (i % 1000 == 0 or i == len(issues) - 1):
-         print(f'{i + 1} / {len(issues)}')
-      issue = website.archive.get_issue_data(issue_key)
-      assert issue is not None
-      reporter = user_link(website, file, issue['fields']['reporter'])
-      date = render_datetime(file.page.soup, datetime.datetime.fromisoformat(issue['fields']['created']))
-      link = new_content_tag(file.page.soup, 'a', issue['key'], attrs={'href': relative_link(website.root, file.path, website.issues_folder / (issue['key'] + '.html'))})
-      append_row(file.page.soup, table, [link, issue['fields']['summary'], reporter, date])
    return table
 
 def make_generic_header(website: Website, file: HtmlFile) -> bs4.Tag:
@@ -394,7 +448,7 @@ def make_generic_footer(website: Website, file: HtmlFile) -> bs4.Tag:
    return footer
 
 def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
-   return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/issuetypes/bug.svg'))})
+   return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))})
 
 def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    key = issue['key']
@@ -482,13 +536,19 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
    return file
 
 def render_issue_top(website: Website, file: HtmlFile, key: str, summary: str) -> bs4.Tag:
-   soup = file.page.soup
+   return render_generic_top(
+      file.page.soup,
+      new_content_tag(file.page.soup, 'div', attrs={'class': 'issue-key'}, content=[
+         bug_icon(website, file),
+         new_content_tag(file.page.soup, 'span', key)
+      ]),
+      summary
+   )
+
+def render_generic_top(soup: bs4.BeautifulSoup, key: str | bs4.Tag, summary: str | bs4.Tag) -> bs4.Tag:
    return new_content_tag(soup, 'div', attrs={'class': 'issue-top'}, content=[
       new_content_tag(soup, 'div', attrs={'class': 'issue-title'}, content=[
-         new_content_tag(soup, 'div', attrs={'class': 'issue-key'}, content=[
-            bug_icon(website, file),
-            new_content_tag(soup, 'span', key)
-         ]),
+         key,
          new_content_tag(soup, 'h1', attrs={'class': 'issue-summary'}, content=summary)
       ])
    ])
@@ -705,7 +765,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       attachment = website.archive.get_attachment_data(attach.id)
       if attachment is not None:
          return render_attachment(website, file, attachment, include_upload=False)
-      broken = soup.new_tag('img', attrs={'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, website.root / 'data/assets/images/icons/attach/noimage.svg'))})
+      broken = soup.new_tag('img', attrs={'width': '32', 'height': '32', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach/noimage.svg'))})
       return new_content_tag(soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, attach.name])
 
    def render_attach_list(attaches: typing.Iterable[HistoryChangeValue]) -> bs4.Tag:
@@ -1144,9 +1204,12 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             assert user_data is not None
             historic_fields['assignee'] = HistoryChangeValue(issue['fields']['assignee'], user_data['displayName'])
       if 'reporter' not in historic_fields:
-         user_data = website.archive.get_user_data(issue['fields']['reporter'])
-         assert user_data is not None
-         historic_fields['reporter'] = HistoryChangeValue(issue['fields']['reporter'], user_data['displayName'])
+         if issue['fields']['reporter'] is None:
+            historic_fields['reporter'] = None
+         else:
+            user_data = website.archive.get_user_data(issue['fields']['reporter'])
+            assert user_data is not None
+            historic_fields['reporter'] = HistoryChangeValue(issue['fields']['reporter'], user_data['displayName'])
       if 'key' not in historic_fields:
          historic_fields['key'] = issue['key']
       if 'summary' not in historic_fields:
@@ -1157,7 +1220,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          resolution_tag = render_meta('resolution', None if historic_fields['resolution'] is None else historic_fields['resolution'].id, None if historic_fields['resolution'] is None else historic_fields['resolution'].name)
          assert resolution_tag is not None
          append_desc_item(soup, issue_details,
-            issue_detail_field(website, file, 'Status', 'status'),
+            issue_detail_field(website, file, 'Resolution', 'resolution'),
             resolution_tag
          )
          if 'security' in fields and fields['security'] is not None:
@@ -1322,13 +1385,16 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          render_datetime(soup, datetime.datetime.fromisoformat(issue['fields']['created']))
       ])
    ])
-   revisions_list.append(new_content_tag(soup, 'div', attrs={'class': 'comment'}, content=[
-      soup.new_tag('div', attrs={'class': 'anchor', 'id': 'history-initial'}),
-      new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=[
+   head_content: list[bs4.Tag | str] = []
+   if issue['fields']['creator'] is not None:
+      head_content.extend([
          comment_author(website, file, issue['fields']['creator']),
          ' ',
-         time_part
-      ]),
+      ])
+   head_content.append(time_part)
+   revisions_list.append(new_content_tag(soup, 'div', attrs={'class': 'comment'}, content=[
+      soup.new_tag('div', attrs={'class': 'anchor', 'id': 'history-initial'}),
+      new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=head_content),
       new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
          new_content_tag(soup, 'details', attrs={'open': ''}, content=[
             new_content_tag(soup, 'summary', 'Created Issue:', attrs={'class': 'history-label'}),
@@ -1693,7 +1759,7 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
    project = website.metas.projects[fields['project']]
    issue_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
    append_desc_item(soup, issue_details,
-      issue_detail_field(website, file, 'Status', 'resolution'),
+      issue_detail_field(website, file, 'Resolution', 'resolution'),
       meta_link(website, file, 'resolution', fields['resolution'])
    )
    if 'security' in fields:
@@ -1701,11 +1767,12 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
          issue_detail_field(website, file, 'Security Level', 'security'),
          field_link(website, file, 'security', fields['security']['id'])
       )
-   append_desc_item(soup, issue_details,
-      'Reporter:',
-      user_link(website, file, fields['reporter'])
-   )
-   if fields['reporter'] != fields['creator']:
+   if fields['reporter'] is not None:
+      append_desc_item(soup, issue_details,
+         'Reporter:',
+         user_link(website, file, fields['reporter'])
+      )
+   if fields['creator'] is not None and fields['reporter'] != fields['creator']:
       append_desc_item(soup, issue_details,
          'Creator:',
          user_link(website, file, fields['creator'])
@@ -1835,15 +1902,20 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
          render_version_list(website, file, project, versions)
       )
    data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
+   portal_num = portal_number(project['key'])
+   link_content = [
+      new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': urllib.parse.quote(str(data_link))}, content='JSON')),
+      new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.dev/{issue['key']}'}, content='mojira.dev')),
+      new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://bugs.mojang.com/browse/{issue['key']}'}, content='bugs.mojang.com')),
+   ]
+   if portal_num is not None:
+      link_content.append(new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://report.bugs.mojang.com/servicedesk/customer/portal/{portal_num}/{issue['key']}'}, content='report.bugs.mojang.com')))
+   link_content.extend([
+      new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.atlassian.net/browse/{issue['key']}'}, content='mojira.atlassian.net')),
+   ])
    append_desc_item(soup, issue_details,
       'Links:',
-      new_content_tag(soup, 'ul', content=[
-         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': urllib.parse.quote(str(data_link))}, content='JSON')),
-         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.dev/{issue['key']}'}, content='mojira.dev')),
-         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://bugs.mojang.com/browse/{issue['key']}'}, content='bugs.mojang.com')),
-         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://report.bugs.mojang.com/servicedesk/customer/portal/2/{issue['key']}'}, content='report.bugs.mojang.com')),
-         new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.atlassian.net/browse/{issue['key']}'}, content='mojira.atlassian.net')),
-      ])
+      new_content_tag(soup, 'ul', content=link_content)
    )
    return issue_details
 
@@ -1875,7 +1947,7 @@ def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment)
       icon = 'pdf.gif'
    else:
       icon = 'file.gif'
-   return file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'src': str(relative_path(website.root, file.path, website.root / f'data/assets/images/icons/attach/{icon}'))})
+   return file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach') / icon)})
 
 def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str) -> pathlib.Path | None:
    avatar_id = archive.get_avatar_id(url)
@@ -1893,7 +1965,7 @@ def project_link(website: Website, file: HtmlFile, project: Project) -> bs4.Tag:
    avatar_path = get_avatar_path(website.archive, website.archive.project_avatars_folder, avatar_url)
    assert avatar_path is not None
    img = file.page.soup.new_tag('img', attrs={'class': 'project-avatar', 'width': '32', 'height': '32', 'src': str(relative_path(website.root, file.path, avatar_path))})
-   link = relative_link(website.root, file.path, website.project_pages[project['id']].home.path)
+   link = relative_link(website.root, file.path, website.project_pages[project['id']].main.path)
    return new_content_tag(file.page.soup, 'a', [img, key], attrs={'class': 'project-key', 'href': link})
 
 def big_issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
@@ -1948,12 +2020,7 @@ def user_link(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
 
 def mojang_priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
    prio = {'Trivial': 'trivial', 'Low': 'low', 'Normal': 'medium', 'Important': 'high', 'Very Important': 'major'}[value]
-   img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / f'data/assets/images/icons/priorities/{prio}.svg'))})
-   return img
-
-def priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
-   prio = {'Low': 'trivial', 'Normal': 'minor', 'Important': 'major', 'Blocker': 'blocker', 'Critical': 'critical', 'Minor': 'minor'}[value]
-   img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': str(relative_path(website.root, file.path, website.root / f'data/assets/images/icons/priorities/{prio}.svg'))})
+   img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/priorities') / f'{prio}.svg')})
    return img
 
 def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> bs4.Tag:
@@ -1969,25 +2036,26 @@ def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value
       return new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=tag)
    return tag
 
-def field_name(metas: mojira.ArchiveMetas, field_id: str):
+def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
    extras = {'customfield_12400': 'Dungeons Platform', 'customfield_12900': 'Legends Platform'}
    if field_id in extras:
       return extras[field_id]
    return metas.fields[field_id]['name']
 
 def field_link(website: Website, file: HtmlFile, field_id: str, value_key: str) -> bs4.Tag:
-   field_name_str = field_name(website.metas, field_id).lower().replace(' ', '-')
+   field_name_str = field_name(website.metas, field_id).lower().replace(' ', '-').replace('/', '')
    display = website.relations.fields.display_value(field_id, value_key)
    assert display is not None
    link = relative_link(website.root, file.path, website.field_pages[field_id].get_value_path(display.name))
    content: list[bs4.Tag | str] = [display.name]
    cls = f'status-badge field-value-{field_name_str}'
-   if field_id == 'priority':
-      content.insert(0, priority_icon(website, file, display.name))
-      cls += ' priority-badge'
+   if display.icon is not None:
+      assert display.icon.startswith('https://bugs.mojang.com/')
+      relative = pathlib.PurePath(display.icon[len('https://bugs.mojang.com/'):])
+      img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets') / relative)})
+      content.insert(0, img)
    elif field_id == 'customfield_12200':
       content.insert(0, mojang_priority_icon(website, file, display.name))
-      cls += ' priority-badge'
    tag = new_content_tag(file.page.soup, 'a', content, attrs={'class': cls, 'href': link})
    if display.description is not None:
       tag.attrs['title'] = display.description

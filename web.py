@@ -45,17 +45,23 @@ def append_desc_item(soup: bs4.BeautifulSoup, desc_list: bs4.Tag, name: str | bs
 
 def make_table(soup: bs4.BeautifulSoup, headings: list[bs4.Tag | str]) -> bs4.Tag:
    table = soup.new_tag('table')
-   header = soup.new_tag('tr')
+   thead = soup.new_tag('thead')
+   head_row = soup.new_tag('tr')
    for head in headings:
-      header.append(new_content_tag(soup, 'th', head))
-   table.append(header)
+      head_row.append(new_content_tag(soup, 'th', head))
+   thead.append(head_row)
+   table.append(thead)
+   tbody = soup.new_tag('tbody')
+   table.append(tbody)
    return table
 
 def append_row(soup: bs4.BeautifulSoup, table: bs4.Tag, entries: list[bs4.Tag | str | list[bs4.Tag | str]]) -> bs4.Tag:
+   tbody = table.find('tbody')
+   assert tbody is not None
    row = soup.new_tag('tr')
    for entry in entries:
       row.append(new_content_tag(soup, 'td', entry))
-   table.append(row)
+   tbody.append(row)
    return row
 
 def new_content_tag(soup: bs4.BeautifulSoup, name: str, content: str | bs4.Tag | typing.Iterable[str | bs4.Tag], attrs: dict[str, str] | None=None) -> bs4.Tag:

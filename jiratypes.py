@@ -174,8 +174,8 @@ IssueFields = typing.TypedDict('IssueFields', {
    'versions': typing.NotRequired[list[str]],
    'fixVersions': typing.NotRequired[list[str]],
    'status': str,
-   'creator': str,
-   'reporter': str,
+   'creator': str | None,
+   'reporter': str | None,
    'assignee': typing.NotRequired[str | None],
    # discrete
    'labels': list[str],
