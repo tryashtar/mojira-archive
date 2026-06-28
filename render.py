@@ -12,6 +12,7 @@ import bs4
 import re
 import bisect
 import copy
+import natsort
 from web import HtmlFile, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
 
 @dataclasses.dataclass
@@ -284,42 +285,74 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
 def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[Issue]) -> bs4.Tag:
    soup = file.page.soup
    all_rows: list[bs4.Tag] = []
+   sort_data: list[list[tuple[int, str]]] = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+   ]
    issue_table = soup.new_tag('div', attrs={'class': 'issue-table'})
-   issue_table.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-header'}, content=[
+   issue_table.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-header', 'id': 'issue-table-header'}, content=[
       new_content_tag(soup, 'div', 'Key', attrs={'class': 'issue-table-key'}),
       new_content_tag(soup, 'div', 'Summary', attrs={'class': 'issue-table-summary'}),
       new_content_tag(soup, 'div', 'Status', attrs={'class': 'issue-table-status'}),
-      new_content_tag(soup, 'div', 'Reporter', attrs={'class': 'issue-table-user'}),
-      new_content_tag(soup, 'div', 'Assignee', attrs={'class': 'issue-table-user'}),
+      new_content_tag(soup, 'div', 'Reporter', attrs={'class': 'issue-table-username'}),
+      new_content_tag(soup, 'div', 'Assignee', attrs={'class': 'issue-table-username'}),
       new_content_tag(soup, 'div', 'Created', attrs={'class': 'issue-table-time'}),
    ]))
    issue_body = soup.new_tag('div', attrs={'id': 'issue-table-body'})
    issue_table.append(issue_body)
-   for issue in issues:
+   for i, issue in enumerate(issues):
       print(issue['key'])
       key = new_content_tag(soup, 'a', issue['key'], attrs={'class': 'issue-table-key', 'href': relative_link(website.root, file.path, website.get_issue_path(issue))})
       if issue['fields']['reporter'] is not None:
          reporter = user_link(website, file, issue['fields']['reporter'])
+         reporter_tag = reporter.find(attrs={'class': 'username'})
+         assert reporter_tag is not None
+         reporter_name = reporter_tag.text
       else:
          reporter = soup.new_tag('span')
+         reporter_name = ''
       if 'assignee' in issue['fields'] and issue['fields']['assignee'] is not None:
          assignee = user_link(website, file, issue['fields']['assignee'])
+         assignee_tag = assignee.find(attrs={'class': 'username'})
+         assert assignee_tag is not None
+         assignee_name = assignee_tag.text
       else:
          assignee = soup.new_tag('span')
+         assignee_name = ''
       row = new_content_tag(soup, 'div', content=[
          key,
          new_content_tag(soup, 'div', issue['fields']['summary'], attrs={'class': 'issue-table-summary', 'title': issue['fields']['summary']}),
          new_content_tag(soup, 'div', new_content_tag(soup, 'div', merged_status(website, file, issue)), attrs={'class': 'issue-table-status'}),
-         new_content_tag(soup, 'div', reporter, attrs={'class': 'issue-table-user'}),
-         new_content_tag(soup, 'div', assignee, attrs={'class': 'issue-table-user'}),
-         render_datetime(soup, datetime.datetime.fromisoformat(issue['fields']['created']))
+         new_content_tag(soup, 'div', reporter, attrs={'class': 'issue-table-username'}),
+         new_content_tag(soup, 'div', assignee, attrs={'class': 'issue-table-username'}),
+         new_content_tag(soup, 'div', render_datetime(soup, datetime.datetime.fromisoformat(issue['fields']['created'])), attrs={'class': 'issue-table-time'})
       ])
+      def sorter_key(x: tuple[int, str]):
+         key = natsort.natsort_keygen(alg=natsort.ns.IGNORECASE)
+         return key(x[1])
+      bisect.insort_left(sort_data[0], (i, issue['key']), key=sorter_key)
+      bisect.insort_left(sort_data[1], (i, issue['fields']['summary']), key=sorter_key)
+      bisect.insort_left(sort_data[2], (i, ''), key=sorter_key)
+      bisect.insort_left(sort_data[3], (i, reporter_name), key=sorter_key)
+      bisect.insort_left(sort_data[4], (i, assignee_name), key=sorter_key)
+      bisect.insort_left(sort_data[5], (i, issue['fields']['created']), key=sorter_key)
       if issue['fields']['resolution'] is not None:
          row.attrs['class'] = 'issue-table-row issue-resolved'
       else:
          row.attrs['class'] = 'issue-table-row'
       all_rows.append(row)
-   script = f'window.issues = {json.dumps([str(x) for x in all_rows])};'
+   table_data = {
+      'rows':  [str(x) for x in all_rows],
+      'sort': [[x[0] for x in y] for y in sort_data],
+      'rowHeight': 32,
+      'tableHeaderId': 'issue-table-header',
+      'tableBodyId': 'issue-table-body',
+   }
+   script = f'window.tableData = {json.dumps(table_data)};'
    file.page.body.append(new_content_tag(soup, 'script', script))
    issue_body.insert(0, soup.new_tag('div', attrs={'id': 'issue-table-scroll'}))
    return new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
