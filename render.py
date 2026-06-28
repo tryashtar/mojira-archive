@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import typing
 from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, User, Version
 import mojira
@@ -282,40 +283,47 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
 
 def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[Issue]) -> bs4.Tag:
    soup = file.page.soup
-   issue_table = make_table(soup, [
+   all_rows: list[bs4.Tag] = []
+   issue_table = soup.new_tag('div', attrs={'class': 'issue-table'})
+   issue_table.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-header'}, content=[
       new_content_tag(soup, 'div', 'Key', attrs={'class': 'issue-table-key'}),
       new_content_tag(soup, 'div', 'Summary', attrs={'class': 'issue-table-summary'}),
       new_content_tag(soup, 'div', 'Status', attrs={'class': 'issue-table-status'}),
       new_content_tag(soup, 'div', 'Reporter', attrs={'class': 'issue-table-user'}),
       new_content_tag(soup, 'div', 'Assignee', attrs={'class': 'issue-table-user'}),
       new_content_tag(soup, 'div', 'Created', attrs={'class': 'issue-table-time'}),
-   ])
-   issue_table.attrs['class'] = 'issue-table'
+   ]))
+   issue_body = soup.new_tag('div', attrs={'id': 'issue-table-body'})
+   issue_table.append(issue_body)
    for issue in issues:
       print(issue['key'])
       key = new_content_tag(soup, 'a', issue['key'], attrs={'class': 'issue-table-key', 'href': relative_link(website.root, file.path, website.get_issue_path(issue))})
       if issue['fields']['reporter'] is not None:
          reporter = user_link(website, file, issue['fields']['reporter'])
-         reporter.attrs['class'].append('issue-table-user')
       else:
          reporter = soup.new_tag('span')
       if 'assignee' in issue['fields'] and issue['fields']['assignee'] is not None:
          assignee = user_link(website, file, issue['fields']['assignee'])
-         assignee.attrs['class'].append('issue-table-user')
       else:
          assignee = soup.new_tag('span')
-      row = append_row(soup, issue_table, [
+      row = new_content_tag(soup, 'div', content=[
          key,
          new_content_tag(soup, 'div', issue['fields']['summary'], attrs={'class': 'issue-table-summary', 'title': issue['fields']['summary']}),
-         new_content_tag(soup, 'div', merged_status(website, file, issue), attrs={'class': 'issue-table-status'}),
-         reporter,
-         assignee,
+         new_content_tag(soup, 'div', new_content_tag(soup, 'div', merged_status(website, file, issue)), attrs={'class': 'issue-table-status'}),
+         new_content_tag(soup, 'div', reporter, attrs={'class': 'issue-table-user'}),
+         new_content_tag(soup, 'div', assignee, attrs={'class': 'issue-table-user'}),
          render_datetime(soup, datetime.datetime.fromisoformat(issue['fields']['created']))
       ])
       if issue['fields']['resolution'] is not None:
-         row.attrs['class'] = 'issue-resolved'
+         row.attrs['class'] = 'issue-table-row issue-resolved'
+      else:
+         row.attrs['class'] = 'issue-table-row'
+      all_rows.append(row)
+   script = f'window.issues = {json.dumps([str(x) for x in all_rows])};'
+   file.page.body.append(new_content_tag(soup, 'script', script))
+   issue_body.insert(0, soup.new_tag('div', attrs={'id': 'issue-table-scroll'}))
    return new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
-      new_content_tag(soup, 'div', attrs={'class': 'issue-table-container'}, content=issue_table)
+      issue_table
    ])
 
 def create_version_page(website: Website, project: Project, version: Version) -> HtmlFile:
