@@ -280,12 +280,17 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
    file.page.body.append(make_generic_footer(website, file))
 
    issue_ids = website.relations.fields.metas['project'][project['id']]
-   content.append(render_issue_list(website, file, (website.archive.get_issue_data(x) for x in issue_ids)))
+   def issue_map(issue_id: str):
+      issue = website.archive.get_issue_data(issue_id)
+      assert issue is not None
+      return issue
+   content.append(render_issue_list(website, file, (issue_map(x) for x in issue_ids)))
 
 def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[Issue]) -> bs4.Tag:
    soup = file.page.soup
    all_rows: list[bs4.Tag] = []
-   sort_data: list[list[tuple[int, str]]] = [
+   summaries: list[str] = []
+   sort_data: list[list[tuple[int, typing.Any]]] = [
       [],
       [],
       [],
@@ -308,54 +313,63 @@ def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[
       print(issue['key'])
       key = new_content_tag(soup, 'a', issue['key'], attrs={'class': 'issue-table-key', 'href': relative_link(website.root, file.path, website.get_issue_path(issue))})
       if issue['fields']['reporter'] is not None:
-         reporter = user_link(website, file, issue['fields']['reporter'])
-         reporter_tag = reporter.find(attrs={'class': 'username'})
-         assert reporter_tag is not None
-         reporter_name = reporter_tag.text
+         reporter_ref = user_reference(website, file, 'a', issue['fields']['reporter'])
+         reporter = [soup.new_tag('a', attrs={'class': 'overlay', 'href': reporter_ref.link}), reporter_ref.outer]
       else:
-         reporter = soup.new_tag('span')
-         reporter_name = ''
+         reporter = []
       if 'assignee' in issue['fields'] and issue['fields']['assignee'] is not None:
-         assignee = user_link(website, file, issue['fields']['assignee'])
-         assignee_tag = assignee.find(attrs={'class': 'username'})
-         assert assignee_tag is not None
-         assignee_name = assignee_tag.text
+         assignee_ref = user_reference(website, file, 'a', issue['fields']['assignee'])
+         assignee = [soup.new_tag('a', attrs={'class': 'overlay', 'href': assignee_ref.link}), assignee_ref.outer]
       else:
-         assignee = soup.new_tag('span')
-         assignee_name = ''
-      row = new_content_tag(soup, 'div', content=[
+         assignee = []
+      status = merged_status(website, file, 'span', issue)
+      row_tags = [
          key,
          new_content_tag(soup, 'div', issue['fields']['summary'], attrs={'class': 'issue-table-summary', 'title': issue['fields']['summary']}),
-         new_content_tag(soup, 'div', new_content_tag(soup, 'div', merged_status(website, file, issue)), attrs={'class': 'issue-table-status'}),
+         new_content_tag(soup, 'a', new_content_tag(soup, 'div', status.badge.outer), attrs={'class': 'issue-table-status', 'href':  status.badge.link}),
          new_content_tag(soup, 'div', reporter, attrs={'class': 'issue-table-username'}),
          new_content_tag(soup, 'div', assignee, attrs={'class': 'issue-table-username'}),
          new_content_tag(soup, 'div', render_datetime(soup, datetime.datetime.fromisoformat(issue['fields']['created'])), attrs={'class': 'issue-table-time'})
-      ])
-      def sorter_key(x: tuple[int, str]):
+      ]
+      def sorter_key(x: tuple[int, typing.Any]):
          key = natsort.natsort_keygen(alg=natsort.ns.IGNORECASE)
          return key(x[1])
-      bisect.insort_left(sort_data[0], (i, issue['key']), key=sorter_key)
-      bisect.insort_left(sort_data[1], (i, issue['fields']['summary']), key=sorter_key)
-      bisect.insort_left(sort_data[2], (i, ''), key=sorter_key)
-      bisect.insort_left(sort_data[3], (i, reporter_name), key=sorter_key)
-      bisect.insort_left(sort_data[4], (i, assignee_name), key=sorter_key)
-      bisect.insort_left(sort_data[5], (i, issue['fields']['created']), key=sorter_key)
+      status_order = ['unresolved', 'confirmed', 'priority', 'resolved']
+      for j in range(len(sort_data)):
+         text = html_to_text(row_tags[j])
+         val = (status_order.index(status.kind), text) if j == 2 else text
+         bisect.insort_left(sort_data[j], (i, val), key=sorter_key)
+      summaries.append(issue['fields']['summary'].lower())
+      row = new_content_tag(soup, 'div', content=row_tags)
       if issue['fields']['resolution'] is not None:
          row.attrs['class'] = 'issue-table-row issue-resolved'
       else:
          row.attrs['class'] = 'issue-table-row'
       all_rows.append(row)
+      if i < 30:
+         issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-virtual-row', 'style': f'top: {i * 32}px;'}, content=row))
+   issue_body.insert(0, soup.new_tag('div', attrs={'id': 'issue-table-scroll'}))
+   filters = new_content_tag(soup, 'div', attrs={'class': 'filters'}, content=[
+      soup.new_tag('input', attrs={'name': 'search', 'type': 'text', 'placeholder': 'Summary', 'id': 'issue-table-search'})
+   ])
+   controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls'}, content=[
+      new_content_tag(soup, 'div', attrs={'class': 'issue-count', 'id': 'issue-table-count'}, content=[f'{len(all_rows)} issues'])
+   ])
    table_data = {
       'rows':  [str(x) for x in all_rows],
       'sort': [[x[0] for x in y] for y in sort_data],
+      'summaries': summaries,
       'rowHeight': 32,
       'tableHeaderId': 'issue-table-header',
       'tableBodyId': 'issue-table-body',
+      'searchId': 'issue-table-search',
+      'countId': 'issue-table-count'
    }
    script = f'window.tableData = {json.dumps(table_data)};'
    file.page.body.append(new_content_tag(soup, 'script', script))
-   issue_body.insert(0, soup.new_tag('div', attrs={'id': 'issue-table-scroll'}))
    return new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
+      filters,
+      controls,
       issue_table
    ])
 
@@ -2012,11 +2026,12 @@ def project_link(website: Website, file: HtmlFile, project: Project) -> bs4.Tag:
 def big_issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    cls = 'issue-link' if issue['fields']['resolution'] is None else 'issue-link issue-resolved'
    link = relative_link(website.root, file.path, website.issues_folder / (issue['key'] + '.html'))
+   status = merged_status(website, file, 'span', issue)
    return new_content_tag(file.page.soup, 'a', attrs={'class': cls, 'href': link}, content=[
       bug_icon(website, file),
       new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-link-key'}, content=issue['key']),
       new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-link-summary', 'title': issue['fields']['summary']}, content=issue['fields']['summary']),
-      merged_status(website, file, issue)
+      status.badge.outer
    ])
 
 def issue_link(website: Website, file: HtmlFile, issue: Issue, with_summary: bool) -> bs4.Tag:
@@ -2037,7 +2052,13 @@ def issue_key(website: Website, file: HtmlFile, issue_key: str) -> bs4.Tag:
    tag = new_content_tag(file.page.soup, 'span', [bug_icon(website, file), linkpart], attrs={'class': 'small-issue-link'})
    return tag
 
-def user_link(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
+@dataclasses.dataclass
+class UserReference:
+   inner: bs4.Tag
+   outer: bs4.Tag
+   link: str
+
+def user_reference(website: Website, file: HtmlFile, tag_type: str, user_key: str) -> UserReference:
    user_data = website.archive.get_user_data(user_key)
    if user_data is None:
       user_data = website.archive.get_unknown_user_data(user_key)
@@ -2051,31 +2072,51 @@ def user_link(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
    if avatar_path is not None:
       img['src'] = str(relative_path(website.root, file.path, avatar_path))
    link_url = relative_link(website.root, file.path, website.users_folder / (urllib.parse.quote_plus(user_key) + '.html'))
-   return new_content_tag(file.page.soup, 'span', attrs={'class': 'user-reference'}, content=[
+   inner = new_content_tag(file.page.soup, tag_type, attrs={'class':'user-hover user-link', 'rel': user_data['name']}, content=[
+      new_content_tag(file.page.soup, 'span', attrs={'class': 'username'}, content=display_name),
+   ])
+   outer = new_content_tag(file.page.soup, 'span', attrs={'class': 'user-reference'}, content=[
       new_content_tag(file.page.soup, 'span', attrs={'class': 'aui-avatar aui-avatar-small'}, content=img),
       ' ',
-      new_content_tag(file.page.soup, 'a', attrs={'class':'user-hover user-link', 'rel': user_data['name'], 'href': link_url}, content=[
-         new_content_tag(file.page.soup, 'span', attrs={'class': 'username'}, content=display_name),
-      ])
+      inner
    ])
+   return UserReference(inner, outer, link_url)
+
+def user_link(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
+   ref = user_reference(website, file, 'a', user_key)
+   ref.inner.attrs['href'] = ref.link
+   return ref.outer
 
 def mojang_priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
    prio = {'Trivial': 'trivial', 'Low': 'low', 'Normal': 'medium', 'Important': 'high', 'Very Important': 'major'}[value]
    img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/priorities') / f'{prio}.svg')})
    return img
 
-def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> bs4.Tag:
+@dataclasses.dataclass
+class FieldBadge:
+   outer: bs4.Tag
+   inner: bs4.Tag
+   link: str
+
+def meta_badge(website: Website, file: HtmlFile, tag_type: str, meta_id: mojira.META_TYPE, value_key: str | None) -> FieldBadge:
    display = website.metas.display_value(meta_id, value_key)
    assert display is not None
    link = relative_link(website.root, file.path, website.field_pages[meta_id].get_value_path(display.name))
    content: list[bs4.Tag | str] = [display.name]
    cls = f'status-badge field-value-{meta_id}'
-   tag = new_content_tag(file.page.soup, 'a', content, attrs={'class': cls, 'href': link})
+   tag = new_content_tag(file.page.soup, tag_type, content, attrs={'class': cls})
    if display.description is not None:
       tag.attrs['title'] = display.description
    if meta_id == 'resolution' and value_key is not None:
-      return new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=tag)
-   return tag
+      outer = new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=tag)
+   else:
+      outer = tag
+   return FieldBadge(outer, tag, link)
+
+def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> bs4.Tag:
+   badge = meta_badge(website, file, 'a', meta_id, value_key)
+   badge.inner.attrs['href'] = badge.link
+   return badge.outer
 
 def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
    extras = {'customfield_12400': 'Dungeons Platform', 'customfield_12900': 'Legends Platform'}
@@ -2083,7 +2124,7 @@ def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
       return extras[field_id]
    return metas.fields[field_id]['name']
 
-def field_link(website: Website, file: HtmlFile, field_id: str, value_key: str) -> bs4.Tag:
+def field_badge(website: Website, file: HtmlFile, tag_type: str, field_id: str, value_key: str) -> FieldBadge:
    field_name_str = field_name(website.metas, field_id).lower().replace(' ', '-').replace('/', '')
    display = website.relations.fields.display_value(field_id, value_key)
    assert display is not None
@@ -2097,26 +2138,41 @@ def field_link(website: Website, file: HtmlFile, field_id: str, value_key: str) 
       content.insert(0, img)
    elif field_id == 'customfield_12200':
       content.insert(0, mojang_priority_icon(website, file, display.name))
-   tag = new_content_tag(file.page.soup, 'a', content, attrs={'class': cls, 'href': link})
+   tag = new_content_tag(file.page.soup, tag_type, content, attrs={'class': cls})
    if display.description is not None:
       tag.attrs['title'] = display.description
-   return tag
+   return FieldBadge(tag, tag, link)
 
-def merged_status(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
-   cls = 'status-badge'
+def field_link(website: Website, file: HtmlFile, field_id: str, value_key: str) -> bs4.Tag:
+   badge = field_badge(website, file, 'a', field_id, value_key)
+   badge.inner.attrs['href'] = badge.link
+   return badge.outer
+
+@dataclasses.dataclass
+class MergedStatus:
+   badge: FieldBadge
+   kind: typing.Literal['resolved', 'priority', 'confirmed', 'unresolved']
+
+def merged_status(website: Website, file: HtmlFile, tag_type: str, issue: Issue) -> MergedStatus:
    if issue['fields']['resolution'] is not None:
-      name = website.metas.resolutions[issue['fields']['resolution']]['name']
-      result = new_content_tag(file.page.soup, 'span', name)
-   elif 'customfield_12200' in issue['fields'] and issue['fields']['customfield_12200'] is not None:
-      img = mojang_priority_icon(website, file, issue['fields']['customfield_12200']['value'])
-      result = new_content_tag(file.page.soup, 'span', [img, issue['fields']['customfield_12200']['value']])
-      cls += ' priority-badge'
-   elif 'customfield_10500' in issue['fields'] and issue['fields']['customfield_10500'] is not None:
-      result = new_content_tag(file.page.soup, 'span', issue['fields']['customfield_10500']['value'])
-   else:
-      result = new_content_tag(file.page.soup, 'span', 'Unresolved')
-   result.attrs['class'] = cls
-   return result
+      return MergedStatus(
+         meta_badge(website, file, tag_type, 'resolution', issue['fields']['resolution']),
+         'resolved'
+      )
+   if 'customfield_12200' in issue['fields'] and issue['fields']['customfield_12200'] is not None:
+      return MergedStatus(
+         field_badge(website, file, tag_type, 'customfield_12200', issue['fields']['customfield_12200']['id']),
+         'priority'
+      )
+   if 'customfield_10500' in issue['fields'] and issue['fields']['customfield_10500'] is not None:
+      return MergedStatus(
+         field_badge(website, file, tag_type, 'customfield_10500', issue['fields']['customfield_10500']['id']),
+         'confirmed'
+      )
+   return MergedStatus(
+      meta_badge(website, file, tag_type, 'resolution', None),
+      'unresolved'
+   )
 
 def render_version_list(website: Website, file: HtmlFile, project: Project, versions: list[Version]) -> bs4.Tag | str:
    if len(versions) == 0:
