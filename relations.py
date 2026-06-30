@@ -126,7 +126,7 @@ def append_user_action(data: dict[str, dict[str, list[str]]], user: str | None, 
    issues = data[user]
    if issue not in issues:
       issues[issue] = []
-   bisect.insort(issues[issue], value)
+   bisect.insort(issues[issue], value, key=int)
 
 def append_field(data: dict[str, dict[str, FieldRelation]], field_key: str, value: FieldValue, issue_id: str):
    if field_key not in data:
@@ -137,7 +137,7 @@ def append_field(data: dict[str, dict[str, FieldRelation]], field_key: str, valu
          'value': value,
          'issues': []
       }
-   bisect.insort(data[field_key][value_id]['issues'], issue_id)
+   bisect.insort(data[field_key][value_id]['issues'], issue_id, key=int)
 
 def append_meta(data: dict[str, dict[str, list[str]]], meta_key: str, value_id: str | None, issue_id: str):
    if meta_key not in data:
@@ -145,7 +145,7 @@ def append_meta(data: dict[str, dict[str, list[str]]], meta_key: str, value_id: 
    value_id = '' if value_id is None else value_id
    if value_id not in data[meta_key]:
       data[meta_key][value_id] = []
-   bisect.insort(data[meta_key][value_id], issue_id)
+   bisect.insort(data[meta_key][value_id], issue_id, key=int)
 
 @dataclasses.dataclass
 class RelationsBundle:

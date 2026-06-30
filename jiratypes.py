@@ -3,6 +3,7 @@ import typing
 Version = typing.TypedDict('Version', {
    'id': str,
    'name': str,
+   'projectId': int,
    'description': typing.NotRequired[str],
    'archived': bool,
    'released': bool,

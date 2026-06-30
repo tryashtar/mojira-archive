@@ -48,7 +48,10 @@ def make_table(soup: bs4.BeautifulSoup, headings: list[bs4.Tag | str]) -> bs4.Ta
    thead = soup.new_tag('thead')
    head_row = soup.new_tag('tr')
    for head in headings:
-      head_row.append(new_content_tag(soup, 'th', head))
+      if isinstance(head, bs4.Tag) and head.name == 'th':
+         head_row.append(head)
+      else:
+         head_row.append(new_content_tag(soup, 'th', head))
    thead.append(head_row)
    table.append(thead)
    tbody = soup.new_tag('tbody')
@@ -60,7 +63,10 @@ def append_row(soup: bs4.BeautifulSoup, table: bs4.Tag, entries: list[bs4.Tag | 
    assert tbody is not None
    row = soup.new_tag('tr')
    for entry in entries:
-      row.append(new_content_tag(soup, 'td', entry))
+      if isinstance(entry, bs4.Tag) and entry.name == 'td':
+         row.append(entry)
+      else:
+         row.append(new_content_tag(soup, 'td', entry))
    tbody.append(row)
    return row
 
@@ -213,3 +219,48 @@ def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separa
       span.append(separator)
       span.append(item)
    return span
+
+def dump_js(data: dict | list | str | int | float | bool | None) -> str:
+   parts: list[str] = []
+   dump_js_add(parts, data)
+   return ''.join(parts)
+
+def dump_js_add(parts: list[str], data: dict | list | str | int | float | bool | None):
+   if data is None:
+      parts.append('null')
+   elif isinstance(data, str):
+      double = data.count('"')
+      single = data.count('\'')
+      if single >= double:
+         parts.append('"')
+         parts.append(data.replace('\\', '\\\\').replace('"', '\\"'))
+         parts.append('"')
+      else:
+         parts.append('\'')
+         parts.append(data.replace('\\', '\\\\').replace('\'', '\\\''))
+         parts.append('\'')
+   elif isinstance(data, bool):
+      if data:
+         parts.append('true')
+      else:
+         parts.append('false')
+   elif isinstance(data, int) or isinstance(data, float):
+      parts.append(str(data))
+   elif isinstance(data, dict):
+      parts.append('{')
+      for i, (key, value) in enumerate(data.items()):
+         parts.append(key)
+         parts.append(':')
+         dump_js_add(parts, value)
+         if i < len(data) - 1:
+            parts.append(',')
+      parts.append('}')
+   elif isinstance(data, list):
+      parts.append('[')
+      for i, value in enumerate(data):
+         dump_js_add(parts, value)
+         if i < len(data) - 1:
+            parts.append(',')
+      parts.append(']')
+   else:
+      raise ValueError()

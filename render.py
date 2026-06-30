@@ -1,5 +1,4 @@
 import dataclasses
-import json
 import typing
 from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, User, Version
 import mojira
@@ -13,7 +12,7 @@ import re
 import bisect
 import copy
 import natsort
-from web import HtmlFile, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
+from web import HtmlFile, append_desc_item, append_row, dump_js, html_diff, html_to_text, inline_list, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
 
 @dataclasses.dataclass
 class FieldPage:
@@ -145,8 +144,10 @@ def main():
       project_page = website.project_pages[project_id]
       for version in project['versions'].values():
          print(version['name'])
-         page = create_version_page(website, project, version)
-         save_file(website, page)
+         full_title = f'[{project['key']}] {version['name']}'
+         file = make_jira_file(website.root, project_page.get_version_path(version), full_title)
+         make_version_page(website, file, version)
+         save_file(website, file)
 
 def fix_markup(website: Website, file: HtmlFile, html: bs4.BeautifulSoup):
    # our markup is generated with '.' as the site root, but otherwise normal jira paths
@@ -265,11 +266,17 @@ def portal_number(project_key: str) -> int | None:
 
 def make_project_versions_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
    content = soup.new_tag('div', attrs={'class': 'content'})
-   content.append(render_project_title(soup, website, file, project))
-   table = render_versions_table(website, file, project, project['versions'].values())
-   content.append(table)
    file.page.body.append(content)
+   list_main = soup.new_tag('div', attrs={'class': 'list-main'})
+   content.append(list_main)
+   file.page.body.append(make_generic_footer(website, file))
+
+   list_main.append(new_content_tag(soup, 'h1', [project_link(website, file, project), ' versions']))
+   table = render_versions_table(website, file, project, project['versions'].values())
+   list_main.append(new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=table))
 
 def make_project_issues_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
@@ -277,6 +284,8 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
    file.page.body.append(make_generic_header(website, file))
    content = soup.new_tag('div', attrs={'class': 'content'})
    file.page.body.append(content)
+   list_main = soup.new_tag('div', attrs={'class': 'list-main'})
+   content.append(list_main)
    file.page.body.append(make_generic_footer(website, file))
 
    issue_ids = website.relations.fields.metas['project'][project['id']]
@@ -284,9 +293,114 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
       issue = website.archive.get_issue_data(issue_id)
       assert issue is not None
       return issue
-   content.append(render_issue_list(website, file, (issue_map(x) for x in issue_ids)))
+   list_main.append(new_content_tag(soup, 'h1', [project_link(website, file, project), ' issues']))
+   table = create_issue_list(website, file, 'issue', (issue_map(x) for x in issue_ids))
+   list_main.append(table.filters)
+   list_main.append(table.table)
+   add_table_scripts(file, [table.data])
 
-def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[Issue]) -> bs4.Tag:
+def make_version_page(website: Website, file: HtmlFile, version: Version):
+   soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   file.page.body.append(content)
+   file.page.body.append(make_generic_footer(website, file))
+
+   project = website.metas.projects[str(version['projectId'])]
+   version_top = render_generic_top(soup, project_link(website, file, project), version['name'])
+   if 'description' in version and len(version['description']) > 0:
+      desc = new_content_tag(soup, 'div', version['description'], attrs={'class': 'project-desc'})
+      version_body = new_content_tag(soup, 'main', attrs={'class': 'issue-body'}, content=desc)
+   else:
+      version_body = new_content_tag(soup, 'main', attrs={'class': 'issue-body'}, content=[])
+   version_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
+   append_desc_item(soup, version_details,
+      'Released:',
+      'Yes' if version['released'] else 'No'
+   )
+   append_desc_item(soup, version_details,
+      'Archived:',
+      'Yes' if version['archived'] else 'No'
+   )
+   if 'startDate' in version:
+      append_desc_item(soup, version_details,
+         'Start Date:',
+         render_date(soup, datetime.datetime.fromisoformat(version['startDate']))
+      )
+   if 'releaseDate' in version:
+      append_desc_item(soup, version_details,
+         'Release Date:',
+         render_date(soup, datetime.datetime.fromisoformat(version['releaseDate']))
+      )
+   version_div = build_issue_content(soup, version_top, version_body, version_details, None, None)
+   content.append(version_div)
+
+   list_main = soup.new_tag('div', attrs={'class': 'list-main'})
+   version_div.append(list_main)
+
+   table_scripts: list[TableData] = []
+   def issue_map(issue_id: str):
+      issue = website.archive.get_issue_data(issue_id)
+      assert issue is not None
+      return issue
+   affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
+   if len(affected_issues) > 0:
+      list_main.append(new_content_tag(soup, 'h2', 'Affected issues'))
+      affected_table = create_issue_list(website, file, 'affected', (issue_map(x) for x in affected_issues))
+      list_main.append(affected_table.filters)
+      list_main.append(affected_table.table)
+      table_scripts.append(affected_table.data)
+   else:
+      list_main.append(new_content_tag(soup, 'h2', 'No affected issues'))
+   fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
+   if len(fixed_issues) > 0:
+      list_main.append(new_content_tag(soup, 'h2', 'Fixed issues'))
+      fixes_table = create_issue_list(website, file, 'fixed', (issue_map(x) for x in fixed_issues))
+      list_main.append(fixes_table.filters)
+      list_main.append(fixes_table.table)
+      table_scripts.append(fixes_table.data)
+   else:
+      list_main.append(new_content_tag(soup, 'h2', 'No fixed issues'))
+   if len(table_scripts) > 0:
+      add_table_scripts(file, table_scripts)
+
+TableData = typing.TypedDict('TableData', {
+   'rowHeight': int,
+   'tableHeaderId': str,
+   'tableBodyId': str,
+   'scrollId': str,
+   'searchId': str,
+   'countId': str,
+   'summaries': list[str],
+   'sort': list[list[int]],
+   'rows': list[bs4.Tag]
+})
+
+@dataclasses.dataclass
+class VirtualTable:
+   table: bs4.Tag
+   filters: bs4.Tag
+   data: TableData
+
+def add_table_scripts(file: HtmlFile, scripts: list[TableData]):
+   result: list[dict[str, typing.Any]] = []
+   for entry in scripts:
+      result.append({
+         'rowHeight': entry['rowHeight'],
+         'tableHeaderId': entry['tableHeaderId'],
+         'tableBodyId': entry['tableBodyId'],
+         'scrollId': entry['scrollId'],
+         'searchId': entry['searchId'],
+         'countId': entry['countId'],
+         'summaries': entry['summaries'],
+         'sort': entry['sort'],
+         'rows': [str(x) for x in entry['rows']],
+      })
+   script = f'window.tableData = {dump_js(result)};'
+   file.page.body.append(new_content_tag(file.page.soup, 'script', script))
+
+def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: typing.Iterable[Issue]) -> VirtualTable:
    soup = file.page.soup
    all_rows: list[bs4.Tag] = []
    summaries: list[str] = []
@@ -299,7 +413,7 @@ def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[
       []
    ]
    issue_table = soup.new_tag('div', attrs={'class': 'issue-table'})
-   issue_table.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-header', 'id': 'issue-table-header'}, content=[
+   issue_table.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-header', 'id': f'{id_prefix}-table-header'}, content=[
       new_content_tag(soup, 'div', 'Key', attrs={'class': 'issue-table-key'}),
       new_content_tag(soup, 'div', 'Summary', attrs={'class': 'issue-table-summary'}),
       new_content_tag(soup, 'div', 'Status', attrs={'class': 'issue-table-status'}),
@@ -307,7 +421,7 @@ def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[
       new_content_tag(soup, 'div', 'Assignee', attrs={'class': 'issue-table-username'}),
       new_content_tag(soup, 'div', 'Created', attrs={'class': 'issue-table-time'}),
    ]))
-   issue_body = soup.new_tag('div', attrs={'id': 'issue-table-body'})
+   issue_body = soup.new_tag('div', attrs={'id': f'{id_prefix}-table-body', 'class': 'issue-table-body'})
    issue_table.append(issue_body)
    for i, issue in enumerate(issues):
       print(issue['key'])
@@ -348,63 +462,29 @@ def render_issue_list(website: Website, file: HtmlFile, issues: typing.Iterable[
       all_rows.append(row)
       if i < 30:
          issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-virtual-row', 'style': f'top: {i * 32}px;'}, content=row))
-   issue_body.insert(0, soup.new_tag('div', attrs={'id': 'issue-table-scroll'}))
+   issue_body.insert(0, soup.new_tag('div', attrs={'id': f'{id_prefix}-table-scroll', 'class': 'issue-table-scroll'}))
    filters = new_content_tag(soup, 'div', attrs={'class': 'filters'}, content=[
-      soup.new_tag('input', attrs={'name': 'search', 'type': 'text', 'placeholder': 'Summary', 'id': 'issue-table-search'})
+      soup.new_tag('input', attrs={'name': 'search', 'type': 'text', 'placeholder': 'Summary', 'id': f'{id_prefix}-table-search'})
    ])
    controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls'}, content=[
-      new_content_tag(soup, 'div', attrs={'class': 'issue-count', 'id': 'issue-table-count'}, content=[f'{len(all_rows)} issues'])
+      new_content_tag(soup, 'div', attrs={'class': 'issue-count', 'id': f'{id_prefix}-table-count'}, content=[f'{len(all_rows)} issues'])
    ])
-   table_data = {
-      'rows':  [str(x) for x in all_rows],
-      'sort': [[x[0] for x in y] for y in sort_data],
-      'summaries': summaries,
+   table_data: TableData = {
       'rowHeight': 32,
-      'tableHeaderId': 'issue-table-header',
-      'tableBodyId': 'issue-table-body',
-      'searchId': 'issue-table-search',
-      'countId': 'issue-table-count'
+      'tableHeaderId': f'{id_prefix}-table-header',
+      'tableBodyId': f'{id_prefix}-table-body',
+      'scrollId': f'{id_prefix}-table-scroll',
+      'searchId': f'{id_prefix}-table-search',
+      'countId': f'{id_prefix}-table-count',
+      'summaries': summaries,
+      'sort': [[x[0] for x in y] for y in sort_data],
+      'rows':  all_rows,
    }
-   script = f'window.tableData = {json.dumps(table_data)};'
-   file.page.body.append(new_content_tag(soup, 'script', script))
-   return new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
-      filters,
+   result = new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
       controls,
       issue_table
    ])
-
-def create_version_page(website: Website, project: Project, version: Version) -> HtmlFile:
-   full_title = f'[{project['key']}] {version['name']}'
-   affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
-   fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
-   file = make_jira_file(website.root, website.project_pages[project['id']].get_version_path(version), full_title)
-   soup = file.page.soup
-   content = soup.new_tag('div', attrs={'class': 'content'})
-   header = new_content_tag(soup, 'h1', [
-      new_content_tag(soup, 'a', 'Mojira', attrs={'href': relative_link(website.root, file.path, website.home.path)}),
-      ' / ',
-      project_link(website, file, project),
-      ' / ',
-      version_link(website, file, project, version)
-   ])
-   content.append(header)
-   fields = make_desc_list(soup)
-   if 'description' in version:
-      append_desc_item(soup, fields, 'Description', version['description'])
-   if 'releaseDate' in version:
-      append_desc_item(soup, fields, 'Date', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate'])))
-   append_desc_item(soup, fields, 'Status', 'Archived' if version['archived'] else ('Active' if version['released'] else 'Unreleased'))
-   append_desc_item(soup, fields, 'Affected Issues', str(len(affected_issues)))
-   append_desc_item(soup, fields, 'Fixed Issues', str(len(fixed_issues)))
-   content.append(fields)
-   affected_table = render_issues_table(website, file, affected_issues)
-   content.append('Affected:')
-   content.append(affected_table)
-   fixes_table = render_issues_table(website, file, fixed_issues)
-   content.append('Fixes:')
-   content.append(fixes_table)
-   file.page.body.append(content)
-   return file
+   return VirtualTable(result, filters, table_data)
 
 def render_groups_grid(website: Website, file: HtmlFile, group_ids: typing.Iterable[str]) -> bs4.Tag:
    soup = file.page.soup
@@ -430,23 +510,32 @@ def render_fields_grid(website: Website, file: HtmlFile, field_ids: typing.Itera
       ]
       if field_id in website.relations.fields.fields:
          values = website.relations.fields.fields[field_id].values()
+         def field_value_key(value: relations.FieldRelation):
+            return len(value['issues'])
          def transform_field(value: relations.FieldRelation):
             return field_link(website, file, field_id, value['value'] if isinstance(value['value'], str) else value['value']['id'])
          if len(values) > 15:
             content.append(f'{len(values)} values')
          else:
-            tags = inline_list(soup, map(transform_field, sorted(values, key=lambda x: len(x['issues']), reverse=True)))
+            tags = inline_list(soup, map(transform_field, sorted(values, key=field_value_key, reverse=True)))
             content.append(tags)
       else:
          meta_id = typing.cast(mojira.META_TYPE, field_id)
          values = [None] + [x['id'] for x in website.metas.metas[meta_id].values()]
+         def meta_value_key(value: str | None):
+            meta_id = typing.cast(mojira.META_TYPE, field_id)
+            display = website.metas.display_value(meta_id, value)
+            assert display is not None
+            if value is None:
+               return (0, display.name)
+            return (1, display.name)
          def transform_meta(value: str | None):
             meta_id = typing.cast(mojira.META_TYPE, field_id)
             return meta_link(website, file, meta_id, value)
          if len(values) > 15:
             content.append(f'{len(values)} values')
          else:
-            tags = inline_list(soup, map(transform_meta, sorted(values, key=lambda x: len(website.relations.fields.metas[meta_id]['' if x is None else x]), reverse=True)))
+            tags = inline_list(soup, map(transform_meta, sorted(values, key=meta_value_key, reverse=False)))
             content.append(tags)
       entries.append(new_content_tag(soup, 'div', content=content))
    return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
@@ -470,17 +559,26 @@ def render_projects_grid(website: Website, file: HtmlFile, projects: typing.Iter
    return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
 
 def render_versions_table(website: Website, file: HtmlFile, project: Project, versions: typing.Iterable[Version]) -> bs4.Tag:
-   table = make_table(file.page.soup, ['Name', 'Description', 'Date', 'Affected Issues', 'Fixed Issues'])
-   table.attrs['class'] = 'versions-table sortable'
+   soup = file.page.soup
+   table = make_table(soup, [
+      new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Name'), attrs={'class': 'version-table-name'}),
+      new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Description'), attrs={'class': 'version-table-desc'}),
+      new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Date'), attrs={'class': 'version-table-date'}),
+      new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Affected'), attrs={'class': 'version-table-issues'}),
+         new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Fixed'), attrs={'class': 'version-table-issues'}),
+   ])
+   table.attrs['class'] = 'version-table sortable'
    for version in versions:
       affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
       fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
-      append_row(file.page.soup, table, [
-         version_link(website, file, project, version),
-         version['description'] if 'description' in version else '',
-         render_date(file.page.soup, datetime.datetime.fromisoformat(version['releaseDate'])) if 'releaseDate' in version else '',
-         str(len(affected_issues)),
-         str(len(fixed_issues)),
+      link = relative_link(website.root, file.path, website.project_pages[project['id']].get_version_path(version))
+      badge = new_content_tag(soup, 'span', version['name'], attrs={'class': 'status-badge'})
+      append_row(soup, table, [
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-name'}, content=new_content_tag(soup, 'a', attrs={'href': link}, content=new_content_tag(soup, 'div', badge))),
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-desc'}, content=new_content_tag(soup, 'div', version['description'])) if 'description' in version else '',
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-date'}, content=new_content_tag(soup, 'div', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate'])))) if 'releaseDate' in version else '',
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(affected_issues)} issues')) if len(affected_issues) > 0 else '',
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(fixed_issues)} issues')) if len(fixed_issues) > 0 else '',
       ])
    return table
 
