@@ -127,15 +127,16 @@ def main():
    make_home_page(website, website.home)
    save_file(website, website.home)
    print('Fields...')
+   meta_list: list[mojira.META_TYPE] = ['resolution']
+   for key in meta_list:
+      print('\t' + key)
+      field_page = website.field_pages[key]
+      make_meta_page(website, field_page.page, key)
+      save_file(website, field_page.page)
    for key in rels.fields.fields.keys():
       print('\t' + key)
       field_page = website.field_pages[key]
       make_field_page(website, field_page.page, key)
-      save_file(website, field_page.page)
-   for key in ['resolution']:
-      print('\t' + key)
-      field_page = website.field_pages[key]
-      make_meta_page(website, field_page.page, key)
       save_file(website, field_page.page)
    print('Project main...')
    for project_id, project in metas.projects.items():
@@ -143,12 +144,6 @@ def main():
       project_page = website.project_pages[project_id]
       make_project_main_page(website, project_page.main, project)
       save_file(website, project_page.main)
-   print('Project issues...')
-   for project_id, project in metas.projects.items():
-      print('\t' + project['key'])
-      project_page = website.project_pages[project_id]
-      make_project_issues_page(website, project_page.issues, project)
-      save_file(website, project_page.issues)
    print('Project versions...')
    for project_id, project in metas.projects.items():
       print('\t' + project['key'])
@@ -156,6 +151,12 @@ def main():
       if project_page.versions is not None:
          make_project_versions_page(website, project_page.versions, project)
          save_file(website, project_page.versions)
+   print('Project issues...')
+   for project_id, project in metas.projects.items():
+      print('\t' + project['key'])
+      project_page = website.project_pages[project_id]
+      make_project_issues_page(website, project_page.issues, project)
+      save_file(website, project_page.issues)
    print('Project individual versions...')
    for project_id, project in metas.projects.items():
       print('\t' + project['key'])
@@ -165,6 +166,31 @@ def main():
          full_title = f'[{project['key']}] {version['name']}'
          file = make_jira_file(website.root, project_page.get_version_path(version), full_title)
          make_version_page(website, file, version)
+         save_file(website, file)
+   print('Field issues...')
+   for key in meta_list:
+      print('\t' + key)
+      field_page = website.field_pages[key]
+      fname = field_name(metas, key)
+      for value_key in [None] + list(metas.metas[key].keys()):
+         display = metas.display_value(key, value_key)
+         assert display is not None
+         print('\t\t' + display.name)
+         full_title = f'[{fname}] {display.name}'
+         file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
+         make_meta_value_page(website, file, key, value_key)
+         save_file(website, file)
+   for key, values in rels.fields.fields.items():
+      print('\t' + key)
+      field_page = website.field_pages[key]
+      fname = field_name(metas, key)
+      for value_key in values.keys():
+         display = website.relations.fields.display_value(key, value_key)
+         assert display is not None
+         print('\t\t' + display.name)
+         full_title = f'[{fname}] {display.name}'
+         file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
+         make_field_value_page(website, file, key, value_key)
          save_file(website, file)
    print('Issues...')
    for issue in website.archive.issues():
@@ -253,6 +279,56 @@ def make_field_page(website: Website, file: HtmlFile, field_id: str):
    values = website.relations.fields.fields[field_id].values()
    table = render_field_values_grid(website, file, field_id, sorted(values, key=field_value_order_key))
    home_main.append(table)
+
+def make_field_value_page(website: Website, file: HtmlFile, field_id: str, value_key: str):
+   soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   file.page.body.append(content)
+   list_main = soup.new_tag('div', attrs={'class': 'list-main'})
+   content.append(list_main)
+   file.page.body.append(make_generic_footer(website, file))
+
+   issue_ids = website.relations.fields.fields[field_id][value_key]['issues']
+   def issue_map(issue_id: str):
+      issue = website.archive.get_issue_data(issue_id)
+      assert issue is not None
+      return issue
+
+   fname = field_name(website.metas, field_id)
+   flink = relative_link(website.root, file.path, website.field_pages[field_id].page.path)
+   list_main.append(new_content_tag(soup, 'h1', [new_content_tag(soup, 'a', attrs={'href': flink}, content=fname)]))
+   list_main.append(new_content_tag(soup, 'h2', [field_link(website, file, field_id, value_key), ' issues']))
+   table = create_issue_list(website, file, 'issue', (issue_map(x) for x in issue_ids))
+   list_main.append(table.filters)
+   list_main.append(table.table)
+   add_table_scripts(file, [table.data])
+
+def make_meta_value_page(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None):
+   soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   file.page.body.append(content)
+   list_main = soup.new_tag('div', attrs={'class': 'list-main'})
+   content.append(list_main)
+   file.page.body.append(make_generic_footer(website, file))
+
+   issue_ids = website.relations.fields.metas[meta_id]['' if value_key is None else value_key]
+   def issue_map(issue_id: str):
+      issue = website.archive.get_issue_data(issue_id)
+      assert issue is not None
+      return issue
+
+   fname = field_name(website.metas, meta_id)
+   flink = relative_link(website.root, file.path, website.field_pages[meta_id].page.path)
+   list_main.append(new_content_tag(soup, 'h1', [new_content_tag(soup, 'a', attrs={'href': flink}, content=fname)]))
+   list_main.append(new_content_tag(soup, 'h2', [meta_link(website, file, meta_id, value_key), ' issues']))
+   table = create_issue_list(website, file, 'issue', (issue_map(x) for x in issue_ids))
+   list_main.append(table.filters)
+   list_main.append(table.table)
+   add_table_scripts(file, [table.data])
 
 def make_meta_page(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE):
    soup = file.page.soup
@@ -2313,7 +2389,7 @@ def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value
    return badge.outer
 
 def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
-   extras = {'customfield_12400': 'Dungeons Platform', 'customfield_12900': 'Legends Platform'}
+   extras = {'customfield_12400': 'Dungeons Platform', 'customfield_12900': 'Legends Platform', 'components': 'Component'}
    if field_id in extras:
       return extras[field_id]
    return metas.fields[field_id]['name']
