@@ -35,10 +35,6 @@ def write_html(path: pathlib.Path, page: Page):
       file.write('<!DOCTYPE html>\n')
       file.write(str(page.soup))
 
-def make_desc_list(soup: bs4.BeautifulSoup) -> bs4.Tag:
-   list = soup.new_tag('dl')
-   return list
-
 def append_desc_item(soup: bs4.BeautifulSoup, desc_list: bs4.Tag, name: str | bs4.Tag, value: str | bs4.Tag):
    desc_list.append(new_content_tag(soup, 'dt', new_content_tag(soup, 'label', name)))
    desc_list.append(new_content_tag(soup, 'dd', value))

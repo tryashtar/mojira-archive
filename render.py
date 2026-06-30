@@ -12,7 +12,7 @@ import re
 import bisect
 import copy
 import natsort
-from web import HtmlFile, append_desc_item, append_row, dump_js, html_diff, html_to_text, inline_list, make_desc_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
+from web import HtmlFile, append_desc_item, append_row, dump_js, html_diff, html_to_text, inline_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
 
 @dataclasses.dataclass
 class FieldPage:
@@ -48,10 +48,16 @@ class Website:
    secret_comments: mojira.SecretComments
 
    def get_issue_path(self, issue: Issue) -> pathlib.PurePath:
-      return self.issues_folder / (issue['key'] + '.html')
+      return self.get_issue_key_path(issue['key'])
+
+   def get_issue_key_path(self, issue_key: str) -> pathlib.PurePath:
+      return self.issues_folder / (issue_key + '.html')
 
    def get_user_path(self, user: User) -> pathlib.PurePath:
-      return self.users_folder / (urllib.parse.quote_plus(user['key']) + '.html')
+      return self.get_user_key_path(user['key'])
+
+   def get_user_key_path(self, user_key: str) -> pathlib.PurePath:
+      return self.users_folder / (urllib.parse.quote_plus(user_key) + '.html')
 
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
@@ -117,37 +123,56 @@ def main():
       )
 
    print('Rendering...')
-   for test in ['MC-4', 'MC-1691', 'MCPE-33270', 'MC-151343', 'MC-93468', 'WEB-1234', 'TRASH-59584', 'MC-162518', 'MCPE-108785', 'MC-272351', 'MCL-12040', 'MCL-24276', 'TRASH-35765', 'MC-12938', 'MCPE-166983', 'MCM-525']:
-      #file = create_issue_page(website, archive.get_issue_data(rels.keys.issue_keys[test]))
-      #save_file(website, file)
-      print(test)
+   print('Home...')
    make_home_page(website, website.home)
    save_file(website, website.home)
+   print('Fields...')
+   for key in rels.fields.fields.keys():
+      print('\t' + key)
+      field_page = website.field_pages[key]
+      make_field_page(website, field_page.page, key)
+      save_file(website, field_page.page)
+   for key in ['resolution']:
+      print('\t' + key)
+      field_page = website.field_pages[key]
+      make_meta_page(website, field_page.page, key)
+      save_file(website, field_page.page)
+   print('Project main...')
    for project_id, project in metas.projects.items():
-      print(project['key'])
+      print('\t' + project['key'])
       project_page = website.project_pages[project_id]
       make_project_main_page(website, project_page.main, project)
       save_file(website, project_page.main)
+   print('Project issues...')
    for project_id, project in metas.projects.items():
-      print(project['key'])
+      print('\t' + project['key'])
       project_page = website.project_pages[project_id]
       make_project_issues_page(website, project_page.issues, project)
       save_file(website, project_page.issues)
+   print('Project versions...')
    for project_id, project in metas.projects.items():
-      print(project['key'])
+      print('\t' + project['key'])
       project_page = website.project_pages[project_id]
       if project_page.versions is not None:
          make_project_versions_page(website, project_page.versions, project)
          save_file(website, project_page.versions)
+   print('Project individual versions...')
    for project_id, project in metas.projects.items():
-      print(project['key'])
+      print('\t' + project['key'])
       project_page = website.project_pages[project_id]
       for version in project['versions'].values():
-         print(version['name'])
+         print('\t\t' + version['name'])
          full_title = f'[{project['key']}] {version['name']}'
          file = make_jira_file(website.root, project_page.get_version_path(version), full_title)
          make_version_page(website, file, version)
          save_file(website, file)
+   print('Issues...')
+   for issue in website.archive.issues():
+      print('\t' + issue['key'])
+      path = website.get_issue_path(issue)
+      full_title = f'[{issue['key']}] {issue['fields']['summary']}'
+      file = make_jira_file(website.root, path, full_title)
+      save_file(website, file)
 
 def fix_markup(website: Website, file: HtmlFile, html: bs4.BeautifulSoup):
    # our markup is generated with '.' as the site root, but otherwise normal jira paths
@@ -171,7 +196,8 @@ UNKNOWN_COMMENT_RE = re.compile(r'A comment with security level \'[a-z]+\' was r
 def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str:
    if (match := BROWSE_RE.match(link)) is not None:
       key = match.group(1)
-      return relative_link(website.root, file.path, website.issues_folder / (key + '.html'))
+      assert key in website.relations.keys.issue_keys
+      return relative_link(website.root, file.path, website.get_issue_key_path(key))
    if (match := ATTACH_RE.match(link)) is not None or (match := THUMBNAIL_RE.match(link)) is not None:
       attach_id, attach_name = match.group(1, 2)
       path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(attach_id, attach_name))
@@ -184,7 +210,8 @@ def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str:
       username = urllib.parse.unquote_plus(match.group(1))
       normalized = username.casefold()
       user_key = website.relations.keys.user_keys.get(normalized, normalized)
-      return relative_link(website.root, file.path, website.users_folder / (urllib.parse.quote_plus(user_key) + '.html'))
+      assert user_key in website.relations.keys.issue_keys
+      return relative_link(website.root, file.path, website.get_user_key_path(user_key))
    raise ValueError()
 
 def make_home_page(website: Website, file: HtmlFile):
@@ -209,6 +236,38 @@ def make_home_page(website: Website, file: HtmlFile):
    home_main.append(table)
    home_main.append(new_content_tag(soup, 'h2', 'User Groups'))
    table = render_groups_grid(website, file, sorted(website.relations.user.groups.keys(), key=lambda x: len(website.relations.user.groups[x]), reverse=True))
+   home_main.append(table)
+
+def make_field_page(website: Website, file: HtmlFile, field_id: str):
+   soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   file.page.body.append(content)
+   file.page.body.append(make_generic_footer(website, file))
+
+   home_main = soup.new_tag('div', attrs={'class': 'home-main'})
+   content.append(home_main)
+   name = field_name(website.metas, field_id)
+   home_main.append(new_content_tag(soup, 'h2', name))
+   values = website.relations.fields.fields[field_id].values()
+   table = render_field_values_grid(website, file, field_id, sorted(values, key=field_value_order_key))
+   home_main.append(table)
+
+def make_meta_page(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE):
+   soup = file.page.soup
+
+   file.page.body.append(make_generic_header(website, file))
+   content = soup.new_tag('div', attrs={'class': 'content'})
+   file.page.body.append(content)
+   file.page.body.append(make_generic_footer(website, file))
+
+   home_main = soup.new_tag('div', attrs={'class': 'home-main'})
+   content.append(home_main)
+   name = field_name(website.metas, meta_id)
+   home_main.append(new_content_tag(soup, 'h2', name))
+   values = values = [None] + [x['id'] for x in website.metas.metas[meta_id].values()]
+   table = render_meta_values_grid(website, file, meta_id, sorted(values, key=lambda x: meta_value_order_key(website, meta_id, x)))
    home_main.append(table)
 
 def make_project_main_page(website: Website, file: HtmlFile, project: Project):
@@ -315,14 +374,6 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
    else:
       version_body = new_content_tag(soup, 'main', attrs={'class': 'issue-body'}, content=[])
    version_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
-   append_desc_item(soup, version_details,
-      'Released:',
-      'Yes' if version['released'] else 'No'
-   )
-   append_desc_item(soup, version_details,
-      'Archived:',
-      'Yes' if version['archived'] else 'No'
-   )
    if 'startDate' in version:
       append_desc_item(soup, version_details,
          'Start Date:',
@@ -333,6 +384,14 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
          'Release Date:',
          render_date(soup, datetime.datetime.fromisoformat(version['releaseDate']))
       )
+   append_desc_item(soup, version_details,
+      'Released:',
+      'Yes' if version['released'] else 'No'
+   )
+   append_desc_item(soup, version_details,
+      'Archived:',
+      'Yes' if version['archived'] else 'No'
+   )
    version_div = build_issue_content(soup, version_top, version_body, version_details, None, None)
    content.append(version_div)
 
@@ -437,7 +496,6 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
    issue_body = soup.new_tag('div', attrs={'id': f'{id_prefix}-table-body', 'class': 'issue-table-body'})
    issue_table.append(issue_body)
    for i, issue in enumerate(issues):
-      print(issue['key'])
       key = new_content_tag(soup, 'a', issue['key'], attrs={'class': 'issue-table-key', 'href': relative_link(website.root, file.path, website.get_issue_path(issue))})
       if issue['fields']['reporter'] is not None:
          reporter_ref = user_reference(website, file, 'a', issue['fields']['reporter'])
@@ -512,6 +570,55 @@ def render_groups_grid(website: Website, file: HtmlFile, group_ids: typing.Itera
       entries.append(new_content_tag(soup, 'div', content=content))
    return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
 
+def field_value_order_key(value: relations.FieldRelation):
+   if isinstance(value['value'], str):
+      name = value['value']
+   elif 'name' in value['value']:
+      name = value['value']['name']
+   else:
+      name = value['value']['value']
+   return (-len(value['issues']), name)
+
+def meta_value_order_key(website: Website, meta_id: mojira.META_TYPE, value: str | None):
+   display = website.metas.display_value(meta_id, value)
+   assert display is not None
+   if value is None:
+      return (0, display.name)
+   return (1, display.name)
+
+def render_field_values_grid(website: Website, file: HtmlFile, field_id: str, field_values: typing.Iterable[relations.FieldRelation]) -> bs4.Tag:
+   soup = file.page.soup
+   entries: list[bs4.Tag] = []
+   for value in field_values:
+      issues = value['issues']
+      value_key = value['value'] if isinstance(value['value'], str) else value['value']['id']
+      content: list[bs4.Tag | str] = [
+         new_content_tag(soup, 'span', attrs={'class': 'home-grid-name'}, content=field_link(website, file, field_id, value_key))
+      ]
+      if not isinstance(value['value'], str) and 'description' in value['value']:
+         content.append(value['value']['description'])
+         content.append(soup.new_tag('br'))
+      content.append(f'{len(issues)} issues')
+      entries.append(new_content_tag(soup, 'div', content=content))
+   return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
+
+def render_meta_values_grid(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, values: typing.Iterable[str | None]) -> bs4.Tag:
+   soup = file.page.soup
+   entries: list[bs4.Tag] = []
+   for value in values:
+      issues = website.relations.fields.metas[meta_id]['' if value is None else value]
+      content: list[bs4.Tag | str] = [
+         new_content_tag(soup, 'span', attrs={'class': 'home-grid-name'}, content=meta_link(website, file, meta_id, value))
+      ]
+      display = website.metas.display_value(meta_id, value)
+      assert display is not None
+      if display.description is not None:
+         content.append(display.description)
+         content.append(soup.new_tag('br'))
+      content.append(f'{len(issues)} issues')
+      entries.append(new_content_tag(soup, 'div', content=content))
+   return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
+
 def render_fields_grid(website: Website, file: HtmlFile, field_ids: typing.Iterable[str | mojira.META_TYPE]) -> bs4.Tag:
    soup = file.page.soup
    entries: list[bs4.Tag] = []
@@ -523,32 +630,23 @@ def render_fields_grid(website: Website, file: HtmlFile, field_ids: typing.Itera
       ]
       if field_id in website.relations.fields.fields:
          values = website.relations.fields.fields[field_id].values()
-         def field_value_key(value: relations.FieldRelation):
-            return len(value['issues'])
          def transform_field(value: relations.FieldRelation):
             return field_link(website, file, field_id, value['value'] if isinstance(value['value'], str) else value['value']['id'])
          if len(values) > 15:
             content.append(f'{len(values)} values')
          else:
-            tags = inline_list(soup, map(transform_field, sorted(values, key=field_value_key, reverse=True)))
+            tags = inline_list(soup, map(transform_field, sorted(values, key=field_value_order_key)))
             content.append(tags)
       else:
          meta_id = typing.cast(mojira.META_TYPE, field_id)
          values = [None] + [x['id'] for x in website.metas.metas[meta_id].values()]
-         def meta_value_key(value: str | None):
-            meta_id = typing.cast(mojira.META_TYPE, field_id)
-            display = website.metas.display_value(meta_id, value)
-            assert display is not None
-            if value is None:
-               return (0, display.name)
-            return (1, display.name)
          def transform_meta(value: str | None):
             meta_id = typing.cast(mojira.META_TYPE, field_id)
             return meta_link(website, file, meta_id, value)
          if len(values) > 15:
             content.append(f'{len(values)} values')
          else:
-            tags = inline_list(soup, map(transform_meta, sorted(values, key=meta_value_key, reverse=False)))
+            tags = inline_list(soup, map(transform_meta, sorted(values, key=lambda x: meta_value_order_key(website, typing.cast(mojira.META_TYPE, meta_id), x))))
             content.append(tags)
       entries.append(new_content_tag(soup, 'div', content=content))
    return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
@@ -580,7 +678,7 @@ def render_versions_table(website: Website, file: HtmlFile, project: Project, ve
       new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Affected'), attrs={'class': 'version-table-issues'}),
          new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Fixed'), attrs={'class': 'version-table-issues'}),
    ])
-   table.attrs['class'] = 'version-table sortable'
+   table.attrs['class'] = 'version-table'
    for version in versions:
       affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
       fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
@@ -616,13 +714,12 @@ def make_generic_footer(website: Website, file: HtmlFile) -> bs4.Tag:
 def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
    return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))})
 
-def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
+def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
    key = issue['key']
    fields = issue['fields']
    summary = fields['summary']
    full_title = f'[{key}] {summary}'
 
-   file = make_jira_file(website.root, website.issues_folder / (key + '.html'), full_title)
    soup = file.page.soup
    file.page.head.append(soup.new_tag('meta', attrs={'name': 'title', 'content': full_title}))
    file.page.head.append(soup.new_tag('meta', attrs={'property': 'og:title', 'content': full_title}))
@@ -699,7 +796,6 @@ def create_issue_page(website: Website, issue: Issue) -> HtmlFile:
          tabbed_content
       ])
    )
-   return file
 
 def render_issue_top(website: Website, file: HtmlFile, key: str, summary: str) -> bs4.Tag:
    return render_generic_top(
@@ -2136,7 +2232,7 @@ def project_link(website: Website, file: HtmlFile, project: Project) -> bs4.Tag:
 
 def big_issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    cls = 'issue-link' if issue['fields']['resolution'] is None else 'issue-link issue-resolved'
-   link = relative_link(website.root, file.path, website.issues_folder / (issue['key'] + '.html'))
+   link = relative_link(website.root, file.path, website.get_issue_path(issue))
    status = merged_status(website, file, 'span', issue)
    return new_content_tag(file.page.soup, 'a', attrs={'class': cls, 'href': link}, content=[
       bug_icon(website, file),
@@ -2144,19 +2240,6 @@ def big_issue_link(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
       new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-link-summary', 'title': issue['fields']['summary']}, content=issue['fields']['summary']),
       status.badge.outer
    ])
-
-def issue_link(website: Website, file: HtmlFile, issue: Issue, with_summary: bool) -> bs4.Tag:
-   key = issue['key']
-   linkpart = new_content_tag(file.page.soup, 'a', key, attrs={'class': 'issue-link-key', 'href': relative_link(website.root, file.path, website.issues_folder / (key + '.html'))})
-   if with_summary:
-      tag = new_content_tag(file.page.soup, 'span', [bug_icon(website, file), linkpart, ' ', issue['fields']['summary']])
-   else:
-      tag = new_content_tag(file.page.soup, 'span', [bug_icon(website, file), linkpart])
-   if issue['fields']['resolution'] is not None:
-      tag.attrs['class'] = 'small-issue-link issue-resolved'
-   else:
-      tag.attrs['class'] = 'small-issue-link'
-   return tag
 
 def issue_key(website: Website, file: HtmlFile, issue_key: str) -> bs4.Tag:
    linkpart = new_content_tag(file.page.soup, 'span', issue_key, attrs={'class': 'issue-link-key'})
@@ -2182,7 +2265,7 @@ def user_reference(website: Website, file: HtmlFile, tag_type: str, user_key: st
    img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'class': 'avatar'})
    if avatar_path is not None:
       img['src'] = str(relative_path(website.root, file.path, avatar_path))
-   link_url = relative_link(website.root, file.path, website.users_folder / (urllib.parse.quote_plus(user_key) + '.html'))
+   link_url = relative_link(website.root, file.path, website.get_user_key_path(user_key))
    inner = new_content_tag(file.page.soup, tag_type, attrs={'class':'user-hover user-link', 'rel': user_data['name']}, content=[
       new_content_tag(file.page.soup, 'span', attrs={'class': 'username'}, content=display_name),
    ])
