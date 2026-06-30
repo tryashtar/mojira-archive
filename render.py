@@ -336,8 +336,8 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
    version_div = build_issue_content(soup, version_top, version_body, version_details, None, None)
    content.append(version_div)
 
-   list_main = soup.new_tag('div', attrs={'class': 'list-main'})
-   version_div.append(list_main)
+   tabbed_content = soup.new_tag('div', attrs={'class': 'issue-tabs-content'})
+   version_tabs: list[bs4.Tag] = []
 
    table_scripts: list[TableData] = []
    def issue_map(issue_id: str):
@@ -346,22 +346,35 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
       return issue
    affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
    if len(affected_issues) > 0:
-      list_main.append(new_content_tag(soup, 'h2', 'Affected issues'))
+      version_tabs.extend([
+         soup.new_tag('input', attrs={'type': 'radio', 'name': 'version-tabs', 'id': 'version-tab-affected', 'checked': ''}),
+         new_content_tag(soup, 'label', attrs={'for': 'version-tab-affected'}, content=[
+            'Affected Issues',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(affected_issues)))
+         ])
+      ])
       affected_table = create_issue_list(website, file, 'affected', (issue_map(x) for x in affected_issues))
-      list_main.append(affected_table.filters)
-      list_main.append(affected_table.table)
+      tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'version-tab-content-affected', 'class': 'issue-tab-content'}, content=[affected_table.filters, affected_table.table]))
       table_scripts.append(affected_table.data)
-   else:
-      list_main.append(new_content_tag(soup, 'h2', 'No affected issues'))
    fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
    if len(fixed_issues) > 0:
-      list_main.append(new_content_tag(soup, 'h2', 'Fixed issues'))
-      fixes_table = create_issue_list(website, file, 'fixed', (issue_map(x) for x in fixed_issues))
-      list_main.append(fixes_table.filters)
-      list_main.append(fixes_table.table)
-      table_scripts.append(fixes_table.data)
-   else:
-      list_main.append(new_content_tag(soup, 'h2', 'No fixed issues'))
+      input_tag = soup.new_tag('input', attrs={'type': 'radio', 'name': 'version-tabs', 'id': 'version-tab-fixed'})
+      if len(affected_issues) == 0:
+         input_tag.attrs['checked'] = ''
+      version_tabs.extend([
+         input_tag,
+         new_content_tag(soup, 'label', attrs={'for': 'version-tab-fixed'}, content=[
+            'Fixed Issues',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(fixed_issues)))
+         ])
+      ])
+      fixed_table = create_issue_list(website, file, 'fixed', (issue_map(x) for x in fixed_issues))
+      tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'version-tab-content-fixed', 'class': 'issue-tab-content'}, content=[fixed_table.filters, fixed_table.table]))
+      table_scripts.append(fixed_table.data)
+   version_tabs.append(tabbed_content)
+   version_div.append(
+      new_content_tag(soup, 'div', attrs={'class': 'issue-tabs'}, content=version_tabs)
+   )
    if len(table_scripts) > 0:
       add_table_scripts(file, table_scripts)
 
