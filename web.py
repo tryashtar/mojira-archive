@@ -35,6 +35,19 @@ def write_html(path: pathlib.Path, page: Page):
       file.write('<!DOCTYPE html>\n')
       file.write(str(page.soup))
 
+def add_metadata(file: HtmlFile, title: str | None, description: str | None, image: str | None):
+   if title is not None:
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'name': 'title', 'content': title}))
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'og:title', 'content': title}))
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'twitter:title', 'content': title}))
+   if description is not None:
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'name': 'description', 'content': description}))
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'og:description', 'content': description}))
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'twitter:description', 'content': description}))
+   if image is not None:
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'og:image', 'content': image}))
+      file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'twitter:image', 'content': image}))
+
 def append_desc_item(soup: bs4.BeautifulSoup, desc_list: bs4.Tag, name: str | bs4.Tag, value: str | bs4.Tag):
    desc_list.append(new_content_tag(soup, 'dt', new_content_tag(soup, 'label', name)))
    desc_list.append(new_content_tag(soup, 'dd', value))
@@ -215,48 +228,3 @@ def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separa
       span.append(separator)
       span.append(item)
    return span
-
-def dump_js(data: dict | list | str | int | float | bool | None) -> str:
-   parts: list[str] = []
-   dump_js_add(parts, data)
-   return ''.join(parts)
-
-def dump_js_add(parts: list[str], data: dict | list | str | int | float | bool | None):
-   if data is None:
-      parts.append('null')
-   elif isinstance(data, str):
-      double = data.count('"')
-      single = data.count('\'')
-      if single >= double:
-         parts.append('"')
-         parts.append(data.replace('\\', '\\\\').replace('"', '\\"'))
-         parts.append('"')
-      else:
-         parts.append('\'')
-         parts.append(data.replace('\\', '\\\\').replace('\'', '\\\''))
-         parts.append('\'')
-   elif isinstance(data, bool):
-      if data:
-         parts.append('true')
-      else:
-         parts.append('false')
-   elif isinstance(data, int) or isinstance(data, float):
-      parts.append(str(data))
-   elif isinstance(data, dict):
-      parts.append('{')
-      for i, (key, value) in enumerate(data.items()):
-         parts.append(key)
-         parts.append(':')
-         dump_js_add(parts, value)
-         if i < len(data) - 1:
-            parts.append(',')
-      parts.append('}')
-   elif isinstance(data, list):
-      parts.append('[')
-      for i, value in enumerate(data):
-         dump_js_add(parts, value)
-         if i < len(data) - 1:
-            parts.append(',')
-      parts.append(']')
-   else:
-      raise ValueError()

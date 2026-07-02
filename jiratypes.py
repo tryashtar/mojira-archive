@@ -76,6 +76,7 @@ User = typing.TypedDict('User', {
    'displayName': str,
    'active': bool,
    'deleted': bool,
+   'timeZone': str,
    'avatarUrls': AvatarUrls,
    'groups': UserGroups
 })
@@ -86,7 +87,8 @@ Attachment = typing.TypedDict('Attachment', {
    'author': typing.NotRequired[str],
    'created': str,
    'size': int,
-   'mimeType': str
+   'mimeType': str,
+   'content': str
 })
 
 CommentVisibility = typing.TypedDict('CommentVisibility', {
