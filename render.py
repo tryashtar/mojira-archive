@@ -60,7 +60,7 @@ class Website:
       return self.get_user_name_path(user['name'])
 
    def get_user_name_path(self, username: str) -> pathlib.PurePath:
-      return self.users_folder / (urllib.parse.quote_plus(username) + '.html')
+      return self.users_folder / (urllib.parse.quote_plus(username.lower()) + '.html')
 
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
@@ -198,8 +198,8 @@ def main():
          make_field_value_page(website, file, key, value_key)
          save_file(website, file)
    print('All issues...')
-   make_all_issues_page(website, website.all_issues_list)
-   save_file(website, website.all_issues_list)
+   #make_all_issues_page(website, website.all_issues_list)
+   #save_file(website, website.all_issues_list)
    print('Issues...')
    written_issues: set[str] = set()
    for issue in archive.issues():
@@ -240,26 +240,38 @@ def fix_markup(website: Website, file: HtmlFile, html: bs4.BeautifulSoup):
    for tag in html.find_all(name='a', attrs={'href': True}):
       current_link = tag['href']
       if isinstance(current_link, str) and current_link.startswith('./'):
-         tag['href'] = fix_markup_link(website, file, current_link)
+         fixed = fix_markup_link(website, file, current_link)
+         if fixed is not None:
+            tag.attrs['href'] = fixed
+         else:
+            del tag.attrs['href']
    for tag in html.find_all(name='img', attrs={'src': True}):
       current_link = tag['src']
       if isinstance(current_link, str) and current_link.startswith('./'):
-         tag['src'] = fix_markup_link(website, file, current_link)
+         fixed = fix_markup_link(website, file, current_link)
+         if fixed is not None:
+            tag.attrs['src'] = fixed
+         else:
+            del tag.attrs['src']
 
 BROWSE_RE = re.compile(r'^./browse/([A-Z]+-[0-9]+)$')
 ATTACH_RE = re.compile(r'^./secure/attachment/([0-9]+)/(.+)$')
 THUMBNAIL_RE = re.compile(r'^./secure/thumbnail/([0-9]+)/(.+)$')
 ICON_RE = re.compile(r'^./images/(.+)$')
-USER_RE = re.compile(r'^./secure/ViewProfile\.jspa\?name=(.+)$')
+USER_RE = re.compile(r'^./secure/ViewProfile\.jspa\?name=(.*)$')
 UNKNOWN_COMMENT_RE = re.compile(r'A comment with security level \'[a-z]+\' was removed\.' + '\u00a0?$')
 
-def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str:
+def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str | None:
    if (match := BROWSE_RE.match(link)) is not None:
       key = match.group(1)
-      assert key in website.relations.keys.issue_keys
+      if key not in website.relations.keys.issue_keys:
+         return None
       return relative_link(website.root, file.path, website.get_issue_key_path(key))
    if (match := ATTACH_RE.match(link)) is not None or (match := THUMBNAIL_RE.match(link)) is not None:
       attach_id, attach_name = match.group(1, 2)
+      data = website.archive.get_attachment_data(attach_id)
+      if data is None:
+         return None
       path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(attach_id, attach_name))
       return urllib.parse.quote(str(path))
    if (match := ICON_RE.match(link)) is not None:
@@ -268,6 +280,8 @@ def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str:
       return urllib.parse.quote(str(path))
    if (match := USER_RE.match(link)) is not None:
       username = urllib.parse.unquote_plus(match.group(1))
+      if username not in website.relations.keys.user_keys:
+         return None
       return relative_link(website.root, file.path, website.get_user_name_path(username))
    raise ValueError()
 
@@ -922,7 +936,10 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
    key = issue['key']
    fields = issue['fields']
    summary = fields['summary']
-   project = website.metas.projects[issue['fields']['project']]
+   if issue['fields']['project'] in website.metas.projects:
+      project = website.metas.projects[issue['fields']['project']]
+   else:
+      project = None
    full_title = f'[{key}] {summary}'
 
    soup = file.page.soup
@@ -957,7 +974,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
    issue_body = build_issue_body(soup, desc, env, impact)
    issue_details = render_issue_details(website, file, issue)
    issue_links = render_issue_links(website, file, issue['fields']['issuelinks'])
-   image_url = project['avatarUrls']['48x48']
+   image_url = project['avatarUrls']['48x48'] if project is not None else None
    if len(issue['fields']['attachment']) > 0:
       issue_attaches = render_issue_attachments(website, file, issue['fields']['attachment'])
       for entry in issue['fields']['attachment']:
@@ -1219,7 +1236,6 @@ def merge_revisions(revisions: list[Revision]) -> list[MergedRevision]:
 
 def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> bs4.Tag:
    soup = file.page.soup
-   issue_project = website.metas.projects[issue['fields']['project']]
 
    # revisions can include references to versions, attachments, issues, or fields that no longer exist
    # we still display them, just without full data or links
@@ -1273,6 +1289,14 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          result.append(new_content_tag(soup, 'p', dir))
          result.extend(tags)
       return result
+
+   def render_user(value: HistoryChangeValue) -> bs4.Tag:
+      user_data = website.archive.get_user_data(value.id)
+      if user_data is None:
+         user_data = website.archive.get_unknown_user_data(value.id)
+         if user_data is None:
+            return new_content_tag(soup, 'span', attrs={'class': 'username'}, content=value.name)
+      return user_link(website, file, value.id)
 
    def render_field(field_id: str, value: HistoryChangeValue) -> bs4.Tag:
       if value.id in website.relations.fields.fields[field_id]:
@@ -1402,8 +1426,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       assert attach_data is not None
       return HistoryChangeValue(attach_id, attach_data['filename'])
 
-   def to_historic_version(version_id: str) -> ProjectHistoryValue:
-      project = website.metas.projects[issue['fields']['project']]
+   def to_historic_version(project: Project, version_id: str) -> ProjectHistoryValue:
       version_data = project['versions'][version_id]
       return ProjectHistoryValue(version_id, version_data['name'], issue['fields']['project'])
 
@@ -1426,12 +1449,16 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       return 4
 
    def render_initial_issue() -> bs4.Tag:
+      if issue['fields']['project'] in website.metas.projects:
+         project = website.metas.projects[issue['fields']['project']]
+      else:
+         project = None
       historic_fields: HistoricFields = {
          'issuelinks': [to_historic_link(x) for x in issue['fields']['issuelinks']],
          'attachments': [to_historic_attachment(x) for x in issue['fields']['attachment']],
          'components': [HistoryChangeValue(x['id'], x['name']) for x in issue['fields']['components']] if 'components' in issue['fields'] else [],
-         'versions': [to_historic_version(x) for x in issue['fields']['versions']] if 'versions' in issue['fields'] else [],
-         'fixVersions': [to_historic_version(x) for x in issue['fields']['fixVersions']] if 'fixVersions' in issue['fields'] else [],
+         'versions': [to_historic_version(project, x) for x in issue['fields']['versions']] if 'versions' in issue['fields'] and project is not None else [],
+         'fixVersions': [to_historic_version(project, x) for x in issue['fields']['fixVersions']] if 'fixVersions' in issue['fields'] and project is not None else [],
          'project': issue['fields']['project']
       }
       description_revision: str | None = None
@@ -1708,7 +1735,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          if 'assignee' in fields and fields['assignee'] is not None:
             append_desc_item(soup, issue_details,
                'Assignee:',
-               user_link(website, file, fields['assignee'].id)
+               render_user(fields['assignee'])
             )
          if 'customfield_10500' in fields and fields['customfield_10500'] is not None:
             append_desc_item(soup, issue_details,
@@ -1813,8 +1840,6 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       def render_historic_attachments(attachments: list[HistoryChangeValue]) -> bs4.Tag:
          attach_list: list[bs4.Tag] = []
          for attach in attachments:
-            attach_info = website.archive.get_attachment_data(attach.id)
-            assert attach_info is not None
             attach_div = render_attach(attach)
             attach_list.append(attach_div)
          return build_attachment_list(soup, len(attachments), attach_list)
@@ -1956,14 +1981,24 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                new_tag = None if item['to'] is None else render_date(soup, datetime.datetime.fromisoformat(item['to']))
                new_tags = revision_change(soup, 'Triaged Time', old_tag, new_tag)
             case 'assignee': # source/string are either null or 'key'/'Name'
-               old_tag = None if item['from'] is None else user_link(website, file, item['from'])
-               new_tag = None if item['to'] is None else user_link(website, file, item['to'])
+               if item['from'] is None:
+                  old_tag = None
+               else:
+                  assert item['fromString'] is not None
+                  old_tag =  render_user(HistoryChangeValue(item['from'], item['fromString']))
+               if item['to'] is None:
+                  new_tag = None
+               else:
+                  assert item['toString'] is not None
+                  new_tag = None if item['to'] is None else render_user(HistoryChangeValue(item['to'], item['toString']))
                new_tags = revision_change(soup, 'Assignee', old_tag, new_tag)
             case 'reporter': # source/string are always 'key'/'Name'
                assert item['from'] is not None
+               assert item['fromString'] is not None
                assert item['to'] is not None
-               old_tag = user_link(website, file, item['from'])
-               new_tag = user_link(website, file, item['to'])
+               assert item['toString'] is not None
+               old_tag = render_user(HistoryChangeValue(item['from'], item['fromString']))
+               new_tag = render_user(HistoryChangeValue(item['to'], item['toString']))
                new_tags = iter([revision_from_to(soup, 'Changed Reporter: ', old_tag, new_tag)])
             case 'Key': # source always null, string always 'key'
                assert item['fromString'] is not None
@@ -2228,7 +2263,6 @@ def issue_detail_field(website: Website, file: HtmlFile, name: str, field_id: st
 def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    fields = issue['fields']
    soup = file.page.soup
-   project = website.metas.projects[fields['project']]
    issue_details = soup.new_tag('dl', attrs={'class': 'issue-details'})
    append_desc_item(soup, issue_details,
       issue_detail_field(website, file, 'Resolution', 'resolution'),
@@ -2344,8 +2378,8 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       )
    if 'customfield_12900' in fields and fields['customfield_12900'] is not None:
       append_desc_item(soup, issue_details,
-         issue_detail_field(website, file, 'Platform', 'customfield_12400'),
-         field_link(website, file, 'customfield_12400', fields['customfield_12900']['id'])
+         issue_detail_field(website, file, 'Platform', 'customfield_12900'),
+         field_link(website, file, 'customfield_12900', fields['customfield_12900']['id'])
       )
    if 'customfield_11300' in fields and fields['customfield_11300'] is not None:
       append_desc_item(soup, issue_details,
@@ -2356,25 +2390,31 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       issue_detail_field(website, file, 'Labels', 'labels'),
       inline_list(soup, map(lambda x: field_link(website, file, 'labels', x), fields['labels']))
    )
+   if fields['project'] in website.metas.projects:
+      project = website.metas.projects[fields['project']]
+   else:
+      project = None
    if 'versions' in fields:
-      versions = list(map(lambda x: project['versions'][x], fields['versions']))
-      append_desc_item(soup, issue_details,
-         'Affects Versions:',
-         render_version_list(website, file, project, versions)
-      )
+      if project is not None:
+         versions = list(map(lambda x: project['versions'][x], fields['versions']))
+         append_desc_item(soup, issue_details,
+            'Affects Versions:',
+            render_version_list(website, file, project, versions)
+         )
    if 'customfield_11802' in fields and fields['customfield_11802'] is not None:
       append_desc_item(soup, issue_details,
          'Regression Builds:',
          fields['customfield_11802']
       )
    if 'fixVersions' in fields:
-      versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
-      append_desc_item(soup, issue_details,
-         'Fix Versions:',
-         render_version_list(website, file, project, versions)
-      )
+      if project is not None:
+         versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
+         append_desc_item(soup, issue_details,
+            'Fix Versions:',
+            render_version_list(website, file, project, versions)
+         )
    data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
-   portal_num = portal_number(project['key'])
+   portal_num = portal_number(project['key']) if project is not None else None
    link_content = [
       new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': urllib.parse.quote(str(data_link))}, content='JSON')),
       new_content_tag(soup, 'li', new_content_tag(soup, 'a', attrs={'href': f'https://mojira.dev/{issue['key']}'}, content='mojira.dev')),
