@@ -139,7 +139,7 @@ def html_to_text(soup: bs4.Tag) -> str:
    doc = '\n'.join(text)
    return doc
 
-CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i:04x}___' for i in list(range(32)) + [127] if i not in (9, 10, 13)}
+CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i:04x}___' for i in list(range(32)) + [127, 57346, 57348, 57350] if i not in (9, 10, 13)}
 CONTROL_MAP_REV = {v: k for k, v in CONTROL_MAP.items()}
 
 def wrap_text_nodes(root: lxml.etree.Element):

@@ -9,5 +9,6 @@ dependencies = [
     "jira>=3.10.5",
     "natsort>=8.4.0",
     "pillow>=12.1.1",
+    "python-dotenv>=1.2.2",
     "xmldiff>=2.7.0",
 ]

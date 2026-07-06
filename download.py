@@ -7,15 +7,17 @@ import urllib.request
 import urllib.parse
 from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, User
 from mojira import Archive, ArchiveMetas, key_by
+import dotenv
+import os
 
 def main():
-   archive = Archive(pathlib.Path('/d/Archives/Mojira/data'))
+   dotenv.load_dotenv()
+   archive = Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
    metas = ArchiveMetas()
    users = FetchedUsers()
-   with open('/d/Documents/Sensitive/mojira key.txt', 'r', encoding='utf-8') as file:
-      key = file.read()
+   key = os.environ['JIRA_KEY']
    print('Connecting...')
-   client = jira.JIRA('https://bugs-legacy.mojang.com', token_auth=key)
+   client = jira.JIRA(os.environ['JIRA_URL'], token_auth=key)
    print('Fetching metas...')
    urllib.request.urlretrieve('https://launchermeta.mojang.com/mc/jira/mojira.css', archive.folder / 'assets/mojira.css')
    fetch_metas(metas, users, client)

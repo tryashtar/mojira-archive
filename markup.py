@@ -1,5 +1,7 @@
+import os
 import pathlib
 import bs4
+import dotenv
 from jiratypes import Issue
 import mojira
 import subprocess
@@ -116,11 +118,12 @@ class MarkupSource:
 
 def main():
    print('Loading...')
-   archive = mojira.Archive(folder=pathlib.Path('/d/Archives/Mojira/data'))
+   dotenv.load_dotenv()
+   archive = mojira.Archive(folder=pathlib.Path(os.environ['ARCHIVE_DATA']))
    keys = relations.KeyLookups()
-   keys.load(pathlib.Path('/d/Archives/Mojira/relations/keys'))
-   secret_comments = mojira.SecretComments(pathlib.Path('/d/Archives/Mojira/secret_comments.json'))
-   markup_out = pathlib.Path('/d/Archives/Mojira/markup')
+   keys.load(pathlib.Path(os.environ['ARCHIVE_RELATIONS']) / 'keys')
+   secret_comments = mojira.SecretComments(pathlib.Path(os.environ['ARCHIVE_SECRET_COMMENTS']))
+   markup_out = pathlib.Path(os.environ['ARCHIVE_MARKUP'])
    process = get_process(archive, keys, '.')
    source = MarkupSource(markup_out)
    print('Converting...')

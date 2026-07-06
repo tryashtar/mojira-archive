@@ -1,6 +1,8 @@
 import dataclasses
+import os
 import pathlib
 import typing
+import dotenv
 from jiratypes import CustomValue, DescriptionValue, IconValue
 import mojira
 import bisect
@@ -249,13 +251,13 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
    )
 
 def main():
-   root = pathlib.Path('/d/Archives/Mojira')
-   archive = mojira.Archive(folder=root / 'data')
+   dotenv.load_dotenv()
+   archive = mojira.Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
    metas = mojira.ArchiveMetas()
    metas.load(archive.folder)
    relations = create_relations(archive)
    print('Writing...')
-   relations.save(root / 'relations')
+   relations.save(pathlib.Path(os.environ['ARCHIVE_RELATIONS']))
 
 if __name__ == '__main__':
    main()
