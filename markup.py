@@ -1,5 +1,8 @@
+import dataclasses
 import os
 import pathlib
+import re
+import urllib.parse
 import bs4
 import dotenv
 from jiratypes import Issue
@@ -186,6 +189,82 @@ def render_to_file(renderer: subprocess.Popen, issue_id: int, markup: str, path:
       path.parent.mkdir(parents=True, exist_ok=True)
       with open(path, 'w', encoding='utf-8') as file:
          file.write(html)
+
+@dataclasses.dataclass
+class ParsedMarkupAttachment:
+   tag: bs4.Tag
+   attr: str
+   id: str
+   filename: str
+
+@dataclasses.dataclass
+class ParsedMarkupIssue:
+   tag: bs4.Tag
+   attr: str
+   key: str
+
+@dataclasses.dataclass
+class ParsedMarkupIcon:
+   tag: bs4.Tag
+   attr: str
+   path: str
+
+@dataclasses.dataclass
+class ParsedMarkupUser:
+   tag: bs4.Tag
+   attr: str
+   username: str
+
+@dataclasses.dataclass
+class ParsedMarkup:
+   root: bs4.BeautifulSoup
+   attachments: list[ParsedMarkupAttachment]
+   thumbnails: list[ParsedMarkupAttachment]
+   issues: list[ParsedMarkupIssue]
+   icons: list[ParsedMarkupIcon]
+   users: list[ParsedMarkupUser]
+
+BROWSE_RE = re.compile(r'^./browse/([A-Z]+-[0-9]+)$')
+ATTACH_RE = re.compile(r'^./secure/attachment/([0-9]+)/(.+)$')
+THUMBNAIL_RE = re.compile(r'^./secure/thumbnail/([0-9]+)/(.+)$')
+ICON_RE = re.compile(r'^./images/(.+)$')
+USER_RE = re.compile(r'^./secure/ViewProfile\.jspa\?name=(.*)$')
+
+def parse_markup(markup: bs4.BeautifulSoup) -> ParsedMarkup:
+   result = ParsedMarkup(markup, [], [], [], [], [])
+   def append_link(link: str, attr: str):
+      if (match := ATTACH_RE.match(link)) is not None:
+         attach_id, attach_name = match.group(1, 2)
+         result.attachments.append(ParsedMarkupAttachment(tag, attr, attach_id, attach_name))
+      if (match := THUMBNAIL_RE.match(link)) is not None:
+         attach_id, attach_name = match.group(1, 2)
+         result.thumbnails.append(ParsedMarkupAttachment(tag, attr, attach_id, attach_name))
+      if (match := ICON_RE.match(link)) is not None:
+         icon_path = match.group(1)
+         result.icons.append(ParsedMarkupIcon(tag, attr, icon_path))
+      if (match := BROWSE_RE.match(link)) is not None:
+         key = match.group(1)
+         result.issues.append(ParsedMarkupIssue(tag, attr, key))
+      if (match := USER_RE.match(link)) is not None:
+         username = urllib.parse.unquote_plus(match.group(1))
+         result.users.append(ParsedMarkupUser(tag, attr, username))
+   for tag in markup.find_all(name='a', attrs={'href': True}):
+      current_link = tag['href']
+      if isinstance(current_link, str) and current_link.startswith('./'):
+         append_link(current_link, 'a')
+   for tag in markup.find_all(name='img', attrs={'src': True}):
+      current_link = tag['src']
+      if isinstance(current_link, str) and current_link.startswith('./'):
+         append_link(current_link, 'src')
+   for tag in markup.find_all(name='object', attrs={'data': True}):
+      current_link = tag['data']
+      if isinstance(current_link, str) and current_link.startswith('./'):
+         append_link(current_link, 'data')
+      for param in tag.find_all(name='param', attrs={'value': True}):
+         param_link = param['value']
+         if isinstance(param_link, str) and param_link.startswith('./'):
+            append_link(param_link, 'value')
+   return result
 
 if __name__ == '__main__':
    main()

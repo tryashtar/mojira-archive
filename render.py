@@ -1,8 +1,10 @@
 import dataclasses
 import os
+import sys
 import typing
 import dotenv
 from jiratypes import Attachment, Comment, Issue, IssueLink, NewAuthor, NewComment, Project, Revision, RevisionChange, User, Version
+import markup_relations
 import mojira
 import relations
 import pathlib
@@ -50,6 +52,7 @@ class Website:
    metas: mojira.ArchiveMetas
    relations: relations.RelationsBundle
    markup_source: markup.MarkupSource
+   markup_rels: markup_relations.MarkupRelations
    secret_comments: mojira.SecretComments
 
    def get_issue_path(self, issue: Issue) -> pathlib.PurePath:
@@ -62,7 +65,7 @@ class Website:
       return self.get_user_name_path(user['name'])
 
    def get_user_name_path(self, username: str) -> pathlib.PurePath:
-      return self.users_folder / (urllib.parse.quote_plus(username.lower()[:100]) + '.html')
+      return self.users_folder / (urllib.parse.quote_plus(username.lower())[:100] + '.html')
 
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
@@ -90,7 +93,10 @@ def main():
    )
    rels.load(pathlib.Path(os.environ['ARCHIVE_RELATIONS']))
    markup_source = markup.MarkupSource(pathlib.Path(os.environ['ARCHIVE_MARKUP']))
+   markup_rels = markup_relations.MarkupRelations()
+   markup_rels.load(pathlib.Path(os.environ['ARCHIVE_MARKUP_RELATIONS']))
    secret_comments = mojira.SecretComments(pathlib.Path(os.environ['ARCHIVE_SECRET_COMMENTS']))
+   meta_list: list[mojira.META_TYPE] = ['resolution', 'status']
    website = Website(
       root=root,
       home=make_jira_file(root, pathlib.PurePath('web/home.html'), 'Mojira Archive'),
@@ -108,6 +114,7 @@ def main():
       metas=metas,
       relations=rels,
       markup_source=markup_source,
+      markup_rels=markup_rels,
       secret_comments=secret_comments
    )
    for id, value in metas.projects.items():
@@ -118,7 +125,7 @@ def main():
          make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'issues.html', full_title),
          pathlib.PurePath('web/projects') / value['key'] / 'versions'
       )
-   for key in [*rels.fields.fields.keys(), 'resolution']:
+   for key in [*rels.fields.fields.keys(), *meta_list]:
       fname = field_name(metas, key)
       website.field_pages[key] = FieldPage(
          make_jira_file(root, pathlib.PurePath('web/fields') / (fname + '.html'), fname),
@@ -127,166 +134,159 @@ def main():
 
 
    print('Rendering...')
-   print('Home...')
-   make_home_page(website, website.home)
-   save_file(website, website.home)
-   print('Fields...')
-   meta_list: list[mojira.META_TYPE] = ['resolution']
-   for key in meta_list:
-      print('\t' + key)
-      field_page = website.field_pages[key]
-      make_meta_page(website, field_page.page, key)
-      save_file(website, field_page.page)
-   for key in rels.fields.fields.keys():
-      print('\t' + key)
-      field_page = website.field_pages[key]
-      make_field_page(website, field_page.page, key)
-      save_file(website, field_page.page)
-   print('Project main...')
-   for project_id, project in metas.projects.items():
-      print('\t' + project['key'])
-      project_page = website.project_pages[project_id]
-      make_project_main_page(website, project_page.main, project)
-      save_file(website, project_page.main)
-   print('Project versions...')
-   for project_id, project in metas.projects.items():
-      print('\t' + project['key'])
-      project_page = website.project_pages[project_id]
-      if project_page.versions is not None:
-         make_project_versions_page(website, project_page.versions, project)
-         save_file(website, project_page.versions)
-   print('Project issues...')
-   for project_id, project in metas.projects.items():
-      print('\t' + project['key'])
-      project_page = website.project_pages[project_id]
-      make_project_issues_page(website, project_page.issues, project)
-      save_file(website, project_page.issues)
-   print('Project versions issues...')
-   for project_id, project in metas.projects.items():
-      print('\t' + project['key'])
-      project_page = website.project_pages[project_id]
-      for version in project['versions'].values():
-         print('\t\t' + version['name'])
-         full_title = f'[{project['key']}] {version['name']}'
-         file = make_jira_file(website.root, project_page.get_version_path(version), full_title)
-         make_version_page(website, file, version)
+   to_render = sys.argv
+   if 'all' in to_render:
+      to_render.extend(['home', 'fields', 'metas', 'project_main', 'project_versions', 'project_issues', 'project_version_issues', 'field_issues', 'meta_issues', 'issues_list', 'issues', 'users', 'users_list'])
+   if 'issue_lists' in to_render:
+      to_render.extend(['project_issues', 'project_version_issues', 'field_issues', 'meta_issues', 'issues_list'])
+   if 'home' in to_render:
+      print('Home...')
+      make_home_page(website, website.home)
+      save_file(website, website.home)
+   if 'metas' in to_render:
+      print('Metas...')
+      for key in meta_list:
+         print('\t' + key)
+         field_page = website.field_pages[key]
+         make_meta_page(website, field_page.page, key)
+         save_file(website, field_page.page)
+   if 'fields' in to_render:
+      print('Fields...')
+      for key in rels.fields.fields.keys():
+         print('\t' + key)
+         field_page = website.field_pages[key]
+         make_field_page(website, field_page.page, key)
+         save_file(website, field_page.page)
+   if 'project_main' in to_render:
+      print('Project main...')
+      for project_id, project in metas.projects.items():
+         print('\t' + project['key'])
+         project_page = website.project_pages[project_id]
+         make_project_main_page(website, project_page.main, project)
+         save_file(website, project_page.main)
+   if 'project_versions' in to_render:
+      print('Project versions...')
+      for project_id, project in metas.projects.items():
+         print('\t' + project['key'])
+         project_page = website.project_pages[project_id]
+         if project_page.versions is not None:
+            make_project_versions_page(website, project_page.versions, project)
+            save_file(website, project_page.versions)
+   if 'project_issues' in to_render:
+      print('Project issues...')
+      for project_id, project in metas.projects.items():
+         print('\t' + project['key'])
+         project_page = website.project_pages[project_id]
+         make_project_issues_page(website, project_page.issues, project)
+         save_file(website, project_page.issues)
+   if 'project_version_issues' in to_render:
+      print('Project versions issues...')
+      for project_id, project in metas.projects.items():
+         print('\t' + project['key'])
+         project_page = website.project_pages[project_id]
+         for version in project['versions'].values():
+            print('\t\t' + version['name'])
+            full_title = f'[{project['key']}] {version['name']}'
+            file = make_jira_file(website.root, project_page.get_version_path(version), full_title)
+            make_version_page(website, file, version)
+            save_file(website, file)
+   if 'meta_issues' in to_render:
+      print('Meta issues...')
+      for key in meta_list:
+         print('\t' + key)
+         field_page = website.field_pages[key]
+         fname = field_name(metas, key)
+         value_keys: list[str | None] = list(metas.metas[key].keys())
+         if key == 'resolution':
+            value_keys.insert(0, None)
+         for value_key in value_keys:
+            display = metas.display_value(key, value_key)
+            assert display is not None
+            print('\t\t' + display.name)
+            full_title = f'[{fname}] {display.name}'
+            file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
+            make_meta_value_page(website, file, key, value_key)
+            save_file(website, file)
+   if 'field_issues' in to_render:
+      print('Field issues...')
+      for key, values in rels.fields.fields.items():
+         print('\t' + key)
+         field_page = website.field_pages[key]
+         fname = field_name(metas, key)
+         for value_key in values.keys():
+            display = website.relations.fields.display_value(key, value_key)
+            assert display is not None
+            print('\t\t' + display.name)
+            full_title = f'[{fname}] {display.name}'
+            file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
+            make_field_value_page(website, file, key, value_key)
+            save_file(website, file)
+   if 'issues_list' in to_render:
+      print('All issues...')
+      make_all_issues_page(website, website.all_issues_list)
+      save_file(website, website.all_issues_list)
+   if 'issues' in to_render:
+      print('Issues...')
+      written_issues: set[str] = set()
+      for i, issue in enumerate(archive.issues()):
+         print('\t' + issue['key'])
+         if i % 1000 == 0:
+            print(f'\t== {i} ==')
+         path = website.get_issue_path(issue)
+         full_title = f'[{issue['key']}] {issue['fields']['summary']}'
+         file = make_jira_file(website.root, path, full_title)
+         make_issue_page(website, file, issue)
          save_file(website, file)
-   print('Field issues...')
-   for key in meta_list:
-      print('\t' + key)
-      field_page = website.field_pages[key]
-      fname = field_name(metas, key)
-      for value_key in [None] + list(metas.metas[key].keys()):
-         display = metas.display_value(key, value_key)
-         assert display is not None
-         print('\t\t' + display.name)
-         full_title = f'[{fname}] {display.name}'
-         file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
-         make_meta_value_page(website, file, key, value_key)
-         save_file(website, file)
-   for key, values in rels.fields.fields.items():
-      print('\t' + key)
-      field_page = website.field_pages[key]
-      fname = field_name(metas, key)
-      for value_key in values.keys():
-         display = website.relations.fields.display_value(key, value_key)
-         assert display is not None
-         print('\t\t' + display.name)
-         full_title = f'[{fname}] {display.name}'
-         file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
-         make_field_value_page(website, file, key, value_key)
-         save_file(website, file)
-   print('All issues...')
-   make_all_issues_page(website, website.all_issues_list)
-   save_file(website, website.all_issues_list)
-   print('Issues...')
-   written_issues: set[str] = set()
-   for i, issue in enumerate(archive.issues()):
-      print('\t' + issue['key'])
-      if i % 1000 == 0:
-         print('\t' + str(i))
-      path = website.get_issue_path(issue)
-      full_title = f'[{issue['key']}] {issue['fields']['summary']}'
-      file = make_jira_file(website.root, path, full_title)
-      make_issue_page(website, file, issue)
-      save_file(website, file)
-      written_issues.add(issue['key'])
-   print('Moved issues...')
-   for issue_key, issue_id in rels.keys.issue_keys.items():
-      if issue_key not in written_issues:
-         print('\t' + issue_key)
-         issue = archive.get_issue_data(issue_id)
-         assert issue is not None
-         from_path = website.get_issue_key_path(issue_key)
-         to_path = website.get_issue_path(issue)
-         relative = relative_path(website.root, from_path, website.root / to_path)
-         from_full = website.root / from_path
-         if from_full.is_symlink():
-            if from_full.readlink() != relative:
-               from_full.unlink()
+         written_issues.add(issue['key'])
+      print('Moved issues...')
+      for issue_key, issue_id in rels.keys.issue_keys.items():
+         if issue_key not in written_issues:
+            print('\t' + issue_key)
+            issue = archive.get_issue_data(issue_id)
+            assert issue is not None
+            from_path = website.get_issue_key_path(issue_key)
+            to_path = website.get_issue_path(issue)
+            relative = relative_path(website.root, from_path, website.root / to_path)
+            from_full = website.root / from_path
+            if from_full.is_symlink():
+               if from_full.readlink() != relative:
+                  from_full.unlink()
+                  from_full.symlink_to(relative)
+            else:
                from_full.symlink_to(relative)
-         else:
-            from_full.symlink_to(relative)
-   print('Users...')
-   for i, user in enumerate(archive.users()):
-      print('\t' + user['name'])
-      if i % 1000 == 0:
-         print('\t' + str(i))
-      path = website.get_user_path(user)
-      file = make_jira_file(website.root, path, user['displayName'])
-      make_user_page(website, file, user)
-      save_file(website, file)
+   if 'users' in to_render:
+      print('Users...')
+      for i, user in enumerate(archive.users()):
+         print('\t' + user['name'])
+         if i % 1000 == 0:
+            print(f'\t== {i} ==')
+         path = website.get_user_path(user)
+         file = make_jira_file(website.root, path, user['displayName'])
+         make_user_page(website, file, user)
+         save_file(website, file)
 
 def fix_markup(website: Website, file: HtmlFile, html: bs4.BeautifulSoup):
-   # our markup is generated with '.' as the site root, but otherwise normal jira paths
-   # we detect and correct these to point to our own resources
-   for tag in html.find_all(name='a', attrs={'href': True}):
-      current_link = tag['href']
-      if isinstance(current_link, str) and current_link.startswith('./'):
-         fixed = fix_markup_link(website, file, current_link)
-         if fixed is not None:
-            tag.attrs['href'] = fixed
-         else:
-            del tag.attrs['href']
-   for tag in html.find_all(name='img', attrs={'src': True}):
-      current_link = tag['src']
-      if isinstance(current_link, str) and current_link.startswith('./'):
-         fixed = fix_markup_link(website, file, current_link)
-         if fixed is not None:
-            tag.attrs['src'] = fixed
-         else:
-            del tag.attrs['src']
-
-BROWSE_RE = re.compile(r'^./browse/([A-Z]+-[0-9]+)$')
-ATTACH_RE = re.compile(r'^./secure/attachment/([0-9]+)/(.+)$')
-THUMBNAIL_RE = re.compile(r'^./secure/thumbnail/([0-9]+)/(.+)$')
-ICON_RE = re.compile(r'^./images/(.+)$')
-USER_RE = re.compile(r'^./secure/ViewProfile\.jspa\?name=(.*)$')
-UNKNOWN_COMMENT_RE = re.compile(r'A comment with security level \'[a-z]+\' was removed\.' + '\u00a0?$')
-
-def fix_markup_link(website: Website, file: HtmlFile, link: str) -> str | None:
-   if (match := BROWSE_RE.match(link)) is not None:
-      key = match.group(1)
-      if key not in website.relations.keys.issue_keys:
-         return None
-      return relative_link(website.root, file.path, website.get_issue_key_path(key))
-   if (match := ATTACH_RE.match(link)) is not None or (match := THUMBNAIL_RE.match(link)) is not None:
-      attach_id, attach_name = match.group(1, 2)
-      data = website.archive.get_attachment_data(attach_id)
+   parsed = markup.parse_markup(html)
+   for entry in parsed.issues:
+      if entry.key not in website.relations.keys.issue_keys:
+         del entry.tag.attrs[entry.attr]
+      else:
+         entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_issue_key_path(entry.key))
+   for entry in parsed.users:
+      if entry.username not in website.relations.keys.user_keys:
+         del entry.tag.attrs[entry.attr]
+      else:
+         entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_user_name_path(entry.username))
+   for entry in [*parsed.attachments, *parsed.thumbnails]:
+      data = website.archive.get_attachment_data(entry.id)
       if data is None:
-         return None
-      path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(attach_id, attach_name))
-      return urllib.parse.quote(str(path))
-   if (match := ICON_RE.match(link)) is not None:
-      icon_path = match.group(1)
-      path = relative_path(website.root, file.path, website.archive.folder / 'assets/images' / icon_path)
-      return urllib.parse.quote(str(path))
-   if (match := USER_RE.match(link)) is not None:
-      username = urllib.parse.unquote_plus(match.group(1))
-      if username not in website.relations.keys.user_keys:
-         return None
-      return relative_link(website.root, file.path, website.get_user_name_path(username))
-   raise ValueError()
+         del entry.tag.attrs[entry.attr]
+      else:
+         path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(entry.id, entry.filename))
+         entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
+   for entry in parsed.icons:
+      path = relative_path(website.root, file.path, website.archive.folder / 'assets/images' / entry.path)
+      entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
 
 def make_home_page(website: Website, file: HtmlFile):
    soup = file.page.soup
@@ -424,7 +424,9 @@ def make_meta_page(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE):
    file.page.body.append(make_generic_footer(website, file))
 
    name = field_name(website.metas, meta_id)
-   values = values = [None] + [x['id'] for x in website.metas.metas[meta_id].values()]
+   values: list[str | None] = [x['id'] for x in website.metas.metas[meta_id].values()]
+   if meta_id == 'resolution':
+      values.insert(0, None)
    add_metadata(file, name, f'{len(values)} values', None)
 
    home_main = soup.new_tag('div', attrs={'class': 'home-main'})
@@ -672,7 +674,15 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
    issue_body = soup.new_tag('div', attrs={'id': f'{id_prefix}-table-body', 'class': 'issue-table-body'})
    issue_table.append(issue_body)
    for i, issue in enumerate(issues):
-      key = new_content_tag(soup, 'a', issue['key'], attrs={'class': 'issue-table-key', 'href': relative_link(website.root, file.path, website.get_issue_path(issue))})
+      if issue['fields']['project'] in website.metas.projects:
+         project = website.metas.projects[issue['fields']['project']]
+         icon = project_avatar(website, file, project)
+      else:
+         icon = bug_icon(website, file)
+      key = new_content_tag(soup, 'a', attrs={'class': 'issue-table-key', 'href': relative_link(website.root, file.path, website.get_issue_path(issue))}, content=[
+         icon,
+         issue['key']
+      ])
       if issue['fields']['reporter'] is not None:
          reporter_ref = user_reference(website, file, 'a', issue['fields']['reporter'])
          reporter = [soup.new_tag('a', attrs={'class': 'overlay', 'href': reporter_ref.link}), reporter_ref.outer]
@@ -761,9 +771,8 @@ def field_value_order_key(value: relations.FieldRelation):
 def meta_value_order_key(website: Website, meta_id: mojira.META_TYPE, value: str | None):
    display = website.metas.display_value(meta_id, value)
    assert display is not None
-   if value is None:
-      return (0, display.name)
-   return (1, display.name)
+   resolved = (meta_id == 'resolution' and value is not None) or (meta_id == 'status' and value in ('5', '6'))
+   return (resolved, display.name)
 
 def render_field_values_grid(website: Website, file: HtmlFile, field_id: str, field_values: typing.Iterable[relations.FieldRelation]) -> bs4.Tag:
    soup = file.page.soup
@@ -808,24 +817,26 @@ def render_fields_grid(website: Website, file: HtmlFile, field_ids: typing.Itera
          new_content_tag(soup, 'a', attrs={'class': 'home-grid-name', 'href': link}, content=name),
       ]
       if field_id in website.relations.fields.fields:
-         values = website.relations.fields.fields[field_id].values()
+         field_values = website.relations.fields.fields[field_id].values()
          def transform_field(value: relations.FieldRelation):
             return field_link(website, file, field_id, value['value'] if isinstance(value['value'], str) else value['value']['id'])
-         if len(values) > 15:
-            content.append(f'{len(values)} values')
+         if len(field_values) > 15:
+            content.append(f'{len(field_values)} values')
          else:
-            tags = inline_list(soup, map(transform_field, sorted(values, key=field_value_order_key)))
+            tags = inline_list(soup, map(transform_field, sorted(field_values, key=field_value_order_key)))
             content.append(tags)
       else:
          meta_id = typing.cast(mojira.META_TYPE, field_id)
-         values = [None] + [x['id'] for x in website.metas.metas[meta_id].values()]
+         meta_values: list[str | None] = [x['id'] for x in website.metas.metas[meta_id].values()]
+         if meta_id == 'resolution':
+            meta_values.insert(0, None)
          def transform_meta(value: str | None):
             meta_id = typing.cast(mojira.META_TYPE, field_id)
             return meta_link(website, file, meta_id, value)
-         if len(values) > 15:
-            content.append(f'{len(values)} values')
+         if len(meta_values) > 15:
+            content.append(f'{len(meta_values)} values')
          else:
-            tags = inline_list(soup, map(transform_meta, sorted(values, key=lambda x: meta_value_order_key(website, typing.cast(mojira.META_TYPE, meta_id), x))))
+            tags = inline_list(soup, map(transform_meta, sorted(meta_values, key=lambda x: meta_value_order_key(website, typing.cast(mojira.META_TYPE, meta_id), x))))
             content.append(tags)
       entries.append(new_content_tag(soup, 'div', content=content))
    return new_content_tag(soup, 'div', attrs={'class': 'home-grid'}, content=entries)
@@ -1262,6 +1273,8 @@ def merge_revisions(revisions: list[Revision]) -> list[MergedRevision]:
       merged_revisions.append(current)
    return merged_revisions
 
+UNKNOWN_COMMENT_RE = re.compile(r'A comment with security level \'[a-z]+\' was removed\.' + '\u00a0?$')
+
 def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> bs4.Tag:
    soup = file.page.soup
 
@@ -1424,6 +1437,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
       'priority': typing.NotRequired[HistoryChangeValue | None],
       'security': typing.NotRequired[HistoryChangeValue | None],
       'resolution': typing.NotRequired[HistoryChangeValue | None],
+      'status': typing.NotRequired[HistoryChangeValue],
       'customfield_11500': typing.NotRequired[str | None],
       'customfield_11801': typing.NotRequired[str | None],
       'customfield_11802': typing.NotRequired[str | None],
@@ -1461,20 +1475,28 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
    def backwards_revision_order_key(change: RevisionChange) -> int:
       if change['field'] == 'Key':
          return 0
-      if change['field'] in ('Version', 'Fix Version'):
-         return 1 if change['to'] is None else 3
-      if change['field'] in ('project', 'Project'):
+      if change['field'] == 'status':
+         return 1
+      if change['field'] == 'resolution':
          return 2
-      return 4
+      if change['field'] in ('Version', 'Fix Version'):
+         return 3 if change['to'] is None else 5
+      if change['field'] in ('project', 'Project'):
+         return 4
+      return 6
 
    def forwards_revision_order_key(change: RevisionChange) -> int:
       if change['field'] == 'Key':
          return 0
-      if change['field'] in ('Version', 'Fix Version'):
-         return 3 if change['to'] is None else 1
-      if change['field'] in ('project', 'Project'):
+      if change['field'] == 'status':
+         return 1
+      if change['field'] == 'resolution':
          return 2
-      return 4
+      if change['field'] in ('Version', 'Fix Version'):
+         return 5 if change['to'] is None else 3
+      if change['field'] in ('project', 'Project'):
+         return 4
+      return 6
 
    def render_initial_issue() -> bs4.Tag:
       if issue['fields']['project'] in website.metas.projects:
@@ -1577,6 +1599,11 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                      else:
                         assert change['fromString'] is not None
                         historic_fields['resolution'] = HistoryChangeValue(change['from'], change['fromString'])
+               case 'status':
+                  if 'status' not in historic_fields:
+                     assert change['from'] is not None
+                     assert change['fromString'] is not None
+                     historic_fields['status'] = HistoryChangeValue(change['from'], change['fromString'])
                case 'ADO' | 'VSO':
                   if 'customfield_11500' not in historic_fields:
                      historic_fields['customfield_11500'] = change['fromString']
@@ -1714,6 +1741,9 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
          else:
             resolution = website.metas.resolutions[issue['fields']['resolution']]
             historic_fields['resolution'] = HistoryChangeValue(issue['fields']['resolution'], resolution['name'])
+      if 'status' not in historic_fields:
+         status = website.metas.statuses[issue['fields']['status']]
+         historic_fields['status']  = HistoryChangeValue(issue['fields']['status'], status['name'])
       if 'customfield_11500' not in historic_fields and 'customfield_11500' in issue['fields']:
          historic_fields['customfield_11500'] = issue['fields']['customfield_11500']
       if 'customfield_11801' not in historic_fields and 'customfield_11801' in issue['fields']:
@@ -1753,6 +1783,16 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
             issue_detail_field(website, file, 'Resolution', 'resolution'),
             resolution_tag
          )
+         is_resolved = historic_fields['resolution'] is not None
+         resolved_statuses = ('5',)
+         unresolved_statuses = ('1', '4')
+         if (is_resolved and historic_fields['status'] not in resolved_statuses) or (not is_resolved and historic_fields['status'] not in unresolved_statuses):
+            status_tag = render_meta('status', historic_fields['status'].id, historic_fields['status'].name)
+            assert status_tag is not None
+            append_desc_item(soup, issue_details,
+               issue_detail_field(website, file, 'Status', 'status'),
+               status_tag
+            )
          if 'security' in fields and fields['security'] is not None:
             append_desc_item(soup, issue_details,
                issue_detail_field(website, file, 'Security Level', 'security'),
@@ -1998,6 +2038,14 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                new_tag = render_meta('resolution', item['to'], item['toString'])
                link = new_content_tag(soup, 'a', 'Resolution', attrs={'href': relative_link(website.root, file.path, website.field_pages['resolution'].page.path)})
                new_tags = revision_change(soup, link, old_tag, new_tag)
+            case 'status':
+               assert item['from'] is not None
+               assert item['to'] is not None
+               if item['from'] != item['to']:
+                  old_tag = render_meta('status', item['from'], item['fromString'])
+                  new_tag = render_meta('status', item['to'], item['toString'])
+                  link = new_content_tag(soup, 'a', 'Status', attrs={'href': relative_link(website.root, file.path, website.field_pages['status'].page.path)})
+                  new_tags = revision_change(soup, link, old_tag, new_tag)
             # text field changes
             # source always null, string either null or empty or text
             case 'ADO' | 'VSO': # field was renamed at some point, but old name persists in history
@@ -2072,8 +2120,7 @@ def render_issue_revisions(website: Website, file: HtmlFile, issue: Issue, revis
                assert item['from'] is not None
                issue_project = item['from']
             case (
-               'status' # redundant with resolution
-               | 'RemoteIssueLink' # unfortunately these were not preserved in the archive
+               'RemoteIssueLink' # unfortunately these were not preserved in the archive
                | 'CHK' | 'Linked' | 'Pinned' # pointless fields
                | 'Workflow' # noise
                | 'Console' | 'Description' | 'Flagged' | 'Original story points' | 'Approvers' # only used in one test ticket
@@ -2161,12 +2208,17 @@ def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewC
         inner_time = render_datetime(soup, updated_time)
       time_part.append(inner_time)
    if 'visibility' in comment:
-      link = relative_link(website.root, file.path, website.group_page.get_value_path(comment['visibility']['value']))
+      if comment['visibility']['type'] == 'group':
+         assert comment['visibility']['value'] in website.relations.user.groups
+         link = relative_link(website.root, file.path, website.group_page.get_value_path(comment['visibility']['value']))
+         restriction = new_content_tag(soup, 'a', attrs={'class': 'comment-visibility-name', 'href': link}, content=comment['visibility']['value'])
+      else:
+         restriction = new_content_tag(soup, 'span', attrs={'class': 'comment-visibility-name'}, content=comment['visibility']['value'])
       time_part.extend([
          ' • ',
          soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
          ' Restricted to ',
-         new_content_tag(soup, 'a', attrs={'class': 'comment-visibility-name', 'href': link}, content=comment['visibility']['value'])
+         restriction
       ])
    if secret:
       time_part.extend([
@@ -2303,6 +2355,14 @@ def render_issue_details(website: Website, file: HtmlFile, issue: Issue) -> bs4.
       issue_detail_field(website, file, 'Resolution', 'resolution'),
       meta_link(website, file, 'resolution', fields['resolution'])
    )
+   is_resolved = fields['resolution'] is not None
+   resolved_statuses = ('5',)
+   unresolved_statuses = ('1', '4')
+   if (is_resolved and fields['status'] not in resolved_statuses) or (not is_resolved and fields['status'] not in unresolved_statuses):
+      append_desc_item(soup, issue_details,
+         issue_detail_field(website, file, 'Status', 'status'),
+         meta_link(website, file, 'status', fields['status'])
+      )
    if 'security' in fields:
       append_desc_item(soup, issue_details,
          issue_detail_field(website, file, 'Security Level', 'security'),
@@ -2593,7 +2653,7 @@ def meta_badge(website: Website, file: HtmlFile, tag_type: str, meta_id: mojira.
    tag = new_content_tag(file.page.soup, tag_type, display.name, attrs={'class': cls})
    if display.description is not None:
       tag.attrs['title'] = display.description
-   resolved = (meta_id == 'resolution' and value_key is not None)
+   resolved = (meta_id == 'resolution' and value_key is not None) or (meta_id == 'status' and value_key in ('5', '6'))
    return FieldBadge(tag, link, resolved)
 
 def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> bs4.Tag:
