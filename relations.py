@@ -25,8 +25,13 @@ class KeyLookups:
       save_one(self.issue_keys, folder / 'issues.json')
       save_one(self.user_keys, folder / 'users.json')
 
+GroupRelation = typing.TypedDict('GroupRelation', {
+   'users': list[str],
+   'comments': dict[str, list[str]]
+})
+
 class UserRelations:
-   groups: dict[str, list[str]]
+   groups: dict[str, GroupRelation]
    comments: dict[str, dict[str, list[str]]]
    edits: dict[str, dict[str, list[str]]]
    changes: dict[str, dict[str, list[str]]]
@@ -119,6 +124,24 @@ def append(data: dict[str, list[str]], key: str | None, value: str):
    if key not in data:
       data[key] = []
    bisect.insort(data[key], value)
+
+def append_group_user(data: dict[str, GroupRelation], group: str, user: str):
+   if group not in data:
+      data[group] = {
+         'users': [],
+         'comments': {}
+      }
+   bisect.insort(data[group]['users'], user)
+
+def append_group_comment(data: dict[str, GroupRelation], group: str, issue: str, comment: str):
+   if group not in data:
+      data[group] = {
+         'users': [],
+         'comments': {}
+      }
+   if issue not in data[group]['comments']:
+      data[group]['comments'][issue] = []
+   bisect.insort(data[group]['comments'][issue], comment)
 
 def append_user_action(data: dict[str, dict[str, list[str]]], user: str | None, issue: str, value: str):
    if user is None:
@@ -221,6 +244,8 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
       for comment in fields['comment']['comments']:
          append_user_action(user_rel.comments, comment.get('author'), issue_id, comment['id'])
          append_user_action(user_rel.edits, comment.get('updateAuthor'), issue_id, comment['id'])
+         if 'visibility' in comment and comment['visibility']['type'] == 'group':
+            append_group_comment(user_rel.groups, comment['visibility']['value'], issue_id, comment['id'])
       for change in issue['changelog']['histories']:
          append_user_action(user_rel.changes, change['author'], issue_id, change['id'])
          for item in change['items']:
@@ -236,7 +261,7 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
       assert user is not None
       key_rel.user_keys[user['name'].casefold()] = user_key
       for group in user['groups']['items']:
-         append(user_rel.groups, group['name'], user_key)
+         append_group_user(user_rel.groups, group['name'], user_key)
    return RelationsBundle(
       keys=key_rel,
       user=user_rel,
