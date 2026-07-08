@@ -232,7 +232,7 @@ USER_RE = re.compile(r'^./secure/ViewProfile\.jspa\?name=(.*)$')
 
 def parse_markup(markup: bs4.BeautifulSoup) -> ParsedMarkup:
    result = ParsedMarkup(markup, [], [], [], [], [])
-   def append_link(link: str, attr: str):
+   def append_link(tag: bs4.Tag, link: str, attr: str):
       if (match := ATTACH_RE.match(link)) is not None:
          attach_id, attach_name = match.group(1, 2)
          result.attachments.append(ParsedMarkupAttachment(tag, attr, attach_id, attach_name))
@@ -251,19 +251,19 @@ def parse_markup(markup: bs4.BeautifulSoup) -> ParsedMarkup:
    for tag in markup.find_all(name='a', attrs={'href': True}):
       current_link = tag['href']
       if isinstance(current_link, str) and current_link.startswith('./'):
-         append_link(current_link, 'a')
+         append_link(tag, current_link, 'href')
    for tag in markup.find_all(name='img', attrs={'src': True}):
       current_link = tag['src']
       if isinstance(current_link, str) and current_link.startswith('./'):
-         append_link(current_link, 'src')
+         append_link(tag, current_link, 'src')
    for tag in markup.find_all(name='object', attrs={'data': True}):
       current_link = tag['data']
       if isinstance(current_link, str) and current_link.startswith('./'):
-         append_link(current_link, 'data')
-      for param in tag.find_all(name='param', attrs={'value': True}):
-         param_link = param['value']
-         if isinstance(param_link, str) and param_link.startswith('./'):
-            append_link(param_link, 'value')
+         append_link(tag, current_link, 'data')
+      for embed in tag.find_all(name='embed', attrs={'src': True}):
+         embed_link = embed['src']
+         if isinstance(embed_link, str) and embed_link.startswith('./'):
+            append_link(embed, embed_link, 'src')
    return result
 
 if __name__ == '__main__':

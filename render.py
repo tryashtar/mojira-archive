@@ -314,7 +314,7 @@ def make_home_page(website: Website, file: HtmlFile):
       ])
    ]))
    home_main.append(new_content_tag(soup, 'h2', 'Projects'))
-   table = render_projects_grid(website, file, sorted(website.metas.projects.values(), key=lambda x: len(website.relations.fields.metas['project'][x['id']]), reverse=True))
+   table = render_projects_grid(website, file, sorted_projects(website))
    home_main.append(table)
    home_main.append(new_content_tag(soup, 'h2', 'Fields'))
    def relevant_tickets(field_id: str) -> int:
@@ -326,6 +326,9 @@ def make_home_page(website: Website, file: HtmlFile):
    home_main.append(new_content_tag(soup, 'h2', 'User Groups'))
    table = render_groups_grid(website, file, sorted(website.relations.user.groups.keys(), key=lambda x: len(website.relations.user.groups[x]), reverse=True))
    home_main.append(table)
+
+def sorted_projects(website: Website) -> list[Project]:
+   return sorted(website.metas.projects.values(), key=lambda x: len(website.relations.fields.metas['project'][x['id']]), reverse=True)
 
 def make_all_issues_page(website: Website, file: HtmlFile):
    soup = file.page.soup
@@ -612,14 +615,26 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
    if len(table_scripts) > 0:
       add_table_scripts(website, file, table_scripts)
 
+FilterData = typing.TypedDict('FilterData', {
+   'summary': list[str],
+   'project': typing.NotRequired[list[str]],
+   'resolution': typing.NotRequired[list[str | None]],
+   'confirmation': typing.NotRequired[list[str | None]],
+   'priority': typing.NotRequired[list[str | None]]
+})
+
 TableData = typing.TypedDict('TableData', {
    'rowHeight': int,
    'tableHeaderId': str,
    'tableBodyId': str,
    'scrollId': str,
    'searchId': str,
+   'projectFilterId': str,
+   'resolutionFilterId': str,
+   'confirmationFilterId': str,
+   'priorityFilterId': str,
    'countId': str,
-   'summaries': list[str],
+   'filter': FilterData,
    'sort': list[list[int]],
    'rows': list[bs4.Tag]
 })
@@ -639,8 +654,12 @@ def add_table_scripts(website: Website, file: HtmlFile, scripts: list[TableData]
          'tableBodyId': entry['tableBodyId'],
          'scrollId': entry['scrollId'],
          'searchId': entry['searchId'],
+         'projectFilterId': entry['projectFilterId'],
+         'resolutionFilterId': entry['resolutionFilterId'],
+         'confirmationFilterId': entry['confirmationFilterId'],
+         'priorityFilterId': entry['priorityFilterId'],
          'countId': entry['countId'],
-         'summaries': entry['summaries'],
+         'filter': entry['filter'],
          'sort': entry['sort'],
          'rows': [str(x) for x in entry['rows']],
       })
@@ -653,7 +672,13 @@ def add_table_scripts(website: Website, file: HtmlFile, scripts: list[TableData]
 def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: typing.Iterable[Issue]) -> VirtualTable:
    soup = file.page.soup
    all_rows: list[bs4.Tag] = []
-   summaries: list[str] = []
+   filter_data: FilterData = {
+      'summary': [],
+      'project': [],
+      'confirmation': [],
+      'priority': [],
+      'resolution': []
+   }
    sort_data: list[list[tuple[int, typing.Any]]] = [
       [],
       [],
@@ -713,7 +738,11 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
          text = html_to_text(row_tags[j])
          val = (status_order.index(status.kind), text) if j == 2 else text
          bisect.insort_left(sort_data[j], (i, val), key=sorter_key)
-      summaries.append(issue['fields']['summary'].lower())
+      filter_data['summary'].append(issue['fields']['summary'].lower())
+      filter_data['project'].append(issue['fields']['project'])
+      filter_data['confirmation'].append(issue['fields']['customfield_10500']['id'] if 'customfield_10500' in issue['fields'] and issue['fields']['customfield_10500'] is not None else None)
+      filter_data['priority'].append(issue['fields']['customfield_12200']['id'] if 'customfield_12200' in issue['fields'] and issue['fields']['customfield_12200'] is not None else None)
+      filter_data['resolution'].append(issue['fields']['resolution'])
       row = new_content_tag(soup, 'div', content=row_tags)
       if issue['fields']['resolution'] is not None:
          row.attrs['class'] = 'issue-table-row issue-resolved'
@@ -726,6 +755,41 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
    filters = new_content_tag(soup, 'div', attrs={'class': 'filters'}, content=[
       soup.new_tag('input', attrs={'name': 'search', 'type': 'text', 'placeholder': 'Summary', 'id': f'{id_prefix}-table-search'})
    ])
+   if len(set(filter_data['project'])) > 1:
+      project_dropdown = new_content_tag(soup, 'select', attrs={'name': 'project', 'id': f'{id_prefix}-table-filter-project'}, content=[new_content_tag(soup, 'option', 'Project', attrs={'value': ''})])
+      for proj in sorted_projects(website):
+         project_dropdown.append(new_content_tag(soup, 'option', proj['key'], attrs={'value': proj['id']}))
+      filters.append(project_dropdown)
+   else:
+      del filter_data['project']
+   if len(set(filter_data['resolution'])) > 1:
+      resolution_dropdown = new_content_tag(soup, 'select', attrs={'name': 'resolution', 'id': f'{id_prefix}-table-filter-resolution'}, content=[
+         new_content_tag(soup, 'option', 'Resolution', attrs={'value': ''}),
+         new_content_tag(soup, 'option', 'Unresolved', attrs={'value': 'unresolved'})
+      ])
+      for value in sorted(website.metas.resolutions.values(), key=lambda x: meta_value_order_key(website, 'resolution', x['id'])):
+         resolution_dropdown.append(new_content_tag(soup, 'option', value['name'], attrs={'value': value['id']}))
+      filters.append(resolution_dropdown)
+   else:
+      del filter_data['resolution']
+   if len(set(filter_data['confirmation'])) > 1:
+      confirmation_dropdown = new_content_tag(soup, 'select', attrs={'name': 'confirmation', 'id': f'{id_prefix}-table-filter-confirmation'}, content=[new_content_tag(soup, 'option', 'Confirmation', attrs={'value': ''})])
+      for value in sorted(website.relations.fields.fields['customfield_10500'].values(), key=field_value_order_key):
+         assert isinstance(value['value'], dict)
+         assert 'value' in value['value']
+         confirmation_dropdown.append(new_content_tag(soup, 'option', value['value']['value'], attrs={'value': value['value']['id']}))
+      filters.append(confirmation_dropdown)
+   else:
+      del filter_data['confirmation']
+   if len(set(filter_data['priority'])) > 1:
+      priority_dropdown = new_content_tag(soup, 'select', attrs={'name': 'priority', 'id': f'{id_prefix}-table-filter-priority'}, content=[new_content_tag(soup, 'option', 'Priority', attrs={'value': ''})])
+      for value in sorted(website.relations.fields.fields['customfield_12200'].values(), key=field_value_order_key):
+         assert isinstance(value['value'], dict)
+         assert 'value' in value['value']
+         priority_dropdown.append(new_content_tag(soup, 'option', value['value']['value'], attrs={'value': value['value']['id']}))
+      filters.append(priority_dropdown)
+   else:
+      del filter_data['priority']
    controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls'}, content=[
       new_content_tag(soup, 'div', attrs={'class': 'issue-count', 'id': f'{id_prefix}-table-count'}, content=[f'{len(all_rows)} issues'])
    ])
@@ -735,8 +799,12 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
       'tableBodyId': f'{id_prefix}-table-body',
       'scrollId': f'{id_prefix}-table-scroll',
       'searchId': f'{id_prefix}-table-search',
+      'projectFilterId': f'{id_prefix}-table-filter-project',
+      'resolutionFilterId': f'{id_prefix}-table-filter-resolution',
+      'confirmationFilterId': f'{id_prefix}-table-filter-confirmation',
+      'priorityFilterId': f'{id_prefix}-table-filter-priority',
       'countId': f'{id_prefix}-table-count',
-      'summaries': summaries,
+      'filter': filter_data,
       'sort': [[x[0] for x in y] for y in sort_data],
       'rows':  all_rows,
    }
@@ -818,11 +886,11 @@ def render_fields_grid(website: Website, file: HtmlFile, field_ids: typing.Itera
       ]
       if field_id in website.relations.fields.fields:
          field_values = website.relations.fields.fields[field_id].values()
-         def transform_field(value: relations.FieldRelation):
-            return field_link(website, file, field_id, value['value'] if isinstance(value['value'], str) else value['value']['id'])
          if len(field_values) > 15:
             content.append(f'{len(field_values)} values')
          else:
+            def transform_field(value: relations.FieldRelation):
+               return field_link(website, file, field_id, value['value'] if isinstance(value['value'], str) else value['value']['id'])
             tags = inline_list(soup, map(transform_field, sorted(field_values, key=field_value_order_key)))
             content.append(tags)
       else:
@@ -1022,22 +1090,17 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
    add_metadata(file, full_title, desc_text, image_url)
 
    tabbed_content = soup.new_tag('div', attrs={'class': 'issue-tabs-content'})
-   all_comments: list[RenderableComment] = []
-   if len(issue['fields']['comment']['comments']) > 0:
-      for comment in issue['fields']['comment']['comments']:
-         body = website.markup_source.get_comment_body(issue['id'], comment['id'])
-         fix_markup(website, file, body)
-         all_comments.append(RenderableComment(comment, body, secret=False))
-      for comment in website.secret_comments.get(issue['id']):
-         body = website.markup_source.get_secret_comment_body(issue['id'], comment['id'])
-         fix_markup(website, file, body)
-         bisect.insort_left(all_comments, RenderableComment(comment, body, secret=True), key=lambda x: datetime.datetime.fromisoformat(x.comment['created']))
-      comment_section = render_issue_comments(website, file, all_comments)
-   else:
-      comment_section = soup.new_tag('div')
+   all_comments = get_renderable_comments(website, file, issue)
+   comment_section = render_issue_comments(website, file, all_comments)
    tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'issue-tab-content-comments', 'class': 'issue-tab-content'}, content=comment_section))
    history_section = render_issue_revisions(website, file, issue, issue['changelog']['histories'])
    tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'issue-tab-content-history', 'class': 'issue-tab-content'}, content=history_section))
+   if issue['id'] in website.markup_rels.issues:
+      all_mentions = get_renderable_mentions(website, file, website.markup_rels.issues[issue['id']])
+   else:
+      all_mentions = []
+   mentions_section = render_issue_mentions(website, file, all_mentions)
+   tabbed_content.append(new_content_tag(soup, 'div', attrs={'id': 'issue-tab-content-mentions', 'class': 'issue-tab-content'}, content=mentions_section))
    issue_div.append(
       new_content_tag(soup, 'div', attrs={'class': 'issue-tabs'}, content=[
          soup.new_tag('input', attrs={'type': 'radio', 'name': 'issue-tabs', 'id': 'issue-tab-comments', 'checked': ''}),
@@ -1049,6 +1112,11 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
          new_content_tag(soup, 'label', attrs={'for': 'issue-tab-history'}, content=[
             'History',
             new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(issue['changelog']['histories'])))
+         ]),
+         soup.new_tag('input', attrs={'type': 'radio', 'name': 'issue-tabs', 'id': 'issue-tab-mentions'}),
+         new_content_tag(soup, 'label', attrs={'for': 'issue-tab-mentions'}, content=[
+            'Mentions',
+            new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(len(all_mentions)))
          ]),
          soup.new_tag('input', attrs={'type': 'checkbox', 'name': 'issue-order', 'id': 'issue-tab-order'}),
          new_content_tag(soup, 'label', attrs={'for': 'issue-tab-order'}, content=''),
@@ -1272,6 +1340,59 @@ def merge_revisions(revisions: list[Revision]) -> list[MergedRevision]:
    if current is not None:
       merged_revisions.append(current)
    return merged_revisions
+
+@dataclasses.dataclass
+class RenderableMention:
+   issue: Issue
+   comment: Comment | None
+   date: datetime.datetime
+   rendered_body: bs4.BeautifulSoup
+
+def get_renderable_mentions(website: Website, file: HtmlFile, rels: markup_relations.MarkupRelation) -> list[RenderableMention]:
+   result: list[RenderableMention] = []
+   for issue_id in rels['descriptions']:
+      subissue = website.archive.get_issue_data(issue_id)
+      assert subissue is not None
+      markup = website.markup_source.get_issue_description(issue_id)
+      fix_markup(website, file, markup)
+      bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), markup), key=lambda x: x.date)
+   for issue_id in rels['environments']:
+      subissue = website.archive.get_issue_data(issue_id)
+      assert subissue is not None
+      markup = website.markup_source.get_issue_environment(issue_id)
+      fix_markup(website, file, markup)
+      bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), markup), key=lambda x: x.date)
+   for issue_id, comment_ids in rels['comments'].items():
+      subissue = website.archive.get_issue_data(issue_id)
+      assert subissue is not None
+      for comment_id in comment_ids:
+         markup = website.markup_source.get_comment_body(issue_id, comment_id)
+         fix_markup(website, file, markup)
+         comment = next(filter(lambda x: x['id'] == comment_id, subissue['fields']['comment']['comments']))
+         bisect.insort_left(result, RenderableMention(subissue, comment, datetime.datetime.fromisoformat(comment['created']), markup), key=lambda x: x.date)
+   return result
+
+def render_issue_mentions(website: Website, file: HtmlFile, mentions: list[RenderableMention]) -> bs4.Tag:
+   soup = file.page.soup
+   mentions_list: list[bs4.Tag] = []
+   for entry in mentions:
+      if entry.comment is not None:
+         comment_div = new_content_tag(soup, 'div', attrs={'class': 'comment'}, content=[
+            comment_authorship(website, file, entry.comment, secret=False, issue=entry.issue)
+         ])
+         comment_div.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
+            embed_wiki(website, file, entry.rendered_body)
+         ]))
+         mentions_list.append(comment_div)
+      else:
+         comment_div = new_content_tag(soup, 'div', attrs={'class': 'comment'}, content=[
+            issue_authorship(website, file, entry.issue)
+         ])
+         comment_div.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
+            embed_wiki(website, file, entry.rendered_body)
+         ]))
+         mentions_list.append(comment_div)
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-mention-section'}, content=mentions_list)
 
 UNKNOWN_COMMENT_RE = re.compile(r'A comment with security level \'[a-z]+\' was removed\.' + '\u00a0?$')
 
@@ -2166,19 +2287,31 @@ def comment_author(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
    user_text.attrs['class'] = 'username comment-author'
    return user_tag
 
-@dataclasses.dataclass
-class RenderableComment:
-   comment: Comment | NewComment
-   rendered_body: bs4.BeautifulSoup
-   secret: bool
-
 def render_author_key_or_dict(website: Website, file: HtmlFile, author: str | NewAuthor) -> bs4.Tag:
    if isinstance(author, dict):
       return new_content_tag(file.page.soup, 'span', attrs={'class': 'username comment-author'}, content=author['displayName'])
    else:
       return comment_author(website, file, author)
 
-def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewComment, secret: bool) -> bs4.Tag:
+def issue_authorship(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
+   soup = file.page.soup
+   div = soup.new_tag('div', attrs={'class': 'comment-head'})
+   created_time = datetime.datetime.fromisoformat(issue['fields']['created'])
+   if issue['fields']['reporter'] is not None:
+      div.append(comment_author(website, file, issue['fields']['reporter']))
+      div.append(' ')
+   link = relative_link(website.root, file.path, website.get_issue_path(issue))
+   link_part = soup.new_tag('a', attrs={'class': 'comment-link', 'href': link})
+   div.append(new_content_tag(soup, 'span', 'on', attrs={'class': 'comment-on'}))
+   div.append(' ')
+   issue_key = new_content_tag(soup, 'span', attrs={'class': 'issue-key'}, content=issue['key'])
+   link_part.append(issue_key)
+   link_part.append(' ')
+   link_part.append(new_content_tag(soup, 'span', attrs={'class': 'comment-time'}, content=render_datetime(soup, created_time)))
+   div.append(link_part)
+   return div
+
+def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewComment, secret: bool, issue: Issue | None) -> bs4.Tag:
    soup = file.page.soup
    div = soup.new_tag('div', attrs={'class': 'comment-head'})
    created_time = datetime.datetime.fromisoformat(comment['created'])
@@ -2187,26 +2320,35 @@ def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewC
       div.append(render_author_key_or_dict(website, file, comment['author']))
       div.append(' ')
    # apply the comment-time class to the entire span and the link specifically so they both turn gray
-   time_part = new_content_tag(soup, 'span', attrs={'class': 'comment-time'}, content=[
-      new_content_tag(soup, 'a', attrs={'class': 'comment-time', 'href': f'#comment-id-{comment['id']}'}, content=[
-         render_datetime(soup, created_time)
-      ])
-   ])
+   if issue is None:
+      link = f'#comment-id-{comment['id']}'
+   else:
+      link = relative_link(website.root, file.path, website.get_issue_path(issue)) + f'#comment-id-{comment['id']}'
+   link_part = soup.new_tag('a', attrs={'class': 'comment-link', 'href': link})
+   if issue is not None:
+      div.append(new_content_tag(soup, 'span', 'on', attrs={'class': 'comment-on'}))
+      div.append(' ')
+      issue_key = new_content_tag(soup, 'span', attrs={'class': 'issue-key'}, content=issue['key'])
+      link_part.append(issue_key)
+      link_part.append(' ')
+   link_part.append(new_content_tag(soup, 'span', attrs={'class': 'comment-time'}, content=render_datetime(soup, created_time)))
+   div.append(link_part)
+   more_info = soup.new_tag('span', attrs={'class': 'comment-time'})
    has_update_author = 'updateAuthor' in comment and ('author' not in comment or comment['updateAuthor'] != comment['author'])
    has_update = comment['updated'] != comment['created']
    if has_update_author or has_update:
-      time_part.append(' • edited ')
+      more_info.append(' • edited ')
    if has_update_author:
       assert 'updateAuthor' in comment
-      time_part.append(render_author_key_or_dict(website, file, comment['updateAuthor']))
+      more_info.append(render_author_key_or_dict(website, file, comment['updateAuthor']))
       if has_update:
-         time_part.append(' ')
+         more_info.append(' ')
    if has_update:
       if same_day(created_time, updated_time):
          inner_time = render_time(soup, updated_time)
       else:
-        inner_time = render_datetime(soup, updated_time)
-      time_part.append(inner_time)
+         inner_time = render_datetime(soup, updated_time)
+      more_info.append(inner_time)
    if 'visibility' in comment:
       if comment['visibility']['type'] == 'group':
          assert comment['visibility']['value'] in website.relations.user.groups
@@ -2214,20 +2356,38 @@ def comment_authorship(website: Website, file: HtmlFile, comment: Comment | NewC
          restriction = new_content_tag(soup, 'a', attrs={'class': 'comment-visibility-name', 'href': link}, content=comment['visibility']['value'])
       else:
          restriction = new_content_tag(soup, 'span', attrs={'class': 'comment-visibility-name'}, content=comment['visibility']['value'])
-      time_part.extend([
+      more_info.extend([
          ' • ',
          soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
          ' Restricted to ',
          restriction
       ])
    if secret:
-      time_part.extend([
+      more_info.extend([
          ' • ',
          soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
          ' Secret comment',
       ])
-   div.append(time_part)
+   div.append(more_info)
    return div
+
+@dataclasses.dataclass
+class RenderableComment:
+   comment: Comment | NewComment
+   rendered_body: bs4.BeautifulSoup
+   secret: bool
+
+def get_renderable_comments(website: Website, file: HtmlFile, issue: Issue) -> list[RenderableComment]:
+   result: list[RenderableComment] = []
+   for comment in issue['fields']['comment']['comments']:
+      body = website.markup_source.get_comment_body(issue['id'], comment['id'])
+      fix_markup(website, file, body)
+      result.append(RenderableComment(comment, body, secret=False))
+   for comment in website.secret_comments.get(issue['id']):
+      body = website.markup_source.get_secret_comment_body(issue['id'], comment['id'])
+      fix_markup(website, file, body)
+      bisect.insort_left(result, RenderableComment(comment, body, secret=True), key=lambda x: datetime.datetime.fromisoformat(x.comment['created']))
+   return result
 
 def render_issue_comments(website: Website, file: HtmlFile, comments: list[RenderableComment]) -> bs4.Tag:
    soup = file.page.soup
@@ -2235,7 +2395,7 @@ def render_issue_comments(website: Website, file: HtmlFile, comments: list[Rende
    for entry in comments:
       comment_div = new_content_tag(soup, 'div', attrs={'class': 'comment'}, content=[
          soup.new_tag('div', attrs={'class': 'anchor', 'id': f'comment-id-{entry.comment['id']}'}),
-         comment_authorship(website, file, entry.comment, entry.secret)
+         comment_authorship(website, file, entry.comment, secret=entry.secret, issue=None)
       ])
       comment_div.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=[
          embed_wiki(website, file, entry.rendered_body)

@@ -169,14 +169,11 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
    key_rel = KeyLookups()
    user_rel = UserRelations()
    field_rel = FieldRelations()
-   print('Tickets...')
    issue_ids = list(archive.issue_ids())
    total = len(issue_ids)
-   for i, issue_id in enumerate(issue_ids):
+   for issue_id in issue_ids:
       issue = archive.get_issue_data(issue_id)
       assert issue is not None
-      if i % 100 == 0:
-         print(f'{i + 1} / {total} - {issue['key']}')
       key_rel.issue_keys[issue['key']] = issue_id
       fields = issue['fields']
       append_meta(field_rel.metas, 'resolution', fields['resolution'], issue_id)
@@ -233,14 +230,10 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
          data = archive.get_attachment_data(attachment)
          assert data is not None
          append_user_action(user_rel.attachments, data.get('author'), issue_id, attachment)
-   print('Users...')
    user_keys = list(archive.user_keys())
-   total = len(user_keys)
-   for i, user_key in enumerate(user_keys):
+   for user_key in user_keys:
       user = archive.get_user_data(user_key)
       assert user is not None
-      if i % 100 == 0:
-         print(f'{i + 1} / {total} - {user['name']}')
       key_rel.user_keys[user['name'].casefold()] = user_key
       for group in user['groups']['items']:
          append(user_rel.groups, group['name'], user_key)
