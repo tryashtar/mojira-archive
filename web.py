@@ -33,7 +33,7 @@ def write_html(path: pathlib.Path, page: Page):
    path.parent.mkdir(parents=True, exist_ok=True)
    with open(path, 'w', encoding='utf-8') as file:
       file.write('<!DOCTYPE html>\n')
-      file.write(str(page.soup))
+      file.write(page.soup.decode(formatter='html5'))
 
 def add_metadata(file: HtmlFile, title: str | None, description: str | None, image: str | None):
    if title is not None:
@@ -48,11 +48,22 @@ def add_metadata(file: HtmlFile, title: str | None, description: str | None, ima
       file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'og:image', 'content': image}))
       file.page.head.append(file.page.soup.new_tag('meta', attrs={'property': 'twitter:image', 'content': image}))
 
-def append_desc_item(soup: bs4.BeautifulSoup, desc_list: bs4.Tag, name: str | bs4.Tag, value: str | bs4.Tag):
+Tag = bs4.element.PageElement | str
+
+def append_class(tag: bs4.Tag, cls: str):
+   if 'class' in tag.attrs:
+      if isinstance(tag.attrs['class'], str):
+         tag.attrs['class'] = tag.attrs['class'] + ' ' + cls
+      elif isinstance(tag.attrs['class'], list):
+         tag.attrs['class'].append(cls)
+   else:
+      tag.attrs['class'] = cls
+
+def append_desc_item(soup: bs4.BeautifulSoup, desc_list: bs4.Tag, name: Tag, value: Tag):
    desc_list.append(new_content_tag(soup, 'dt', new_content_tag(soup, 'label', name)))
    desc_list.append(new_content_tag(soup, 'dd', value))
 
-def make_table(soup: bs4.BeautifulSoup, headings: list[bs4.Tag | str]) -> bs4.Tag:
+def make_table(soup: bs4.BeautifulSoup, headings: typing.Iterable[Tag]) -> bs4.Tag:
    table = soup.new_tag('table')
    thead = soup.new_tag('thead')
    head_row = soup.new_tag('tr')
@@ -67,7 +78,7 @@ def make_table(soup: bs4.BeautifulSoup, headings: list[bs4.Tag | str]) -> bs4.Ta
    table.append(tbody)
    return table
 
-def append_row(soup: bs4.BeautifulSoup, table: bs4.Tag, entries: list[bs4.Tag | str | list[bs4.Tag | str]]) -> bs4.Tag:
+def append_row(soup: bs4.BeautifulSoup, table: bs4.Tag, entries: list[Tag | list[Tag]]) -> bs4.Tag:
    tbody = table.find('tbody')
    assert tbody is not None
    row = soup.new_tag('tr')
@@ -79,9 +90,9 @@ def append_row(soup: bs4.BeautifulSoup, table: bs4.Tag, entries: list[bs4.Tag | 
    tbody.append(row)
    return row
 
-def new_content_tag(soup: bs4.BeautifulSoup, name: str, content: str | bs4.Tag | typing.Iterable[str | bs4.Tag], attrs: dict[str, str] | None=None) -> bs4.Tag:
+def new_content_tag(soup: bs4.BeautifulSoup, name: str, content: Tag | typing.Iterable[Tag], attrs: dict[str, str] | None=None) -> bs4.Tag:
    tag = soup.new_tag(name, attrs=attrs)
-   if isinstance(content, bs4.Tag) or isinstance(content, str):
+   if isinstance(content, bs4.element.PageElement) or isinstance(content, str):
       tag.append(content)
    else:
       for entry in content:
@@ -194,7 +205,7 @@ def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: da
    if start.astimezone(datetime.UTC) == end.astimezone(datetime.UTC):
       return render_datetime(soup, start)
    else:
-      first_part = new_content_tag(soup, 'time', start.strftime('%Y-%m-%d, %I:%M:%S %p'), attrs={'datetime': start.isoformat()})
+      first_part = new_content_tag(soup, 'time', start.strftime('%Y-%m-%d, %I:%M:%S %p'), attrs={'datetime': start.isoformat(timespec='milliseconds')})
       if same_day(start, end):
          second_part = end.strftime('%I:%M:%S %p %Z')
       else:
@@ -207,15 +218,15 @@ def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: da
 
 def render_datetime(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
    formatted = date.astimezone(datetime.UTC).strftime('%Y-%m-%d, %I:%M:%S %p %Z')
-   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat(timespec='milliseconds')})
 
 def render_date(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
    formatted = date.astimezone(datetime.UTC).strftime('%Y-%m-%d %Z')
-   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat()})
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': date.isoformat(timespec='milliseconds')})
 
 def render_time(soup: bs4.BeautifulSoup, time: datetime.datetime) -> bs4.Tag:
    formatted = time.astimezone(datetime.UTC).strftime('%I:%M:%S %p')
-   return new_content_tag(soup, 'time', formatted, attrs={'datetime': time.isoformat()})
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': time.isoformat(timespec='milliseconds')})
 
 def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separator: str = ' ') -> bs4.Tag:
    span = soup.new_tag('span')

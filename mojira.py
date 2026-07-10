@@ -7,6 +7,7 @@ from jiratypes import Attachment, Field, Issue, IssueType, LinkType, NewComment,
 
 @dataclasses.dataclass
 class ValueDisplay:
+   id: str | None
    name: str
    description: str | None
    icon: str | None
@@ -36,13 +37,13 @@ class ArchiveMetas:
 
    def display_value(self, meta_id: META_TYPE, value_id: str | None) -> ValueDisplay | None:
       if meta_id == 'resolution' and value_id is None:
-         return ValueDisplay('Unresolved', None, None)
+         return ValueDisplay(None, 'Unresolved', None, None)
       assert value_id is not None
       if value_id not in self.metas[meta_id]:
          return None
       meta = self.metas[meta_id][value_id]
       icon = meta['avatarUrls']['48x48'] if 'avatarUrls' in meta else None
-      return ValueDisplay(meta['name'], meta['description'], icon)
+      return ValueDisplay(value_id, meta['name'], meta['description'], icon)
 
    def load(self, folder: pathlib.Path):
       load_one(self.fields, folder / self.fields_path)

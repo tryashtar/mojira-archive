@@ -134,11 +134,17 @@ WatchesField = typing.TypedDict('WatchesField', {
    'isWatching': bool
 })
 
-IssueLink = typing.TypedDict('IssueLink', {
+OutwardIssueLink = typing.TypedDict('OutwardIssueLink', {
    'id': str,
    'type': str,
-   'outwardIssue': typing.NotRequired[str],
+   'outwardIssue': str,
    'inwardIssue': typing.NotRequired[str],
+})
+
+InwardIssueLink = typing.TypedDict('InwardIssueLink', {
+   'id': str,
+   'type': str,
+   'inwardIssue': str,
 })
 
 CustomValue = typing.TypedDict('CustomValue', {
@@ -169,7 +175,7 @@ IssueFields = typing.TypedDict('IssueFields', {
    'comment': CommentField,
    'votes': VotesField,
    'watches': WatchesField,
-   'issuelinks': list[IssueLink],
+   'issuelinks': list[OutwardIssueLink | InwardIssueLink],
    # metas
    'resolution': str | None,
    'issuetype': str,

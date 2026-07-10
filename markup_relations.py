@@ -40,7 +40,8 @@ def append(source: dict[str, MarkupRelation], mapper: dict[str, str], key: str, 
          'environments': [],
          'comments': {},
       }
-   bisect.insort(source[key][subkey], value)
+   if value not in source[key][subkey]:
+      bisect.insort(source[key][subkey], value)
 
 def append_comment(source: dict[str, MarkupRelation], mapper: dict[str, str], key: str, issue_id: str, comment_id: str):
    if key not in mapper:
@@ -54,7 +55,8 @@ def append_comment(source: dict[str, MarkupRelation], mapper: dict[str, str], ke
       }
    if issue_id not in source[key]['comments']:
       source[key]['comments'][issue_id] = []
-   bisect.insort(source[key]['comments'][issue_id], comment_id)
+   if comment_id not in source[key]['comments'][issue_id]:
+      bisect.insort(source[key]['comments'][issue_id], comment_id)
 
 def create_relations(source: markup.MarkupSource, keys: relations.KeyLookups) -> MarkupRelations:
    result = MarkupRelations()

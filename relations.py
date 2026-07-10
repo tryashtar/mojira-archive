@@ -94,19 +94,18 @@ class FieldRelations:
       for key, value in self.metas.items():
          save_one(value, folder / 'metas' / (key + '.json'))
 
-   def display_value(self, field_id: str, value_key: str) -> mojira.ValueDisplay | None:
-      value_id = '' if value_key is None else value_key
+   def display_value(self, field_id: str, value_id: str) -> mojira.ValueDisplay | None:
       if value_id not in self.fields[field_id]:
          return None
       full_value = self.fields[field_id][value_id]['value']
       assert full_value is not None
       if isinstance(full_value, str):
-         return mojira.ValueDisplay(full_value, None, None)
+         return mojira.ValueDisplay(value_id, full_value, None, None)
       desc = full_value.get('description')
       icon = full_value.get('iconUrl')
       if 'name' in full_value:
-         return mojira.ValueDisplay(full_value['name'], desc, icon)
-      return mojira.ValueDisplay(full_value['value'], desc, icon)
+         return mojira.ValueDisplay(value_id, full_value['name'], desc, icon)
+      return mojira.ValueDisplay(value_id, full_value['value'], desc, icon)
 
 def load_one(data: dict, path: pathlib.Path):
    data.clear()
@@ -193,7 +192,6 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
    user_rel = UserRelations()
    field_rel = FieldRelations()
    issue_ids = list(archive.issue_ids())
-   total = len(issue_ids)
    for issue_id in issue_ids:
       issue = archive.get_issue_data(issue_id)
       assert issue is not None
