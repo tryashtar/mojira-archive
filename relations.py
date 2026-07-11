@@ -94,19 +94,6 @@ class FieldRelations:
       for key, value in self.metas.items():
          save_one(value, folder / 'metas' / (key + '.json'))
 
-   def display_value(self, field_id: str, value_id: str) -> mojira.ValueDisplay | None:
-      if value_id not in self.fields[field_id]:
-         return None
-      full_value = self.fields[field_id][value_id]['value']
-      assert full_value is not None
-      if isinstance(full_value, str):
-         return mojira.ValueDisplay(value_id, full_value, None, None)
-      desc = full_value.get('description')
-      icon = full_value.get('iconUrl')
-      if 'name' in full_value:
-         return mojira.ValueDisplay(value_id, full_value['name'], desc, icon)
-      return mojira.ValueDisplay(value_id, full_value['value'], desc, icon)
-
 def load_one(data: dict, path: pathlib.Path):
    data.clear()
    for key, value in mojira.load_or(path, {}).items():

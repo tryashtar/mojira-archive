@@ -1,16 +1,8 @@
-import dataclasses
 import pathlib
 import json
 import urllib.parse
 import typing
 from jiratypes import Attachment, Field, Issue, IssueType, LinkType, NewComment, Project, Resolution, Status, User
-
-@dataclasses.dataclass
-class ValueDisplay:
-   id: str | None
-   name: str
-   description: str | None
-   icon: str | None
 
 META_TYPE = typing.Literal['issuetype', 'resolution', 'status', 'project']
 
@@ -34,16 +26,6 @@ class ArchiveMetas:
          'status': self.statuses,
          'project': self.projects
       }
-
-   def display_value(self, meta_id: META_TYPE, value_id: str | None) -> ValueDisplay | None:
-      if meta_id == 'resolution' and value_id is None:
-         return ValueDisplay(None, 'Unresolved', None, None)
-      assert value_id is not None
-      if value_id not in self.metas[meta_id]:
-         return None
-      meta = self.metas[meta_id][value_id]
-      icon = meta['avatarUrls']['48x48'] if 'avatarUrls' in meta else None
-      return ValueDisplay(value_id, meta['name'], meta['description'], icon)
 
    def load(self, folder: pathlib.Path):
       load_one(self.fields, folder / self.fields_path)

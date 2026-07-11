@@ -22,6 +22,7 @@ import markup
 
 from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewAuthor, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, User, Version
 from web import HtmlFile, Tag, add_metadata, append_class, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
+from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, category_splitter, field_display, field_name, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_comments, get_renderable_mentions, get_user, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
 
 @dataclasses.dataclass
 class ProjectPage:
@@ -174,14 +175,14 @@ def main():
          save_file(website, field_page.page)
    if 'project_main' in to_render:
       print('Project main...')
-      for project in reversed(sorted_projects(website)):
+      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          make_project_main_page(website, project_page.main, project)
          save_file(website, project_page.main)
    if 'project_versions' in to_render:
       print('Project versions...')
-      for project in reversed(sorted_projects(website)):
+      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          if project_page.versions is not None:
@@ -189,14 +190,14 @@ def main():
             save_file(website, project_page.versions)
    if 'project_issues' in to_render:
       print('Project issues...')
-      for project in reversed(sorted_projects(website)):
+      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          make_project_issues_page(website, project_page.issues, project)
          save_file(website, project_page.issues)
    if 'project_version_issues' in to_render:
       print('Project versions issues...')
-      for project in reversed(sorted_projects(website)):
+      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          for version in project['versions'].values():
@@ -215,7 +216,7 @@ def main():
          if key == 'resolution':
             value_keys.insert(0, None)
          for value_key in value_keys:
-            display = metas.display_value(key, value_key)
+            display = meta_display(website.metas, key, value_key)
             assert display is not None
             print('\t\t' + display.name)
             full_title = f'[{fname}] {display.name}'
@@ -229,7 +230,7 @@ def main():
          field_page = website.field_pages[key]
          fname = field_name(metas, key)
          for value_key in values.keys():
-            display = website.relations.fields.display_value(key, value_key)
+            display = field_display(website.relations.fields, key, value_key)
             assert display is not None
             print('\t\t' + display.name)
             full_title = f'[{fname}] {display.name}'
@@ -395,7 +396,7 @@ def make_home_page(website: Website, file: HtmlFile):
             f'{user_count} users'
          ]
       ])),
-      ('Projects', build_tile_grid(soup, (project_grid_entry(website, file, x) for x in sorted_projects(website)))),
+      ('Projects', build_tile_grid(soup, (project_grid_entry(website, file, x) for x in sorted_projects(website.metas, website.relations.fields)))),
       ('Fields', build_tile_grid(soup,
          [meta_grid_entry(website, file, x) for x in sorted_metas]
          + [field_grid_entry(website, file, x) for x in sorted_fields]
@@ -409,7 +410,7 @@ def make_meta_page(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE):
    content = main_content(website, file)
 
    name = field_name(website.metas, meta_id)
-   values = sorted_meta_values(website, meta_id)
+   values = sorted_meta_values(website.metas, meta_id)
    add_metadata(file, name, f'{len(values)} values', None)
 
    main = build_grid_main(soup, [
@@ -422,7 +423,7 @@ def make_field_page(website: Website, file: HtmlFile, field_id: str):
    content = main_content(website, file)
 
    name = field_name(website.metas, field_id)
-   values = sorted_field_values(website, field_id)
+   values = sorted_field_values(website.relations.fields, field_id)
    add_metadata(file, name, f'{len(values)} values', None)
 
    main = build_grid_main(soup, [
@@ -466,7 +467,7 @@ def meta_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE)
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name', 'href': link}, content=name),
    ]
-   values = sorted_meta_values(website, meta_id)
+   values = sorted_meta_values(website.metas, meta_id)
    if len(values) > 15:
       content.append(f'{len(values)} values')
    else:
@@ -481,7 +482,7 @@ def field_grid_entry(website: Website, file: HtmlFile, field_id: str) -> list[Ta
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name', 'href': link}, content=name),
    ]
-   values = sorted_field_values(website, field_id)
+   values = sorted_field_values(website.relations.fields, field_id)
    if len(values) > 15:
       content.append(f'{len(values)} values')
    else:
@@ -499,7 +500,7 @@ def group_grid_entry(website: Website, file: HtmlFile, group: str) -> list[Tag]:
    ]
    return content
 
-def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: mojira.ValueDisplay) -> list[Tag]:
+def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: ValueDisplay) -> list[Tag]:
    issues = website.relations.fields.metas[meta_id]['' if value.id is None else value.id]
    content: list[Tag] = [
       # tile-grid-name for style.css
@@ -511,7 +512,7 @@ def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META
       content.append(new_content_tag(file.page.soup, 'p', attrs={'class': 'tile-grid-desc'}, content=value.description))
    return content
 
-def field_value_grid_entry(website: Website, file: HtmlFile, field_id: str, value: mojira.ValueDisplay) -> list[Tag]:
+def field_value_grid_entry(website: Website, file: HtmlFile, field_id: str, value: ValueDisplay) -> list[Tag]:
    assert value.id is not None
    issues = website.relations.fields.fields[field_id][value.id]
    content: list[Tag] = [
@@ -549,21 +550,13 @@ def project_details(website: Website, file: HtmlFile, project: Project) -> typin
    project_page = website.project_pages[project['id']]
    issues = website.relations.fields.metas['project'][project['id']]
    versions = project['versions']
-   links = project_detail_links(website, file, project)
+   data_link = relative_path(website.root, file.path, website.archive.folder / website.metas.projects_path)
+   links = project_detail_links(project, data_link)
    yield ('Project Lead:', user_link(website, file, project['lead']))
    yield ('Issues:', new_content_tag(file.page.soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}))
    if project_page.versions is not None:
       yield ('Versions:', new_content_tag(file.page.soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
    yield ('Links:', build_link_list(file.page.soup, 'ul', links))
-
-def project_detail_links(website: Website, file: HtmlFile, project: Project) -> typing.Generator[tuple[str, str]]:
-   data_link = relative_path(website.root, file.path, website.archive.folder / website.metas.projects_path)
-   portal_num = portal_number(project['key'])
-   yield ('JSON', urllib.parse.quote(str(data_link)))
-   yield ('bugs.mojang.com', f'https://bugs.mojang.com/browse/{project['key']}')
-   if portal_num is not None:
-      yield ('report.bugs.mojang.com', f'https://report.bugs.mojang.com/servicedesk/customer/portal/{portal_num}')
-   yield ('mojira.atlassian.net', f'https://mojira.atlassian.net/browse/{project['key']}')
 
 def make_version_page(website: Website, file: HtmlFile, version: Version):
    soup = file.page.soup
@@ -587,7 +580,7 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
    table_scripts: list[TableData] = []
    tab_data: list[InfoTabData] = []
    if len(affected_issues) > 0:
-      affected_table = create_issue_list(website, file, 'affected', (get_issue(website, x) for x in affected_issues))
+      affected_table = create_issue_list(website, file, 'affected', (get_issue(website.archive, x) for x in affected_issues))
       table_scripts.append(affected_table.data)
       tab_data.append(InfoTabData(
          'affected',
@@ -595,7 +588,7 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
          [affected_table.filters, affected_table.table]
       ))
    if len(fixed_issues) > 0:
-      fixed_table = create_issue_list(website, file, 'fixed', (get_issue(website, x) for x in fixed_issues))
+      fixed_table = create_issue_list(website, file, 'fixed', (get_issue(website.archive, x) for x in fixed_issues))
       table_scripts.append(fixed_table.data)
       tab_data.append(InfoTabData(
          'fixed',
@@ -648,7 +641,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
    key = issue['key']
    fields = issue['fields']
    summary = fields['summary']
-   project = try_project(website, fields['project'])
+   project = try_project(website.metas, fields['project'])
    full_title = f'[{key}] {summary}'
 
    include_wiki_rendering(website, file)
@@ -693,8 +686,8 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
 
    add_metadata(file, full_title, desc_text, image_url)
 
-   all_comments = get_renderable_comments(website, file, issue)
-   all_mentions = get_renderable_mentions(website, file, issue_id, website.markup_rels.issues[issue_id]) if issue_id in website.markup_rels.issues else []
+   all_comments = get_renderable_comments(website.markup_source, website.secret_comments, issue)
+   all_mentions = get_renderable_mentions(website.archive, website.markup_source, website.relations.keys, issue_id, website.markup_rels.issues[issue_id]) if issue_id in website.markup_rels.issues else []
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
@@ -773,7 +766,7 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
       yield ('OS Version:', os)
    label_list = inline_list(soup, map(lambda x: field_link(website, file, 'labels', x), fields['labels']))
    yield (issue_detail_field_label(website, file, 'labels'), label_list)
-   project = try_project(website, fields['project'])
+   project = try_project(website.metas, fields['project'])
    if 'versions' in fields and project is not None:
       versions = list(map(lambda x: project['versions'][x], fields['versions']))
       yield ('Affects Versions:', version_list(website, file, project, versions))
@@ -782,19 +775,9 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
    if 'fixVersions' in fields and project is not None:
       versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
       yield ('Fix Versions:', version_list(website, file, project, versions))
-   links = issue_detail_links(website, file, issue, project)
-   yield ('Links:', build_link_list(file.page.soup, 'ul', links))
-
-def issue_detail_links(website: Website, file: HtmlFile, issue: Issue, project: Project | None) -> typing.Generator[tuple[str, str]]:
-   key = issue['key']
    data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
-   portal_num = portal_number(project['key']) if project is not None else None
-   yield ('JSON', urllib.parse.quote(str(data_link)))
-   yield ('mojira.dev', f'https://mojira.dev/{key}')
-   yield ('bugs.mojang.com', f'https://bugs.mojang.com/browse/{key}')
-   if portal_num is not None:
-      yield ('report.bugs.mojang.com', f'https://report.bugs.mojang.com/servicedesk/customer/portal/{portal_num}/{key}')
-   yield ('mojira.atlassian.net', f'https://mojira.atlassian.net/browse/{key}')
+   links = issue_detail_links(issue, project, data_link)
+   yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
 def build_info_top(soup: bs4.BeautifulSoup, key: Tag | None, summary: Tag) -> bs4.Tag:
    title_content: list[Tag] = []
@@ -918,10 +901,10 @@ def make_meta_value_page(website: Website, file: HtmlFile, meta_id: mojira.META_
    soup = file.page.soup
    content = main_content(website, file)
 
-   display = website.metas.display_value(meta_id, value_key)
+   display = meta_display(website.metas, meta_id, value_key)
    assert display is not None
    issue_ids = website.relations.fields.metas[meta_id]['' if value_key is None else value_key]
-   table = create_issue_list(website, file, 'issue', (get_issue(website, x) for x in issue_ids))
+   table = create_issue_list(website, file, 'issue', (get_issue(website.archive, x) for x in issue_ids))
 
    add_metadata(file, display.name, display.description, display.icon)
 
@@ -937,10 +920,10 @@ def make_field_value_page(website: Website, file: HtmlFile, field_id: str, value
    soup = file.page.soup
    content = main_content(website, file)
 
-   display = website.relations.fields.display_value(field_id, value_key)
+   display = field_display(website.relations.fields, field_id, value_key)
    assert display is not None
    issue_ids = website.relations.fields.fields[field_id][value_key]['issues']
-   table = create_issue_list(website, file, 'issue', (get_issue(website, x) for x in issue_ids))
+   table = create_issue_list(website, file, 'issue', (get_issue(website.archive, x) for x in issue_ids))
 
    add_metadata(file, display.name, display.description, display.icon)
 
@@ -957,7 +940,7 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
    content = main_content(website, file)
 
    issue_ids = website.relations.fields.metas['project'][project['id']]
-   table = create_issue_list(website, file, 'issue', (get_issue(website, x) for x in issue_ids))
+   table = create_issue_list(website, file, 'issue', (get_issue(website.archive, x) for x in issue_ids))
 
    add_metadata(file, project['name'], f'{len(issue_ids)} issues', project['avatarUrls']['48x48'])
 
@@ -998,7 +981,7 @@ def make_group_page(website: Website, file: HtmlFile, group: str, data: relation
    content = main_content(website, file)
 
    users = data['users']
-   table = create_user_list(website, file, 'user', (get_user(website, x) for x in users))
+   table = create_user_list(website, file, 'user', (get_user(website.archive, x) for x in users))
 
    add_metadata(file, group, f'{len(users)} users', None)
 
@@ -1117,7 +1100,7 @@ class VirtualTable:
 class VirtualTableSettings:
    columns: dict[str, str]
    search: dict[str, str]
-   filter: dict[str, tuple[str, list[mojira.ValueDisplay]]]
+   filter: dict[str, tuple[str, list[ValueDisplay]]]
 
 def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings, data: TableData) -> VirtualTable:
    assert settings.search.keys() == data['search'].keys()
@@ -1180,11 +1163,11 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
    search: dict[str, str] = {
       summary_id: 'Summary'
    }
-   filter: dict[str, tuple[str, list[mojira.ValueDisplay]]] = {
-      project_id: ('Project', [mojira.ValueDisplay(x['id'], x['key'], None, None) for x in sorted_projects(website)]),
-      resolution_id: ('Resolution', sorted_meta_values(website, 'resolution')),
-      confirmation_id: ('Confirmation', sorted_field_values(website, 'customfield_10500')),
-      priority_id: ('Priority', sorted_field_values(website, 'customfield_12200')),
+   filter: dict[str, tuple[str, list[ValueDisplay]]] = {
+      project_id: ('Project', [ValueDisplay(x['id'], x['key'], None, None) for x in sorted_projects(website.metas, website.relations.fields)]),
+      resolution_id: ('Resolution', sorted_meta_values(website.metas, 'resolution')),
+      confirmation_id: ('Confirmation', sorted_field_values(website.relations.fields, 'customfield_10500')),
+      priority_id: ('Priority', sorted_field_values(website.relations.fields, 'customfield_12200')),
    }
    settings = VirtualTableSettings(columns, search, filter)
    rows: list[bs4.Tag] = []
@@ -1341,28 +1324,10 @@ class RenderableUserEntry:
    head: list[Tag]
    body: list[Tag]
 
-@dataclasses.dataclass
-class RenderableComment:
-   comment: Comment | NewComment
-   rendered_body: bs4.BeautifulSoup
-   date: datetime.datetime
-   secret: bool
-
-def get_renderable_comments(website: Website, file: HtmlFile, issue: Issue) -> list[RenderableComment]:
-   result: list[RenderableComment] = []
-   for comment in issue['fields']['comment']['comments']:
-      body = website.markup_source.get_comment_body(issue['id'], comment['id'])
-      fix_markup(website, file, markup.parse_markup(body))
-      result.append(RenderableComment(comment, body, datetime.datetime.fromisoformat(comment['created']), secret=False))
-   for comment in website.secret_comments.get(issue['id']):
-      body = website.markup_source.get_secret_comment_body(issue['id'], comment['id'])
-      fix_markup(website, file, markup.parse_markup(body))
-      bisect.insort_left(result, RenderableComment(comment, body, datetime.datetime.fromisoformat(comment['created']), secret=True), key=lambda x: x.date)
-   return result
-
 def comment_to_user(website: Website, file: HtmlFile, comment: RenderableComment) -> RenderableUserEntry:
    anchor = f'comment-id-{comment.comment['id']}'
    head = user_head_comment(website, file, comment.comment, secret=comment.secret, issue=None)
+   fix_markup(website, file, markup.parse_markup(comment.rendered_body))
    body = embed_wiki(website, file, comment.rendered_body)
    return RenderableUserEntry(anchor, list(head), [body])
 
@@ -1375,7 +1340,7 @@ class RenderableRevision:
    content: list[Tag]
 
 def get_renderable_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> list[RenderableRevision]:
-   data = get_initial_data(website, issue, revisions)
+   data = get_initial_data(website.archive, website.metas, issue, revisions)
    content = historic_issue(website, file, issue, data)
    initial: list[Tag] = [
       # classes for style.css
@@ -1417,44 +1382,8 @@ def revision_to_user(website: Website, file: HtmlFile, revision: RenderableRevis
    body = revision.content
    return RenderableUserEntry(anchor, head, body)
 
-@dataclasses.dataclass
-class RenderableMention:
-   issue: Issue
-   comment: Comment | None
-   date: datetime.datetime
-   rendered_body: bs4.BeautifulSoup
-
-def get_renderable_mentions(website: Website, file: HtmlFile, target_id: str, rels: markup_relations.MarkupRelation) -> list[RenderableMention]:
-   result: list[RenderableMention] = []
-   def handle(tag: bs4.BeautifulSoup):
-      parsed = markup.parse_markup(tag)
-      fix_markup(website, file, parsed)
-      for entry in parsed.issues:
-         if entry.key in website.relations.keys.issue_keys and website.relations.keys.issue_keys[entry.key] == target_id:
-            append_class(entry.tag, 'mention')
-   for issue_id in rels['descriptions']:
-      subissue = website.archive.get_issue_data(issue_id)
-      assert subissue is not None
-      desc = website.markup_source.get_issue_description(issue_id)
-      handle(desc)
-      bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), desc), key=lambda x: x.date)
-   for issue_id in rels['environments']:
-      subissue = website.archive.get_issue_data(issue_id)
-      assert subissue is not None
-      env = website.markup_source.get_issue_environment(issue_id)
-      handle(env)
-      bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), env), key=lambda x: x.date)
-   for issue_id, comment_ids in rels['comments'].items():
-      subissue = website.archive.get_issue_data(issue_id)
-      assert subissue is not None
-      for comment_id in comment_ids:
-         body = website.markup_source.get_comment_body(issue_id, comment_id)
-         handle(body)
-         comment = next(filter(lambda x: x['id'] == comment_id, subissue['fields']['comment']['comments']))
-         bisect.insort_left(result, RenderableMention(subissue, comment, datetime.datetime.fromisoformat(comment['created']), body), key=lambda x: x.date)
-   return result
-
 def mention_to_user(website: Website, file: HtmlFile, mention: RenderableMention) -> RenderableUserEntry:
+   fix_markup(website, file, mention.parsed)
    if mention.comment is not None:
       head = user_head_comment(website, file, mention.comment, secret=False, issue=mention.issue)
       body = embed_wiki(website, file, mention.rendered_body)
@@ -1478,343 +1407,9 @@ def build_user_section(soup: bs4.BeautifulSoup, entries: typing.Iterable[Rendera
    return new_content_tag(soup, 'div', attrs={'class': 'comment-section'}, content=comment_list)
 
 # history
-@dataclasses.dataclass
-class HistoricValue:
-   id: str
-   name: str
-
-@dataclasses.dataclass
-class HistoricProjectValue:
-   id: str
-   name: str
-   project: str
-
-HistoricFields = typing.TypedDict('HistoricFields', {
-   'labels': typing.NotRequired[list[HistoricValue]],
-   'customfield_11901': typing.NotRequired[list[HistoricValue] | None],
-   'issuelinks': list[HistoricValue],
-   'attachments': list[HistoricValue],
-   'components': list[HistoricValue],
-   'versions': list[HistoricProjectValue],
-   'fixVersions': list[HistoricProjectValue],
-   'customfield_10500': typing.NotRequired[HistoricValue | None],
-   'customfield_12800': typing.NotRequired[HistoricValue | None],
-   'customfield_10501': typing.NotRequired[HistoricValue | None],
-   'customfield_10402': typing.NotRequired[HistoricValue | None],
-   'customfield_12301': typing.NotRequired[HistoricValue | None],
-   'customfield_12400': typing.NotRequired[HistoricValue | None],
-   'customfield_12900': typing.NotRequired[HistoricValue | None],
-   'customfield_12200': typing.NotRequired[HistoricValue | None],
-   'priority': typing.NotRequired[HistoricValue | None],
-   'security': typing.NotRequired[HistoricValue | None],
-   'resolution': typing.NotRequired[HistoricValue | None],
-   'status': typing.NotRequired[HistoricValue],
-   'customfield_11500': typing.NotRequired[str | None],
-   'customfield_11801': typing.NotRequired[str | None],
-   'customfield_11802': typing.NotRequired[str | None],
-   'customfield_11800': typing.NotRequired[str | None],
-   'customfield_11300': typing.NotRequired[str | None],
-   'customfield_12201': typing.NotRequired[str | None],
-   'assignee': typing.NotRequired[HistoricValue | None],
-   'reporter': typing.NotRequired[HistoricValue | None],
-   'key': typing.NotRequired[str],
-   'summary': typing.NotRequired[str],
-   'project': str,
-})
-
-@dataclasses.dataclass
-class InitialData:
-   fields: HistoricFields
-   description_revision_id: str | None
-   environment_revision_id: str | None
-
-def get_initial_data(website: Website, issue: Issue, revisions: list[Revision]) -> InitialData:
-   fields = issue['fields']
-   final_project = try_project(website, fields['project'])
-   result: HistoricFields = {
-      'issuelinks': [to_historic_link(website, x) for x in fields['issuelinks']],
-      'attachments': [to_historic_attachment(website, x) for x in fields['attachment']],
-      'components': [HistoricValue(x['id'], x['name']) for x in fields['components']] if 'components' in fields else [],
-      'versions': [to_historic_version(final_project, x) for x in fields['versions']] if 'versions' in fields and final_project is not None else [],
-      'fixVersions': [to_historic_version(final_project, x) for x in fields['fixVersions']] if 'fixVersions' in fields and final_project is not None else [],
-      'project': fields['project']
-   }
-   description_revision: str | None = None
-   environment_revision: str | None = None
-   for revision in revisions:
-      for change in revision['items']:
-         match change['field']:
-            case 'labels':
-               if 'labels' not in result:
-                  result['labels'] = label_splitter(change['from'], change['fromString'])
-            case 'Category':
-               if 'customfield_11901' not in result:
-                  result['customfield_11901'] = category_splitter(change['from'], change['fromString'])
-            case 'Confirmation Status':
-               insert_historic_field(result, 'customfield_10500', change)
-            case 'Area':
-               insert_historic_field(result, 'customfield_12800', change)
-            case 'Game Mode':
-               insert_historic_field(result, 'customfield_10501', change)
-            case 'Platform' | 'Device':
-               insert_historic_field(result, 'customfield_10402', change)
-            case 'Realms Platform':
-               insert_historic_field(result, 'customfield_12301', change)
-            case 'Dungeons Platform':
-               insert_historic_field(result, 'customfield_12400', change)
-            case 'Legends Platform':
-               insert_historic_field(result, 'customfield_12900', change)
-            case 'Mojang Priority':
-               insert_historic_field(result, 'customfield_12200', change)
-            case 'priority':
-               insert_historic_field(result, 'priority', change)
-            case 'security':
-               insert_historic_field(result, 'security', change)
-            case 'resolution':
-               insert_historic_field(result, 'resolution', change)
-            case 'status':
-               if 'status' not in result:
-                  assert change['from'] is not None
-                  assert change['fromString'] is not None
-                  result['status'] = HistoricValue(change['from'], change['fromString'])
-            case 'ADO' | 'VSO':
-               if 'customfield_11500' not in result:
-                  result['customfield_11500'] = change['fromString']
-            case 'Impact':
-               if 'customfield_11801' not in result:
-                  result['customfield_11801'] = change['fromString']
-            case 'Regression Builds':
-               if 'customfield_11802' not in result:
-                  result['customfield_11802'] = change['fromString']
-            case 'Partner Team Reporting':
-               if 'customfield_11800' not in result:
-                  result['customfield_11800'] = change['fromString']
-            case 'Operating System Version':
-               if 'customfield_11300' not in result:
-                  result['customfield_11300'] = change['fromString']
-            case 'Triaged Time':
-               if 'customfield_12201' not in result:
-                  if change['from'] == '':
-                     result['customfield_12201'] = None
-                  else:
-                     result['customfield_12201'] = change['from']
-            case 'assignee':
-               insert_historic_field(result, 'assignee', change)
-            case 'reporter':
-               insert_historic_field(result, 'reporter', change)
-            case 'Key':
-               if 'key' not in result:
-                  assert change['fromString'] is not None
-                  result['key'] = change['fromString']
-            case 'summary':
-               if 'summary' not in result:
-                  assert change['fromString'] is not None
-                  result['summary'] = change['fromString']
-            case 'description':
-               if description_revision is None:
-                  description_revision = revision['id']
-            case 'environment':
-               if environment_revision is None:
-                  environment_revision = revision['id']
-            case _:
-               pass
-   for revision in reversed(revisions):
-      for change in reversed(sorted(revision['items'], key=backwards_revision_order_key)):
-         match change['field']:
-            case 'project' | 'Project':
-               assert change['from'] is not None
-               result['project'] = change['from']
-            case 'Link':
-               insert_historic_list_field(result, 'attachments', change, check_both=True)
-            case 'Attachment':
-               insert_historic_list_field(result, 'attachments', change)
-            case 'Component':
-               insert_historic_list_field(result, 'components', change)
-            case 'Version':
-               insert_historic_versions_field(result, 'versions', change)
-            case 'Fix Version':
-               insert_historic_versions_field(result, 'fixVersions', change)
-            case _:
-               pass
-   if 'labels' not in result:
-      result['labels'] = [HistoricValue(x, x) for x in fields['labels']]
-   if 'customfield_11901' not in result and 'customfield_11901' in fields:
-      if fields['customfield_11901'] is None:
-         result['customfield_11901'] = None
-      else:
-         result['customfield_11901'] = [HistoricValue(x['id'], x['value']) for x in fields['customfield_11901']]
-   if 'customfield_10500' not in result and 'customfield_10500' in fields:
-      val = fields['customfield_10500']
-      result['customfield_10500'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'customfield_12800' not in result and 'customfield_12800' in fields:
-      val = fields['customfield_12800']
-      result['customfield_12800'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'customfield_10501' not in result and 'customfield_10501' in fields:
-      val = fields['customfield_10501']
-      result['customfield_10501'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'customfield_10402' not in result and 'customfield_10402' in fields:
-      val = fields['customfield_10402']
-      result['customfield_10402'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'customfield_12301' not in result and 'customfield_12301' in fields:
-      val = fields['customfield_12301']
-      result['customfield_12301'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'customfield_12400' not in result and 'customfield_12400' in fields:
-      val = fields['customfield_12400']
-      result['customfield_12400'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'customfield_12900' not in result and 'customfield_12900' in fields:
-      val = fields['customfield_12900']
-      result['customfield_12900'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'customfield_12200' not in result and 'customfield_12200' in fields:
-      val = fields['customfield_12200']
-      result['customfield_12200'] = None if val is None else HistoricValue(val['id'], val['value'])
-   if 'priority' not in result and 'priority' in fields:
-      val = fields['priority']
-      result['priority'] = None if val is None else HistoricValue(val['id'], val['name'])
-   if 'security' not in result and 'security' in fields:
-      val = fields['security']
-      result['security'] = HistoricValue(fields['security']['id'], fields['security']['name'])
-   if 'resolution' not in result:
-      val = fields['resolution']
-      if val is None:
-         result['resolution'] = None
-      else:
-         resolution = website.metas.resolutions[val]
-         result['resolution'] = HistoricValue(val, resolution['name'])
-   if 'status' not in result:
-      val = fields['status']
-      status = website.metas.statuses[val]
-      result['status']  = HistoricValue(val, status['name'])
-   if 'customfield_11500' not in result and 'customfield_11500' in fields:
-      result['customfield_11500'] = fields['customfield_11500']
-   if 'customfield_11801' not in result and 'customfield_11801' in fields:
-      result['customfield_11801'] = fields['customfield_11801']
-   if 'customfield_11802' not in result and 'customfield_11802' in fields:
-      result['customfield_11802'] = fields['customfield_11802']
-   if 'customfield_11800' not in result and 'customfield_11800' in fields:
-      result['customfield_11800'] = fields['customfield_11800']
-   if 'customfield_11300' not in result and 'customfield_11300' in fields:
-      result['customfield_11300'] = fields['customfield_11300']
-   if 'customfield_12201' not in result and 'customfield_12201' in fields:
-      result['customfield_12201'] = fields['customfield_12201']
-   if 'assignee' not in result and 'assignee' in fields:
-      val = fields['assignee']
-      if val is None:
-         result['assignee'] = None
-      else:
-         user_data = website.archive.get_user_data(val)
-         assert user_data is not None
-         result['assignee'] = HistoricValue(val, user_data['displayName'])
-   if 'reporter' not in result:
-      val = fields['reporter']
-      if val is None:
-         result['reporter'] = None
-      else:
-         user_data = website.archive.get_user_data(val)
-         assert user_data is not None
-         result['reporter'] = HistoricValue(val, user_data['displayName'])
-   if 'key' not in result:
-      result['key'] = issue['key']
-   if 'summary' not in result:
-      result['summary'] = fields['summary']
-   return InitialData(result, description_revision, environment_revision)
-
-def to_historic_link(website: Website, link: OutwardIssueLink | InwardIssueLink) -> HistoricValue:
-   link_type = website.metas.link_types[link['type']]
-   if 'inwardIssue' in link:
-      dir = link_type['inward']
-      issue_data = website.archive.get_issue_data(link['inwardIssue'])
-   else:
-      dir = link_type['outward']
-      issue_data = website.archive.get_issue_data(link['outwardIssue'])
-   assert issue_data is not None
-   return HistoricValue(issue_data['key'], f'This issue {dir} {issue_data['key']}')
-
-def to_historic_attachment(website: Website, attach_id: str) -> HistoricValue:
-   attach_data = website.archive.get_attachment_data(attach_id)
-   assert attach_data is not None
-   return HistoricValue(attach_id, attach_data['filename'])
-
-def to_historic_version(project: Project, version_id: str) -> HistoricProjectValue:
-   version_data = project['versions'][version_id]
-   return HistoricProjectValue(version_id, version_data['name'], project['id'])
-
-def label_splitter(source: str | None, string: str | None) -> list[HistoricValue]:
-   assert source is None
-   assert string is not None
-   if string == '':
-      return []
-   return [HistoricValue(x, x) for x in string.split(' ')]
-
-def category_splitter(source: str | None, string: str | None) -> list[HistoricValue]:
-   if source is None or string is None or source == '' or string == '':
-      return []
-   source = source.removeprefix('[').removesuffix(']')
-   source_list = source.split(', ')
-   string_list = string.split(',')
-   assert len(source_list) == len(string_list)
-   return list(map(lambda x: HistoricValue(x[0], x[1]), zip(source_list, string_list)))
-
-def insert_historic_field(fields: HistoricFields, field_id: str, change: RevisionChange):
-   if field_id not in fields:
-      if change['from'] is None:
-         fields[field_id] = None
-      else:
-         assert change['fromString'] is not None
-         fields[field_id] = HistoricValue(change['from'], change['fromString'])
-
-def insert_historic_list_field(fields: HistoricFields, field_id: str, change: RevisionChange, check_both: bool=False):
-   if change['to'] is not None:
-      assert change['from'] is None
-      assert change['toString'] is not None
-      if check_both:
-         filtered = [x for x in fields[field_id] if x.id != change['to'] and x.name != change['toString']]
-      else:
-         filtered = [x for x in fields[field_id] if x.id != change['to']]
-      fields[field_id][:] = filtered
-   elif change['from'] is not None:
-      assert change['to'] is None
-      assert change['fromString'] is not None
-      fields[field_id].append(HistoricValue(change['from'], change['fromString']))
-
-def insert_historic_versions_field(fields: HistoricFields, field_id: str, change: RevisionChange):
-   if change['to'] is not None:
-      assert change['from'] is None
-      assert change['toString'] is not None
-      fields[field_id][:] = [x for x in fields[field_id] if x.id != change['to']]
-   elif change['from'] is not None:
-      assert change['to'] is None
-      assert change['fromString'] is not None
-      fields[field_id].append(HistoricProjectValue(change['from'], change['fromString'], fields['project']))
-
-def backwards_revision_order_key(change: RevisionChange) -> int:
-   if change['field'] == 'Key':
-      return 0
-   if change['field'] == 'status':
-      return 1
-   if change['field'] == 'resolution':
-      return 2
-   if change['field'] in ('Version', 'Fix Version'):
-      return 3 if change['to'] is None else 5
-   if change['field'] in ('project', 'Project'):
-      return 4
-   return 6
-
-def forwards_revision_order_key(change: RevisionChange) -> int:
-   if change['field'] == 'Key':
-      return 0
-   if change['field'] == 'status':
-      return 1
-   if change['field'] == 'resolution':
-      return 2
-   if change['field'] in ('Version', 'Fix Version'):
-      return 5 if change['to'] is None else 3
-   if change['field'] in ('project', 'Project'):
-      return 4
-   return 6
-
 def historic_issue(website: Website, file: HtmlFile, issue: Issue, data: InitialData) -> bs4.Tag:
    fields = data.fields
-   initial_project = try_project(website, fields['project'])
+   initial_project = try_project(website.metas, fields['project'])
 
    assert 'key' in fields
    assert 'summary' in fields
@@ -1902,36 +1497,6 @@ def historic_details(website: Website, file: HtmlFile, fields: HistoricFields) -
       yield ('Fix Versions:', historic_version_list(website, file, fversions))
 
 # revisions
-@dataclasses.dataclass
-class MergedRevision:
-   user_key: str
-   start_time: datetime.datetime
-   end_time: datetime.datetime
-   changes: list[tuple[str, RevisionChange]]
-
-def merge_revisions(revisions: list[Revision], threshold: datetime.timedelta) -> list[MergedRevision]:
-   merged_revisions: list[MergedRevision] = []
-   current: MergedRevision | None = None
-   for revision in revisions:
-      time = datetime.datetime.fromisoformat(revision['created'])
-      merged = MergedRevision(
-         user_key=revision['author'],
-         start_time=time,
-         end_time=time,
-         changes=[(revision['id'], x) for x in revision['items']]
-      )
-      if current is None:
-         current = merged
-      elif revision['author'] == current.user_key and time - current.end_time <= threshold:
-         current.end_time = time
-         current.changes.extend((revision['id'], x) for x in revision['items'])
-      else:
-         merged_revisions.append(current)
-         current = merged
-   if current is not None:
-      merged_revisions.append(current)
-   return merged_revisions
-
 class TrackedMultiSetRevision:
    def __init__(self, name: str, field_id: str | None, creator: typing.Callable[[typing.Iterable[HistoricProjectValue]], bs4.Tag]):
       self.added: list[HistoricProjectValue] = []
@@ -2231,7 +1796,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
          case 'Key': # source always null, string always 'key'
             assert change['fromString'] is not None
             assert change['toString'] is not None
-            proj = try_project(website, project.id)
+            proj = try_project(website.metas, project.id)
             old_tag = issue_key(website, file, proj, change['fromString'], with_icon=True)
             new_tag = issue_key(website, file, proj, change['toString'], with_icon=True)
             yield revision_from_to(soup, 'Moved Issue: ', old_tag, new_tag)
@@ -2642,7 +2207,7 @@ class FieldBadge:
    link: str
    resolved: bool
 
-def meta_badge_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, display: mojira.ValueDisplay) -> FieldBadge:
+def meta_badge_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, display: ValueDisplay) -> FieldBadge:
    link = relative_link(website.root, file.path, website.meta_pages[meta_id].get_value_path(display.name))
    tag = status_badge(file.page.soup, display.name)
    append_class(tag, f'field-value-{meta_id}')
@@ -2652,11 +2217,11 @@ def meta_badge_display(website: Website, file: HtmlFile, meta_id: mojira.META_TY
    return FieldBadge(tag, link, resolved)
 
 def meta_badge(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> FieldBadge:
-   display = website.metas.display_value(meta_id, value_key)
+   display = meta_display(website.metas, meta_id, value_key)
    assert display is not None
    return meta_badge_display(website, file, meta_id, display)
 
-def meta_link_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, display: mojira.ValueDisplay) -> bs4.Tag:
+def meta_link_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, display: ValueDisplay) -> bs4.Tag:
    badge = meta_badge_display(website, file, meta_id, display)
    badge.outer.name = 'a'
    badge.outer.attrs['href'] = badge.link
@@ -2666,11 +2231,11 @@ def meta_link_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYP
    return badge.outer
 
 def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> bs4.Tag:
-   display = website.metas.display_value(meta_id, value_key)
+   display = meta_display(website.metas, meta_id, value_key)
    assert display is not None
    return meta_link_display(website, file, meta_id, display)
 
-def field_badge_display(website: Website, file: HtmlFile, field_id: str, display: mojira.ValueDisplay) -> FieldBadge:
+def field_badge_display(website: Website, file: HtmlFile, field_id: str, display: ValueDisplay) -> FieldBadge:
    field_name_str = field_name(website.metas, field_id).lower().replace(' ', '-').replace('/', '')
    link = relative_link(website.root, file.path, website.field_pages[field_id].get_value_path(display.name))
    content: list[Tag] = [display.name]
@@ -2688,23 +2253,23 @@ def field_badge_display(website: Website, file: HtmlFile, field_id: str, display
    return FieldBadge(tag, link, False)
 
 def field_badge(website: Website, file: HtmlFile, field_id: str, value_key: str) -> FieldBadge:
-   display = website.relations.fields.display_value(field_id, value_key)
+   display = field_display(website.relations.fields, field_id, value_key)
    assert display is not None
    return field_badge_display(website, file, field_id, display)
 
-def field_link_display(website: Website, file: HtmlFile, field_id: str, display: mojira.ValueDisplay) -> bs4.Tag:
+def field_link_display(website: Website, file: HtmlFile, field_id: str, display: ValueDisplay) -> bs4.Tag:
    badge = field_badge_display(website, file, field_id, display)
    badge.outer.name = 'a'
    badge.outer.attrs['href'] = badge.link
    return badge.outer
 
 def field_link(website: Website, file: HtmlFile, field_id: str, value_key: str) -> bs4.Tag:
-   display = website.relations.fields.display_value(field_id, value_key)
+   display = field_display(website.relations.fields, field_id, value_key)
    assert display is not None
    return field_link_display(website, file, field_id, display)
 
 def historic_meta(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, source: str | None, string: str | None) -> bs4.Tag:
-   display =  website.metas.display_value(meta_id, source)
+   display =  meta_display(website.metas, meta_id, source)
    if display is not None:
       return meta_link_display(website, file, meta_id, display)
    assert string is not None
@@ -2822,16 +2387,6 @@ def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
    link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))
    return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'src': link, 'alt': 'Issue'})
 
-def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str) -> pathlib.Path | None:
-   avatar_id = archive.get_avatar_id(url)
-   avatar_file = folder / (avatar_id + '.png')
-   if avatar_file.exists():
-      return avatar_file
-   avatar_file = folder / (avatar_id + '.svg')
-   if avatar_file.exists():
-      return avatar_file
-   return None
-
 def user_avatar(website: Website, file: HtmlFile, user: User | dict[str, typing.Any]) -> bs4.Tag:
    gravatar_path1 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.png')
    gravatar_path2 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.jpeg')
@@ -2854,79 +2409,11 @@ def project_avatar(website: Website, file: HtmlFile, project: Project) -> bs4.Ta
    link = str(relative_path(website.root, file.path, avatar_path))
    return file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': project['name']})
 
-# lookup helpers
-def try_project(website: Website, project_id: str) -> Project | None:
-   if project_id in website.metas.projects:
-      return website.metas.projects[project_id]
-   return None
-
-def get_issue(website: Website, issue_id: str) -> Issue:
-   issue = website.archive.get_issue_data(issue_id)
-   assert issue is not None
-   return issue
-
-def get_user(website: Website, user_key: str) -> User:
-   user = website.archive.get_user_data(user_key)
-   assert user is not None
-   return user
-
-def sorted_projects(website: Website) -> list[Project]:
-   return sorted(website.metas.projects.values(), key=lambda x: len(website.relations.fields.metas['project'][x['id']]), reverse=True)
-
-def sorted_meta_values(website: Website, meta_id: mojira.META_TYPE) -> list[mojira.ValueDisplay]:
-   def order_key(display: mojira.ValueDisplay):
-      resolved = (meta_id == 'resolution' and display.id is not None) or (meta_id == 'status' and display.id in ('5', '6'))
-      return (resolved, display.name)
-   value_ids: list[str | None] = [x['id'] for x in website.metas.metas[meta_id].values()]
-   if meta_id == 'resolution':
-      value_ids.insert(0, None)
-   displays: list[mojira.ValueDisplay] = []
-   for value_id in value_ids:
-      display = website.metas.display_value(meta_id, value_id)
-      assert display is not None
-      bisect.insort_left(displays, display, key=order_key)
-   return displays
-
-def sorted_field_values(website: Website, field_id: str) -> list[mojira.ValueDisplay]:
-   def order_key(display: mojira.ValueDisplay):
-      relation = website.relations.fields.fields[field_id]['' if display.id is None else display.id]
-      return (-len(relation['issues']), display.name)
-   values = website.relations.fields.fields[field_id].values()
-   displays: list[mojira.ValueDisplay] = []
-   for value in values:
-      value_id = value['value'] if isinstance(value['value'], str) else value['value']['id']
-      display = website.relations.fields.display_value(field_id, value_id)
-      assert display is not None
-      bisect.insort_left(displays, display, key=order_key)
-   return displays
-
-def portal_number(project_key: str) -> int | None:
-   return {'MCPE': 6, 'MC': 2, 'MCL': 7, 'REALMS': 9, 'WEB': 10, 'BDS': 4, 'MCM': 11}.get(project_key)
-
 def mojang_priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
    prio = {'Trivial': 'trivial', 'Low': 'low', 'Normal': 'medium', 'Important': 'high', 'Very Important': 'major'}[value]
    link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/priorities') / f'{prio}.svg')
    img = file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': value})
    return img
-
-def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
-   extras = {'customfield_12400': 'Dungeons Platform', 'customfield_12900': 'Legends Platform', 'components': 'Component'}
-   if field_id in extras:
-      return extras[field_id]
-   return metas.fields[field_id]['name']
-
-def user_role(user: User) -> tuple[str, int] | None:
-   role_order: list[str] = ['bot', 'system-administrators', '4jstudios', 'java', 'developers', 'administrators', 'mojang', 'microsoft', 'staff', 'helper', 'partners']
-   user_groups: list[str] = [x['name'] for x in user['groups']['items']]
-   for i, entry in enumerate(role_order):
-      if entry in user_groups:
-         return (entry, i)
-   return None
-
-def get_link_dir(full_str: str, issue_key: str) -> str:
-   assert full_str.startswith('This issue ')
-   assert full_str.endswith(issue_key)
-   return full_str[len('This issue '):-(len(issue_key) + 1)]
 
 if __name__ == '__main__':
    main()
