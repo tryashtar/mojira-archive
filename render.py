@@ -621,13 +621,40 @@ def make_user_page(website: Website, file: HtmlFile, user: User):
    main = build_info_main(soup, top, [], details, None, None)
    content.append(main)
 
+   reported_issues = website.relations.fields.metas['reporter'].get(user['key'], [])
+   assigned_issues = website.relations.fields.metas['assignee'].get(user['key'], [])
+   table_scripts: list[TableData] = []
+   tab_data: list[InfoTabData] = []
+   if len(reported_issues) > 0:
+      reported_table = create_issue_list(website, file, 'reported', (get_issue(website.archive, x) for x in reported_issues))
+      table_scripts.append(reported_table.data)
+      tab_data.append(InfoTabData(
+         'reported',
+         ['Reported Issues', count_badge(soup, len(reported_issues))],
+         [reported_table.filters, reported_table.table]
+      ))
+   if len(assigned_issues) > 0:
+      assigned_table = create_issue_list(website, file, 'assigned', (get_issue(website.archive, x) for x in assigned_issues))
+      table_scripts.append(assigned_table.data)
+      tab_data.append(InfoTabData(
+         'assigned',
+         ['Assigned Issues', count_badge(soup, len(assigned_issues))],
+         [assigned_table.filters, assigned_table.table]
+      ))
+   tabs = build_info_tabs(soup, tab_data, orderable=False)
+   main.append(tabs)
+   if len(table_scripts) > 0:
+      add_table_scripts(website, file, table_scripts)
+
 def user_details(website: Website, file: HtmlFile, user: User) -> typing.Generator[tuple[Tag, Tag]]:
    yield ('Username:', user['name'])
    yield ('User Key:', user['key'])
    yield ('Time Zone:', user['timeZone'])
    yield ('Active:', 'Yes' if user['active'] else 'No')
    yield ('Deleted:', 'Yes' if user['deleted'] else 'No')
-   group_list = new_content_tag(file.page.soup, 'ul', content=[group_link(website, file, x['name']) for x in user['groups']['items']])
+   group_list = new_content_tag(file.page.soup, 'ul', content=[
+      new_content_tag(file.page.soup, 'li', group_link(website, file, x['name'])) for x in user['groups']['items']
+   ])
    yield ('Groups:', group_list)
    data_link = relative_path(website.root, file.path, website.archive.get_user_path(user['key']))
    links = [('JSON', urllib.parse.quote(str(data_link)))]
@@ -1129,7 +1156,8 @@ def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings,
       if len(set(values)) > 1:
          dropdown = new_content_tag(soup, 'select', attrs={'name': id, 'id': id}, content=[new_content_tag(soup, 'option', name, attrs={'value': ''})])
          for option in options:
-            dropdown.append(new_content_tag(soup, 'option', option.name, attrs={'value': 'null' if option.id is None else option.id}))
+            if option.id in values:
+               dropdown.append(new_content_tag(soup, 'option', option.name, attrs={'value': 'null' if option.id is None else option.id}))
          filters.append(dropdown)
       else:
          del data['filter'][id]

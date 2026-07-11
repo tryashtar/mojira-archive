@@ -45,7 +45,6 @@ class UserRelations:
       self.attachments = {}
 
    def load(self, folder: pathlib.Path):
-      self.folder = folder
       load_one(self.groups, folder / 'groups.json')
       load_one(self.comments, folder / 'comments.json')
       load_one(self.edits, folder / 'edits.json')
