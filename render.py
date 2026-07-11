@@ -82,6 +82,7 @@ def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> Ht
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/misode-style.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('data/assets/mojira.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/style.css'))))
+   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(root, file.path, pathlib.PurePath('web/js/main.js'))))
    return file
 
 def save_file(website: Website, file: HtmlFile):
@@ -173,31 +174,31 @@ def main():
          save_file(website, field_page.page)
    if 'project_main' in to_render:
       print('Project main...')
-      for project_id, project in metas.projects.items():
+      for project in reversed(sorted_projects(website)):
          print('\t' + project['key'])
-         project_page = website.project_pages[project_id]
+         project_page = website.project_pages[project['id']]
          make_project_main_page(website, project_page.main, project)
          save_file(website, project_page.main)
    if 'project_versions' in to_render:
       print('Project versions...')
-      for project_id, project in metas.projects.items():
+      for project in reversed(sorted_projects(website)):
          print('\t' + project['key'])
-         project_page = website.project_pages[project_id]
+         project_page = website.project_pages[project['id']]
          if project_page.versions is not None:
             make_project_versions_page(website, project_page.versions, project)
             save_file(website, project_page.versions)
    if 'project_issues' in to_render:
       print('Project issues...')
-      for project_id, project in metas.projects.items():
+      for project in reversed(sorted_projects(website)):
          print('\t' + project['key'])
-         project_page = website.project_pages[project_id]
+         project_page = website.project_pages[project['id']]
          make_project_issues_page(website, project_page.issues, project)
          save_file(website, project_page.issues)
    if 'project_version_issues' in to_render:
       print('Project versions issues...')
-      for project_id, project in metas.projects.items():
+      for project in reversed(sorted_projects(website)):
          print('\t' + project['key'])
-         project_page = website.project_pages[project_id]
+         project_page = website.project_pages[project['id']]
          for version in project['versions'].values():
             print('\t\t' + version['name'])
             full_title = f'[{project['key']}] {version['name']}'
@@ -492,8 +493,8 @@ def group_grid_entry(website: Website, file: HtmlFile, group: str) -> list[Tag]:
    users = website.relations.user.groups[group]['users']
    link = relative_link(website.root, file.path, website.get_group_path(group))
    content: list[Tag] = [
-      # tile-grid-name for style.css
-      new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name', 'href': link}, content=group),
+      # tile-grid-name and user-group-name for style.css
+      new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name user-group-name', 'href': link}, content=group),
       f'{len(users)} users'
    ]
    return content
@@ -754,10 +755,10 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
       yield issue_detail_field(website, file, 'customfield_12800', area['id'])
    if (category := fields.get('customfield_11901')) is not None:
       category_list = inline_list(soup, map(lambda x: field_link(website, file, 'customfield_11901', x['id']), category))
-      yield (issue_detail_label(website, file, 'customfield_11901'), category_list)
+      yield (issue_detail_field_label(website, file, 'customfield_11901'), category_list)
    if (components := fields.get('components')) is not None and len(components) > 0:
       component_list = inline_list(soup, map(lambda x: field_link(website, file, 'components', x['id']), components))
-      yield (issue_detail_label(website, file, 'components'), component_list)
+      yield (issue_detail_field_label(website, file, 'components'), component_list)
    if (game_mode := fields.get('customfield_10501')) is not None:
       yield issue_detail_field(website, file, 'customfield_10501', game_mode['id'])
    if (platform := fields.get('customfield_10402')) is not None:
@@ -771,7 +772,7 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
    if (os := fields.get('customfield_11300')) is not None:
       yield ('OS Version:', os)
    label_list = inline_list(soup, map(lambda x: field_link(website, file, 'labels', x), fields['labels']))
-   yield (issue_detail_label(website, file, 'labels'), label_list)
+   yield (issue_detail_field_label(website, file, 'labels'), label_list)
    project = try_project(website, fields['project'])
    if 'versions' in fields and project is not None:
       versions = list(map(lambda x: project['versions'][x], fields['versions']))
@@ -1001,7 +1002,9 @@ def make_group_page(website: Website, file: HtmlFile, group: str, data: relation
 
    add_metadata(file, group, f'{len(users)} users', None)
 
-   list_main = build_list_main(soup, [group], None, [table.filters, table.table])
+   # user-group-name for style.css
+   h1 = new_content_tag(soup, 'span', group, attrs={'class': 'user-group-name'})
+   list_main = build_list_main(soup, [h1], None, [table.filters, table.table])
    content.append(list_main)
    add_table_scripts(website, file, [table.data])
 
@@ -1025,7 +1028,7 @@ def create_versions_table(website: Website, file: HtmlFile, project: Project, ve
       new_content_tag(soup, 'th', new_content_tag(soup, 'div', 'Fixed'), attrs={'class': 'version-table-issues'}),
    ])
    # version-table for style.css
-   table.attrs['class'] = 'version-table'
+   table.attrs['class'] = 'issue-table'
    for version in versions:
       affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
       fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
@@ -1034,12 +1037,13 @@ def create_versions_table(website: Website, file: HtmlFile, project: Project, ve
       append_row(soup, table, [
          # classes for style.css
          new_content_tag(soup, 'td', attrs={'class': 'version-table-name'}, content=new_content_tag(soup, 'a', attrs={'href': link}, content=new_content_tag(soup, 'div', badge))),
-         new_content_tag(soup, 'td', attrs={'class': 'version-table-desc'}, content=new_content_tag(soup, 'div', version['description'])) if 'description' in version else '',
-         new_content_tag(soup, 'td', attrs={'class': 'version-table-date'}, content=new_content_tag(soup, 'div', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate'])))) if 'releaseDate' in version else '',
-         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(affected_issues)} issues')) if len(affected_issues) > 0 else '',
-         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(fixed_issues)} issues')) if len(fixed_issues) > 0 else '',
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-desc'}, content=new_content_tag(soup, 'div', version['description'] if 'description' in version else [])),
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-date'}, content=new_content_tag(soup, 'div', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate'])) if 'releaseDate' in version else [])),
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(affected_issues)} issues' if len(affected_issues) > 0 else [])),
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(fixed_issues)} issues' if len(fixed_issues) > 0 else [])),
       ])
-   return table
+   # issue-table-container for misode.css
+   return new_content_tag(soup, 'div', attrs={'class': 'issue-table-container'}, content=table)
 
 TableData = typing.TypedDict('TableData', {
    'rowHeight': int,
@@ -1153,7 +1157,7 @@ def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings,
    # issue-list for misode.css
    result = new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
       controls,
-      issue_table
+      new_content_tag(soup, 'div', attrs={'class': 'issue-table-container'}, content=issue_table)
    ])
    return VirtualTable(result, filters, data)
 
@@ -1203,15 +1207,19 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
          # assign a without href to inner tag for mojira.css
          reporter_ref.inner.name = 'a'
          reporter = [soup.new_tag('a', attrs={'class': 'overlay', 'href': reporter_ref.link}), reporter_ref.outer]
+         reporter_name = reporter_ref.display_name
       else:
          reporter = []
+         reporter_name = None
       if 'assignee' in issue['fields'] and issue['fields']['assignee'] is not None:
          assignee_ref = user_reference_key(website, file, issue['fields']['assignee'])
          # assign a without href to inner tag for mojira.css
          assignee_ref.inner.name = 'a'
          assignee = [soup.new_tag('a', attrs={'class': 'overlay', 'href': assignee_ref.link}), assignee_ref.outer]
+         assignee_name = assignee_ref.display_name
       else:
          assignee = []
+         assignee_name = None
       status = merged_status(website, file, issue)
       status_cls = 'issue-table-status'
       if issue['fields']['resolution'] is not None:
@@ -1233,8 +1241,8 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
       bisect.insort_left(sort_data[0], (i, issue['key']), key=sorter_key)
       bisect.insort_left(sort_data[1], (i, issue['fields']['summary']), key=sorter_key)
       bisect.insort_left(sort_data[2], (i, (status_order.index(status.kind), html_to_text(status.badge.outer))), key=sorter_key)
-      bisect.insort_left(sort_data[3], (i, html_to_text(row_tags[3])), key=sorter_key)
-      bisect.insort_left(sort_data[4], (i, html_to_text(row_tags[4])), key=sorter_key)
+      bisect.insort_left(sort_data[3], (i, (reporter_name is None, reporter_name)), key=sorter_key)
+      bisect.insort_left(sort_data[4], (i, (assignee_name is None, assignee_name)), key=sorter_key)
       bisect.insort_left(sort_data[5], (i, created_date), key=lambda x: x[1])
       search_data[summary_id].append(issue['fields']['summary'].lower())
       filter_data[project_id].append(issue['fields']['project'])
@@ -1270,6 +1278,7 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
    columns: dict[str, str] = {
       'Username': 'user-table-username',
       'Display Name': 'user-table-fullname',
+      'Role': 'user-table-role'
    }
    search: dict[str, str] = {
       displayname_id: 'Display Name'
@@ -1279,21 +1288,34 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
    search_data: dict[str, list[str]] = {
       displayname_id: []
    }
-   sort_data: list[list[tuple[int, typing.Any]]] = [[], []]
+   sort_data: list[list[tuple[int, typing.Any]]] = [[], [], []]
    for i, user in enumerate(users):
       user_ref = user_reference(website, file, user)
       # assign a without href to inner tag for mojira.css
       user_ref.inner.name = 'a'
       user_content = [soup.new_tag('a', attrs={'class': 'overlay', 'href': user_ref.link}), user_ref.outer]
+      role = user_role(user)
+      # user-group-name for style.css
+      if role is None:
+         role_tag = soup.new_tag('div', attrs={'class': 'user-table-role'})
+         index = 9999
+      else:
+         group, index = role
+         link = relative_link(website.root, file.path, website.get_group_path(group))
+         role_tag = new_content_tag(soup, 'a', attrs={'class': 'user-table-role', 'href': link}, content=[
+            new_content_tag(soup, 'span', group, attrs={'class': 'user-group-name'})
+         ])
       row_tags = [
          new_content_tag(soup, 'div', attrs={'class': 'user-table-username'}, content=user['name']),
          new_content_tag(soup, 'div', attrs={'class': 'user-table-fullname'}, content=user_content),
+         role_tag,
       ]
       def sorter_key(x: tuple[int, typing.Any]):
          key = natsort.natsort_keygen(alg=natsort.ns.IGNORECASE)
          return key(x[1])
       bisect.insort_left(sort_data[0], (i, user['name']), key=sorter_key)
       bisect.insort_left(sort_data[1], (i, user['displayName']), key=sorter_key)
+      bisect.insort_left(sort_data[2], (i, index), key=sorter_key)
       search_data[displayname_id].append(user['displayName'].lower())
       row = new_content_tag(soup, 'div', content=row_tags)
       row.attrs['class'] = 'issue-table-row'
@@ -1354,9 +1376,14 @@ class RenderableRevision:
 
 def get_renderable_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> list[RenderableRevision]:
    data = get_initial_data(website, issue, revisions)
+   content = historic_issue(website, file, issue, data)
    initial: list[Tag] = [
+      # classes for style.css
       new_content_tag(file.page.soup, 'details', attrs={'open': ''}, content=[
-         revision_quoted(file.page.soup, 'Created Issue:', [historic_issue(website, file, issue, data)])
+         new_content_tag(file.page.soup, 'summary', revision_label(file.page.soup, 'Created Issue:')),
+         new_content_tag(file.page.soup, 'div', attrs={'class': 'revision-change'}, content=[
+            new_content_tag(file.page.soup, 'blockquote', attrs={'class': 'history-quote'}, content=content)
+         ])
       ])
    ]
    result: list[RenderableRevision] = [
@@ -1440,11 +1467,14 @@ def mention_to_user(website: Website, file: HtmlFile, mention: RenderableMention
 def build_user_section(soup: bs4.BeautifulSoup, entries: typing.Iterable[RenderableUserEntry]) -> bs4.Tag:
    comment_list: list[bs4.Tag] = []
    for entry in entries:
+      # styles for misode.css
       comment = soup.new_tag('div', attrs={'class': 'comment'})
       if entry.anchor is not None:
          comment.append(soup.new_tag('div', attrs={'class': 'anchor', 'id': entry.anchor}))
-         comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=entry.head))
+      comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=entry.head))
       comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=entry.body))
+      comment_list.append(comment)
+   # comment-section for style.css
    return new_content_tag(soup, 'div', attrs={'class': 'comment-section'}, content=comment_list)
 
 # history
@@ -1754,7 +1784,7 @@ def insert_historic_versions_field(fields: HistoricFields, field_id: str, change
    elif change['from'] is not None:
       assert change['to'] is None
       assert change['fromString'] is not None
-      fields[field_id].append(change['from'], change['fromString'], fields['project'])
+      fields[field_id].append(HistoricProjectValue(change['from'], change['fromString'], fields['project']))
 
 def backwards_revision_order_key(change: RevisionChange) -> int:
    if change['field'] == 'Key':
@@ -1819,20 +1849,14 @@ def historic_issue(website: Website, file: HtmlFile, issue: Issue, data: Initial
    return build_info_main(file.page.soup, top, body, details, linked, attaches)
 
 def historic_details(website: Website, file: HtmlFile, fields: HistoricFields) -> typing.Generator[tuple[Tag, Tag]]:
-   if (resolution := fields.get('resolution')) is None:
-      resolution_tag = historic_meta(website, file, 'resolution', None, None)
-   else:
-      resolution_tag = historic_meta(website, file, 'resolution', resolution.id, resolution.name)
-   assert resolution_tag is not None
-   yield (issue_detail_label(website, file, 'resolution'), resolution_tag)
+   resolution = fields.get('resolution')
+   yield historic_detail_meta(website, file, 'resolution', resolution)
    is_resolved = resolution is not None
    resolved_statuses = ('5',)
    unresolved_statuses = ('1', '4')
    if (status := fields.get('status')) is not None:
       if (is_resolved and status not in resolved_statuses) or (not is_resolved and status not in unresolved_statuses):
-         status_tag = historic_meta(website, file, 'status', status.id, status.name)
-         assert status_tag is not None
-         yield (issue_detail_label(website, file, 'status'), status_tag)
+         yield historic_detail_meta(website, file, 'status', status)
    if (security := fields.get('security')) is not None:
       yield historic_detail_field(website, file, 'security', security)
    if (partner := fields.get('customfield_11800')) is not None:
@@ -1851,10 +1875,10 @@ def historic_details(website: Website, file: HtmlFile, fields: HistoricFields) -
       yield historic_detail_field(website, file, 'customfield_12800', area)
    if (category := fields.get('customfield_11901')) is not None and len(category) > 0:
       category_list = historic_field_list(website, file, 'customfield_11901', category)
-      yield (issue_detail_label(website, file, 'customfield_11901'), category_list)
+      yield (issue_detail_field_label(website, file, 'customfield_11901'), category_list)
    if (components := fields.get('components')) is not None and len(components) > 0:
       component_list = historic_field_list(website, file, 'components', components)
-      yield (issue_detail_label(website, file, 'components'), component_list)
+      yield (issue_detail_field_label(website, file, 'components'), component_list)
    if (gamemode := fields.get('customfield_10501')) is not None:
       yield historic_detail_field(website, file, 'customfield_10501', gamemode)
    if (platform := fields.get('customfield_10402')) is not None:
@@ -1869,7 +1893,7 @@ def historic_details(website: Website, file: HtmlFile, fields: HistoricFields) -
       yield ('OS Version:', version)
    if 'labels' in fields:
       labels_list = historic_field_list(website, file, 'labels', fields['labels'])
-      yield (issue_detail_label(website, file, 'labels'), labels_list)
+      yield (issue_detail_field_label(website, file, 'labels'), labels_list)
    if 'versions' in fields:
       yield ('Affects Versions:', historic_version_list(website, file, fields['versions']))
    if (regression := fields.get('customfield_11802')) is not None:
@@ -2036,8 +2060,8 @@ def revision_quoted(soup: bs4.BeautifulSoup, label: Tag | list[Tag], content: li
 def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, process: typing.Callable[[bs4.Tag], bs4.Tag], panel_class: str) -> bs4.Tag:
    if before is not None and after is not None:
       diff = html_diff(soup, before, after)
-      has_insertions = diff.find('diff:insert') is not None or diff.find(attrs={'diff:insert': True})
-      has_deletions = diff.find('diff:delete') is not None or diff.find(attrs={'diff:delete': True})
+      has_insertions = diff.find('diff:insert') is not None or diff.find(attrs={'diff:insert': True}) is not None
+      has_deletions = diff.find('diff:delete') is not None or diff.find(attrs={'diff:delete': True}) is not None
       if has_insertions and has_deletions:
          before_diff = copy.deepcopy(diff)
          after_diff = copy.deepcopy(diff)
@@ -2051,8 +2075,7 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
             tag.extract()
          panel = new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[process(before_diff), process(after_diff)])
          return revision_quoted(soup, f'Changed {label}:', [panel])
-      elif has_insertions or has_deletions:
-         return revision_quoted(soup, f'Changed {label}:', [process(diff)])
+      return revision_quoted(soup, f'Changed {label}:', [process(diff)])
    elif before is not None and after is None:
       return revision_quoted(soup, f'Removed {label}:', [process(before)])
    elif after is not None and before is None:
@@ -2076,6 +2099,7 @@ def revision_large_diff(website: Website, file: HtmlFile, label: str, before: bs
       assert template is not None
       template.insert(0, file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
       return wiki
+   # diff-panel-side for style.css
    return revision_html_diff(file.page.soup, label, before_tag, after_tag, process, 'diff-panel-side')
 
 @dataclasses.dataclass
@@ -2157,7 +2181,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
          case 'resolution':
             old_tag = historic_meta(website, file, 'resolution', change['from'], change['fromString'])
             new_tag = historic_meta(website, file, 'resolution', change['to'], change['toString'])
-            link = new_content_tag(soup, 'a', 'Resolution', attrs={'href': relative_link(website.root, file.path, website.field_pages['resolution'].page.path)})
+            link = new_content_tag(soup, 'a', 'Resolution', attrs={'href': relative_link(website.root, file.path, website.meta_pages['resolution'].page.path)})
             yield revision_change(soup, link, old_tag, new_tag)
          case 'status':
             assert change['from'] is not None
@@ -2165,7 +2189,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             if change['from'] != change['to']:
                old_tag = historic_meta(website, file, 'status', change['from'], change['fromString'])
                new_tag = historic_meta(website, file, 'status', change['to'], change['toString'])
-               link = new_content_tag(soup, 'a', 'Status', attrs={'href': relative_link(website.root, file.path, website.field_pages['status'].page.path)})
+               link = new_content_tag(soup, 'a', 'Status', attrs={'href': relative_link(website.root, file.path, website.meta_pages['status'].page.path)})
                yield revision_change(soup, link, old_tag, new_tag)
          # text field changes
          # source always null, string either null or empty or text
@@ -2217,6 +2241,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             assert change['toString'] is not None
             before = new_content_tag(soup, 'span', change['fromString'])
             after = new_content_tag(soup, 'span', change['toString'])
+            # diff-panel-top for style.css
             yield revision_html_diff(soup, 'Summary', before, after, lambda x: x, 'diff-panel-top')
          case 'description': # source always null, string either null or text
             before, after = website.markup_source.get_issue_description_revision(issue['id'], rev_id)
@@ -2257,6 +2282,7 @@ class UserReference:
    inner: bs4.Tag
    outer: bs4.Tag
    link: str
+   display_name: str
 
 def user_reference(website: Website, file: HtmlFile, user: User | dict[str, typing.Any]) -> UserReference:
    if 'displayName' in user:
@@ -2274,7 +2300,7 @@ def user_reference(website: Website, file: HtmlFile, user: User | dict[str, typi
       new_content_tag(file.page.soup, 'span', attrs={'class': 'aui-avatar'}, content=img),
       inner
    ])
-   return UserReference(inner, outer, link_url)
+   return UserReference(inner, outer, link_url, display_name)
 
 def user_reference_key(website: Website, file: HtmlFile, user_key: str) -> UserReference:
    user_data = website.archive.get_user_data(user_key)
@@ -2377,19 +2403,20 @@ def user_head_comment(website: Website, file: HtmlFile, comment: Comment | NewCo
       if comment['visibility']['type'] == 'group':
          assert comment['visibility']['value'] in website.relations.user.groups
          link = relative_link(website.root, file.path, website.get_group_path(comment['visibility']['value']))
+         # user-group-name for style.css
          restriction = new_content_tag(soup, 'a', attrs={'class': 'user-group-name', 'href': link}, content=comment['visibility']['value'])
       else:
          restriction = new_content_tag(soup, 'span', attrs={'class': 'user-group-name'}, content=comment['visibility']['value'])
       more_info.extend([
          ' • ',
-         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
+         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': 'Restricted', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
          ' Restricted to ',
          restriction
       ])
    if secret:
       more_info.extend([
          ' • ',
-         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
+         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': 'Restricted', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
          ' Secret comment',
       ])
    yield more_info
@@ -2475,31 +2502,35 @@ def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment)
    mime = attachment['mimeType']
    # attachment-img for style.css
    if mime.startswith('image/'):
-      return file.page.soup.new_tag('img', attrs={'class': 'attachment-img', 'src': link, 'alt': attachment['filename'], 'loading': 'lazy'})
+      return new_content_tag(file.page.soup, 'a', attrs={'href': link}, content=[
+         file.page.soup.new_tag('img', attrs={'class': 'attachment-img', 'src': link, 'alt': 'Attached image file', 'loading': 'lazy'})
+      ])
    if mime.startswith('video/'):
-      return new_content_tag(file.page.soup, 'video', attrs={'class': 'attachment-img', 'alt': attachment['filename'], 'loading': 'lazy', 'controls': ''}, content=[file.page.soup.new_tag('source', attrs={'src': link})])
+      return new_content_tag(file.page.soup, 'video', attrs={'class': 'attachment-img', 'alt': 'Attached video file', 'loading': 'lazy', 'controls': ''}, content=[file.page.soup.new_tag('source', attrs={'src': link})])
    if mime in ('application/zip', 'application/gzip'):
-      icon = 'zip.gif'
+      icon = 'zip'
    elif mime == 'text/html':
-      icon = 'html.gif'
+      icon = 'html'
    elif mime == 'text/xml':
-      icon = 'xml.gif'
+      icon = 'xml'
    elif mime.startswith('text/') or mime == 'application/json':
-      icon = 'text.gif'
+      icon = 'text'
    elif mime == 'application/msword':
-      icon = 'word.gif'
+      icon = 'word'
    elif mime == 'application/vnd.ms-excel':
-      icon = 'excel.gif'
+      icon = 'excel'
    elif mime == 'application/vnd.ms-powerpoint':
-      icon = 'powerpoint.gif'
+      icon = 'powerpoint'
    elif mime == 'application/java-archive':
-      icon = 'java.gif'
+      icon = 'java'
    elif mime == 'application/pdf':
-      icon = 'pdf.gif'
+      icon = 'pdf'
    else:
-      icon = 'file.gif'
+      icon = 'file'
    # attachment-icon for style.css
-   return file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach') / icon)})
+   return new_content_tag(file.page.soup, 'a', attrs={'href': link}, content=[
+      file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'alt': f'Attached {icon} file', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach') / (icon + '.gif'))})
+   ])
 
 def historic_attachments(website: Website, file: HtmlFile, attachments: list[HistoricValue]) -> bs4.Tag:
    attach_list: list[bs4.Tag] = []
@@ -2512,7 +2543,7 @@ def historic_attachment(website: Website, file: HtmlFile, attach: HistoricValue)
    attachment = website.archive.get_attachment_data(attach.id)
    if attachment is not None:
       return render_attachment(website, file, attachment, include_upload=False)
-   broken = file.page.soup.new_tag('img', attrs={'width': '32', 'height': '32', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach/noimage.svg'))})
+   broken = file.page.soup.new_tag('img', attrs={'width': '32', 'height': '32', 'loading': 'lazy', 'alt': 'Unavailable attachment', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach/noimage.svg'))})
    # broken-attachment for style.css
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, attach.name])
 
@@ -2646,7 +2677,7 @@ def field_badge_display(website: Website, file: HtmlFile, field_id: str, display
    if display.icon is not None:
       assert display.icon.startswith('https://bugs.mojang.com/')
       relative = pathlib.PurePath(display.icon[len('https://bugs.mojang.com/'):])
-      img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets') / relative)})
+      img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': display.name, 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets') / relative)})
       content.insert(0, img)
    elif field_id == 'customfield_12200':
       content.insert(0, mojang_priority_icon(website, file, display.name))
@@ -2672,13 +2703,12 @@ def field_link(website: Website, file: HtmlFile, field_id: str, value_key: str) 
    assert display is not None
    return field_link_display(website, file, field_id, display)
 
-def historic_meta(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, source: str | None, string: str | None) -> bs4.Tag | None:
+def historic_meta(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, source: str | None, string: str | None) -> bs4.Tag:
    display =  website.metas.display_value(meta_id, source)
    if display is not None:
       return meta_link_display(website, file, meta_id, display)
-   if string is not None:
-      return status_badge(file.page.soup, string)
-   return None
+   assert string is not None
+   return status_badge(file.page.soup, string)
 
 def historic_field(website: Website, file: HtmlFile, field_id: str, value: HistoricValue) -> bs4.Tag:
    if value.id in website.relations.fields.fields[field_id]:
@@ -2705,31 +2735,42 @@ def merged_status(website: Website, file: HtmlFile, issue: Issue) -> MergedStatu
       return MergedStatus('confirmed', field_badge(website, file, 'customfield_10500', confirmation['id']))
    return MergedStatus('unresolved', meta_badge(website, file, 'resolution', None))
 
-def issue_detail_label(website: Website, file: HtmlFile, field_id: str) -> bs4.Tag:
+def issue_detail_field_label(website: Website, file: HtmlFile, field_id: str) -> bs4.Tag:
    link = relative_link(website.root, file.path, website.field_pages[field_id].page.path)
    fname = field_name(website.metas, field_id)
    label = new_content_tag(file.page.soup, 'a', fname + ':', attrs={'href': link})
    return label
 
+def issue_detail_meta_label(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE) -> bs4.Tag:
+   link = relative_link(website.root, file.path, website.meta_pages[meta_id].page.path)
+   fname = field_name(website.metas, meta_id)
+   label = new_content_tag(file.page.soup, 'a', fname + ':', attrs={'href': link})
+   return label
+
 def issue_detail_field(website: Website, file: HtmlFile, field_id: str, value_key: str) -> tuple[bs4.Tag, bs4.Tag]:
    return (
-      issue_detail_label(website, file, field_id),
+      issue_detail_field_label(website, file, field_id),
       field_link(website, file, field_id, value_key)
    )
 
 def issue_detail_meta(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> tuple[bs4.Tag, bs4.Tag]:
-   link = relative_link(website.root, file.path, website.meta_pages[meta_id].page.path)
-   fname = field_name(website.metas, meta_id)
-   label = new_content_tag(file.page.soup, 'a', fname + ':', attrs={'href': link})
    return (
-      label,
+      issue_detail_meta_label(website, file, meta_id),
       meta_link(website, file, meta_id, value_key)
    )
 
 def historic_detail_field(website: Website, file: HtmlFile, field_id: str, value: HistoricValue) -> tuple[bs4.Tag, bs4.Tag]:
    return (
-      issue_detail_label(website, file, field_id),
+      issue_detail_field_label(website, file, field_id),
       historic_field(website, file, field_id, value)
+   )
+
+def historic_detail_meta(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: HistoricValue | None) -> tuple[bs4.Tag, bs4.Tag]:
+   id = None if value is None else value.id
+   name = None if value is None else value.name
+   return (
+      issue_detail_meta_label(website, file, meta_id),
+      historic_meta(website, file, meta_id, id, name)
    )
 
 def issue_top(website: Website, file: HtmlFile, project: Project | None, key: str, summary: str) -> bs4.Tag:
@@ -2779,7 +2820,7 @@ def status_badge(soup: bs4.BeautifulSoup, content: Tag | list[Tag]) -> bs4.Tag:
 
 def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
    link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))
-   return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'src': link})
+   return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'src': link, 'alt': 'Issue'})
 
 def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str) -> pathlib.Path | None:
    avatar_id = archive.get_avatar_id(url)
@@ -2792,19 +2833,26 @@ def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str) -> 
    return None
 
 def user_avatar(website: Website, file: HtmlFile, user: User | dict[str, typing.Any]) -> bs4.Tag:
-   avatar_url = user['avatarUrls']['48x48']
-   avatar_path = get_avatar_path(website.archive, website.archive.users_avatars_folder, avatar_url)
-   assert avatar_path is not None
-   link = str(relative_path(website.root, file.path, avatar_path))
+   gravatar_path1 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.png')
+   gravatar_path2 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.jpeg')
+   if gravatar_path1.exists():
+      link = str(relative_path(website.root, file.path, gravatar_path1))
+   elif gravatar_path2.exists():
+      link = str(relative_path(website.root, file.path, gravatar_path2))
+   else:
+      avatar_url = user['avatarUrls']['48x48']
+      avatar_path = get_avatar_path(website.archive, website.archive.users_avatars_folder, avatar_url)
+      assert avatar_path is not None
+      link = str(relative_path(website.root, file.path, avatar_path))
    # avatar for misode.css
-   return file.page.soup.new_tag('img', attrs={'class': 'avatar', 'width': '48', 'height': '48', 'loading': 'lazy', 'src': link})
+   return file.page.soup.new_tag('img', attrs={'class': 'avatar', 'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': user['displayName']})
 
 def project_avatar(website: Website, file: HtmlFile, project: Project) -> bs4.Tag:
    avatar_url = project['avatarUrls']['48x48']
    avatar_path = get_avatar_path(website.archive, website.archive.project_avatars_folder, avatar_url)
    assert avatar_path is not None
    link = str(relative_path(website.root, file.path, avatar_path))
-   return file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'loading': 'lazy', 'src': link})
+   return file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': project['name']})
 
 # lookup helpers
 def try_project(website: Website, project_id: str) -> Project | None:
@@ -2858,7 +2906,7 @@ def portal_number(project_key: str) -> int | None:
 def mojang_priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
    prio = {'Trivial': 'trivial', 'Low': 'low', 'Normal': 'medium', 'Important': 'high', 'Very Important': 'major'}[value]
    link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/priorities') / f'{prio}.svg')
-   img = file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'src': link})
+   img = file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': value})
    return img
 
 def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
@@ -2866,6 +2914,14 @@ def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
    if field_id in extras:
       return extras[field_id]
    return metas.fields[field_id]['name']
+
+def user_role(user: User) -> tuple[str, int] | None:
+   role_order: list[str] = ['bot', 'system-administrators', '4jstudios', 'java', 'developers', 'administrators', 'mojang', 'microsoft', 'staff', 'helper', 'partners']
+   user_groups: list[str] = [x['name'] for x in user['groups']['items']]
+   for i, entry in enumerate(role_order):
+      if entry in user_groups:
+         return (entry, i)
+   return None
 
 def get_link_dir(full_str: str, issue_key: str) -> str:
    assert full_str.startswith('This issue ')
