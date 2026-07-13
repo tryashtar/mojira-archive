@@ -20,7 +20,7 @@ import mojira
 import relations
 import markup
 
-from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewAuthor, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, User, Version
+from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewAuthor, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, UnknownUser, User, Version
 from web import HtmlFile, Tag, add_metadata, append_class, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
 from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, category_splitter, field_display, field_name, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_comments, get_renderable_mentions, get_user, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
 
@@ -71,7 +71,7 @@ class Website:
       return self.get_user_name_path(user['name'])
 
    def get_user_name_path(self, username: str) -> pathlib.PurePath:
-      return self.users_folder / (urllib.parse.quote_plus(username.lower())[:100] + '.html')
+      return self.users_folder / (mojira.encode_user_string(username.lower())[:100] + '.html')
 
    def get_group_path(self, group: str) -> pathlib.PurePath:
       return self.groups_folder / (group + '.html')
@@ -1877,7 +1877,7 @@ class UserReference:
    link: str
    display_name: str
 
-def user_reference(website: Website, file: HtmlFile, user: User | dict[str, typing.Any]) -> UserReference:
+def user_reference(website: Website, file: HtmlFile, user: User | UnknownUser) -> UserReference:
    if 'displayName' in user:
       display_name = user['displayName']
    else:
@@ -2415,7 +2415,7 @@ def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
    link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))
    return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'src': link, 'alt': 'Issue'})
 
-def user_avatar(website: Website, file: HtmlFile, user: User | dict[str, typing.Any]) -> bs4.Tag:
+def user_avatar(website: Website, file: HtmlFile, user: User | UnknownUser) -> bs4.Tag:
    gravatar_path1 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.png')
    gravatar_path2 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.jpeg')
    if gravatar_path1.exists():

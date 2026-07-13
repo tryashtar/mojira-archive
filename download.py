@@ -5,7 +5,7 @@ import jira.exceptions
 import json
 import urllib.request
 import urllib.parse
-from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, User
+from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, UnknownUser, User
 from mojira import Archive, ArchiveMetas, key_by
 import dotenv
 import os
@@ -33,7 +33,7 @@ def main():
          break
 
 class FetchedUsers:
-   new_users: dict[str, dict[str, typing.Any]]
+   new_users: dict[str, UnknownUser]
 
    def __init__(self):
       self.new_users = {}

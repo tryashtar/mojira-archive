@@ -81,6 +81,15 @@ User = typing.TypedDict('User', {
    'groups': UserGroups
 })
 
+UnknownUser = typing.TypedDict('UnknownUser', {
+   'key': str,
+   'name': str,
+   'displayName': str,
+   'active': bool,
+   'timeZone': str,
+   'avatarUrls': AvatarUrls
+})
+
 Attachment = typing.TypedDict('Attachment', {
    'id': str,
    'filename': str,

@@ -2,7 +2,7 @@ import pathlib
 import json
 import urllib.parse
 import typing
-from jiratypes import Attachment, Field, Issue, IssueType, LinkType, NewComment, Project, Resolution, Status, User
+from jiratypes import Attachment, Field, Issue, IssueType, LinkType, NewComment, Project, Resolution, Status, UnknownUser, User
 
 META_TYPE = typing.Literal['issuetype', 'resolution', 'status', 'project']
 
@@ -104,7 +104,7 @@ class Archive:
    def user_keys(self) -> typing.Generator[str]:
       for path in self.users_folder.iterdir():
          if path.is_file():
-            yield urllib.parse.unquote_plus(path.stem)
+            yield decode_user_string(path.stem)
 
    def users(self) -> typing.Generator[User]:
       for path in self.users_folder.iterdir():
@@ -114,7 +114,7 @@ class Archive:
 
    def get_user_path(self, user_key: str, unknown=False) -> pathlib.Path:
       base_folder = self.unknown_users_folder if unknown else self.users_folder
-      return base_folder / (urllib.parse.quote_plus(user_key) + '.json')
+      return base_folder / (encode_user_string(user_key) + '.json')
 
    def get_user_data(self, user_key: str) -> User | None:
       path = self.get_user_path(user_key, unknown=False)
@@ -123,7 +123,7 @@ class Archive:
       with open(path, 'r', encoding='utf-8') as file:
          return json.load(file)
 
-   def get_unknown_user_data(self, user_key: str) -> dict[str, typing.Any] | None:
+   def get_unknown_user_data(self, user_key: str) -> UnknownUser | None:
       path = self.get_user_path(user_key, unknown=True)
       if not path.exists():
          return None
@@ -150,7 +150,7 @@ class Archive:
       extension = pathlib.PurePath(file_name).suffix
       return self.attachments_content_folder / (attach_id + extension)
 
-   def import_unknown_user(self, user_key: str, data: dict[str, typing.Any]):
+   def import_unknown_user(self, user_key: str, data: UnknownUser):
       path = self.get_user_path(user_key, unknown=True)
       path.parent.mkdir(parents=True, exist_ok=True)
       with open(path, 'w', encoding='utf-8') as file:
@@ -167,6 +167,12 @@ class Archive:
       path.parent.mkdir(parents=True, exist_ok=True)
       with open(path, 'w', encoding='utf-8') as file:
          json.dump(issue, file, indent=3)
+
+def encode_user_string(user: str) -> str:
+   return user.replace('/', '⁄')
+
+def decode_user_string(user: str) -> str:
+   return user.replace('⁄', '/')
 
 def key_by(items: list[dict[str, typing.Any]], key: str) -> dict[str, dict[str, typing.Any]]:
    result = {}
