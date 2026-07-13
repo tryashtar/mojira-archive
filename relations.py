@@ -2,11 +2,14 @@ import dataclasses
 import os
 import pathlib
 import typing
-import dotenv
-from jiratypes import CustomValue, DescriptionValue, IconValue
-import mojira
 import bisect
 import json
+
+import dotenv
+
+import mojira
+
+from jiratypes import CustomValue, DescriptionValue, IconValue
 
 class KeyLookups:
    issue_keys: dict[str, str]

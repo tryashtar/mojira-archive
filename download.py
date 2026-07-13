@@ -1,19 +1,22 @@
 import pathlib
 import typing
-import jira
-import jira.exceptions
 import json
 import urllib.request
 import urllib.parse
-from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, UnknownUser, User
-from mojira import Archive, ArchiveMetas, key_by
-import dotenv
 import os
+
+import dotenv
+import jira
+import jira.exceptions
+
+import mojira
+
+from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, UnknownUser, User
 
 def main():
    dotenv.load_dotenv()
-   archive = Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
-   metas = ArchiveMetas()
+   archive = mojira.Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
+   metas = mojira.ArchiveMetas()
    users = FetchedUsers()
    key = os.environ['JIRA_KEY']
    print('Connecting...')
@@ -38,7 +41,7 @@ class FetchedUsers:
    def __init__(self):
       self.new_users = {}
 
-def fetch_metas(metas: ArchiveMetas, users: FetchedUsers, client: jira.JIRA):
+def fetch_metas(metas: mojira.ArchiveMetas, users: FetchedUsers, client: jira.JIRA):
    for field in client.fields():
       metas.import_field(typing.cast(Field, field))
    for issue_type in client.issue_types():
@@ -52,11 +55,11 @@ def fetch_metas(metas: ArchiveMetas, users: FetchedUsers, client: jira.JIRA):
    for entry in client.projects():
       project = client.project(entry.id, expand='description,lead,url').raw
       simplify_user(users, project, 'lead')
-      project['versions'] = key_by(project['versions'], 'id')
+      project['versions'] = mojira.key_by(project['versions'], 'id')
       assert project is Project
       metas.import_project(project)
 
-def flush_users(archive: Archive, users: FetchedUsers, client: jira.JIRA, dry: bool):
+def flush_users(archive: mojira.Archive, users: FetchedUsers, client: jira.JIRA, dry: bool):
    for key, value in users.new_users.items():
       full_data: User | None = None
       try:
@@ -83,7 +86,7 @@ def flush_users(archive: Archive, users: FetchedUsers, client: jira.JIRA, dry: b
          archive.import_unknown_user(key, value)
    users.new_users.clear()
 
-def update_issue(archive: Archive, users: FetchedUsers, issue: jira.Issue, dry: bool) -> bool:
+def update_issue(archive: mojira.Archive, users: FetchedUsers, issue: jira.Issue, dry: bool) -> bool:
    existing = archive.get_issue_data(issue.key)
    if existing is not None and issue.fields.updated <= existing['fields']['updated']:
       print(f'Ticket {issue.key} ({issue.id}) already up-to-date')
@@ -113,11 +116,11 @@ def update_issue(archive: Archive, users: FetchedUsers, issue: jira.Issue, dry: 
       archive.import_issue(typing.cast(Issue, data))
    return True
 
-def save_project_avatars(archive: Archive, metas: ArchiveMetas, client: jira.JIRA, dry: bool):
+def save_project_avatars(archive: mojira.Archive, metas: mojira.ArchiveMetas, client: jira.JIRA, dry: bool):
    for project in metas.projects.values():
       save_avatar(archive, client, archive.project_avatars_folder, project['avatarUrls']['48x48'], dry)
 
-def save_avatar(archive: Archive, client: jira.JIRA, folder: pathlib.Path, url: str, dry: bool):
+def save_avatar(archive: mojira.Archive, client: jira.JIRA, folder: pathlib.Path, url: str, dry: bool):
    if url.startswith('avatar-management'):
       url = 'https://' + url
    avatarid = archive.get_avatar_id(url)

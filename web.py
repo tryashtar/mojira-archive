@@ -2,10 +2,11 @@ import dataclasses
 import datetime
 import re
 import typing
-import bs4
-import bs4.element
 import pathlib
 import urllib.parse
+
+import bs4
+import bs4.element
 import lxml.html.soupparser
 import lxml.etree
 import xmldiff.main

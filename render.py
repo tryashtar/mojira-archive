@@ -22,7 +22,7 @@ import markup
 
 from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewAuthor, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, UnknownUser, User, Version
 from web import HtmlFile, Tag, add_metadata, append_class, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
-from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, category_splitter, field_display, field_name, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_comments, get_renderable_mentions, get_user, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
+from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, category_splitter, field_display, field_name, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_comments, get_renderable_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
 
 @dataclasses.dataclass
 class ProjectPage:
@@ -43,6 +43,11 @@ class FieldPage:
       return self.values_folder / (value_name.replace('/', '_') + '.html')
 
 @dataclasses.dataclass
+class GroupPage:
+   users: HtmlFile
+   comments: HtmlFile | None
+
+@dataclasses.dataclass
 class Website:
    root: pathlib.Path
    home: HtmlFile
@@ -50,7 +55,7 @@ class Website:
    all_users_list: HtmlFile
    issues_folder: pathlib.PurePath
    users_folder: pathlib.PurePath
-   groups_folder: pathlib.PurePath
+   group_pages: dict[str, GroupPage]
    project_pages: dict[str, ProjectPage]
    field_pages: dict[str, FieldPage]
    meta_pages: dict[mojira.META_TYPE, FieldPage]
@@ -73,9 +78,6 @@ class Website:
    def get_user_name_path(self, username: str) -> pathlib.PurePath:
       return self.users_folder / (mojira.encode_user_string(username.lower())[:100] + '.html')
 
-   def get_group_path(self, group: str) -> pathlib.PurePath:
-      return self.groups_folder / (group + '.html')
-
 def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
    file = make_file(path, title)
    file.page.head.append(file.page.soup.new_tag('link', rel='icon', type='image/x-icon', href=relative_link(root, file.path, pathlib.PurePath('data/assets/favicon.ico'))))
@@ -96,6 +98,7 @@ def main():
    archive = mojira.Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
    metas = mojira.ArchiveMetas()
    metas.load(archive.folder)
+   import_fake_missing_data(archive, metas)
    rels = relations.RelationsBundle(
       keys=relations.KeyLookups(),
       user=relations.UserRelations(),
@@ -114,10 +117,10 @@ def main():
       all_users_list=make_jira_file(root, pathlib.PurePath('web/users.html'), 'All Users'),
       issues_folder=pathlib.PurePath('web/issues'),
       users_folder=pathlib.PurePath('web/users'),
-      groups_folder=pathlib.PurePath('web/groups'),
       project_pages={},
       field_pages={},
       meta_pages={},
+      group_pages={},
       archive=archive,
       metas=metas,
       relations=rels,
@@ -145,16 +148,23 @@ def main():
          make_jira_file(root, pathlib.PurePath('web/fields') / (fname + '.html'), fname),
          pathlib.PurePath('web/fields') / fname
       )
+   for group, data in rels.user.groups.items():
+      website.group_pages[group] = GroupPage(
+         make_jira_file(root, pathlib.PurePath('web/groups') / group / 'users.html', group),
+         make_jira_file(root, pathlib.PurePath('web/groups') / group / 'comments.html', group) if len(data['comments']) > 0 else None,
+      )
 
 
    print('Rendering...')
    to_render = sys.argv
    if 'all' in to_render:
-      to_render.extend(['home', 'fields', 'metas', 'project_main', 'project_versions', 'project_issues', 'project_version_issues', 'field_issues', 'meta_issues', 'issues_list', 'issues', 'users', 'groups', 'users_list'])
+      to_render.extend(['home', 'fields', 'metas', 'project_main', 'project_versions', 'project_issues', 'project_version_issues', 'field_issues', 'meta_issues', 'issues_list', 'issues', 'users', 'group_users', 'group_comments', 'users_list'])
    if 'issue_lists' in to_render:
       to_render.extend(['project_issues', 'project_version_issues', 'field_issues', 'meta_issues', 'issues_list'])
    if 'user_lists' in to_render:
-      to_render.extend(['groups', 'users_list'])
+      to_render.extend(['group_users', 'users_list'])
+   if 'groups' in to_render:
+      to_render.extend(['group_users', 'group_comments'])
    if 'home' in to_render:
       print('Home...')
       make_home_page(website, website.home)
@@ -258,8 +268,7 @@ def main():
       for issue_key, issue_id in rels.keys.issue_keys.items():
          if issue_key not in written_issues:
             print('\t' + issue_key)
-            issue = archive.get_issue_data(issue_id)
-            assert issue is not None
+            issue = get_issue(website.archive, issue_id)
             from_path = website.get_issue_key_path(issue_key)
             to_path = website.get_issue_path(issue)
             relative = relative_path(website.root, from_path, website.root / to_path)
@@ -270,13 +279,21 @@ def main():
                   from_full.symlink_to(relative)
             else:
                from_full.symlink_to(relative)
-   if 'groups' in to_render:
-      print('Groups...')
+   if 'group_users' in to_render:
+      print('Group users...')
       for group, data in rels.user.groups.items():
          print('\t\t' + group)
-         file = make_jira_file(website.root, website.get_group_path(group), group)
-         make_group_page(website, file, group, data)
-         save_file(website, file)
+         group_page = website.group_pages[group]
+         make_group_users_page(website, group_page.users, group, data)
+         save_file(website, group_page.users)
+   if 'group_comments' in to_render:
+      print('Group comments...')
+      for group, data in rels.user.groups.items():
+         print('\t\t' + group)
+         group_page = website.group_pages[group]
+         if group_page.comments is not None:
+            make_group_comments_page(website, group_page.comments, group, data)
+            save_file(website, group_page.comments)
    if 'users_list' in to_render:
       print('All users...')
       make_all_users_page(website, website.all_users_list)
@@ -491,13 +508,19 @@ def field_grid_entry(website: Website, file: HtmlFile, field_id: str) -> list[Ta
    return content
 
 def group_grid_entry(website: Website, file: HtmlFile, group: str) -> list[Tag]:
-   users = website.relations.user.groups[group]['users']
-   link = relative_link(website.root, file.path, website.get_group_path(group))
+   rels = website.relations.user.groups[group]
+   users = rels['users']
+   title = group_name(website, file, group)
+   # tile-grid-name for style.css
+   append_class(title, 'tile-grid-name')
    content: list[Tag] = [
-      # tile-grid-name and user-group-name for style.css
-      new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name user-group-name', 'href': link}, content=group),
-      f'{len(users)} users'
+      title,
+      new_content_tag(file.page.soup, 'a', f'{len(users)} users', attrs={'href': relative_link(website.root, file.path, website.group_pages[group].users.path)}),
    ]
+   group_page = website.group_pages[group]
+   if group_page.comments is not None:
+      comment_count = sum(len(x) for x in rels['comments'].values())
+      content.append(new_content_tag(file.page.soup, 'a', f'{comment_count} restricted comments', attrs={'href': relative_link(website.root, file.path, group_page.comments.path)}))
    return content
 
 def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: ValueDisplay) -> list[Tag]:
@@ -514,7 +537,7 @@ def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META
 
 def field_value_grid_entry(website: Website, file: HtmlFile, field_id: str, value: ValueDisplay) -> list[Tag]:
    assert value.id is not None
-   issues = website.relations.fields.fields[field_id][value.id]
+   issues = website.relations.fields.fields[field_id][value.id]['issues']
    content: list[Tag] = [
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'span', attrs={'class': 'tile-grid-name'}, content=field_link_display(website, file, field_id, value))
@@ -621,16 +644,21 @@ def make_user_page(website: Website, file: HtmlFile, user: User):
    main = build_info_main(soup, top, [], details, None, None)
    content.append(main)
 
-   reported_issues = website.relations.fields.metas['reporter'].get(user['key'], [])
+   all_reported = website.relations.fields.metas['reporter'].get(user['key'], [])
+   all_created = website.relations.fields.metas['creator'].get(user['key'], [])
+   reported_and_created = [x for x in all_reported if x in all_created]
+   reported_not_created = [x for x in all_reported if x not in all_created]
+   created_not_reported = [x for x in all_created if x not in all_reported]
+   issue_list = reported_and_created + created_not_reported + reported_not_created
    assigned_issues = website.relations.fields.metas['assignee'].get(user['key'], [])
    table_scripts: list[TableData] = []
    tab_data: list[InfoTabData] = []
-   if len(reported_issues) > 0:
-      reported_table = create_issue_list(website, file, 'reported', (get_issue(website.archive, x) for x in reported_issues))
+   if len(issue_list) > 0:
+      reported_table = create_issue_list(website, file, 'reported', (get_issue(website.archive, x) for x in issue_list))
       table_scripts.append(reported_table.data)
       tab_data.append(InfoTabData(
          'reported',
-         ['Reported Issues', count_badge(soup, len(reported_issues))],
+         ['Reported Issues', count_badge(soup, len(issue_list))],
          [reported_table.filters, reported_table.table]
       ))
    if len(assigned_issues) > 0:
@@ -937,8 +965,9 @@ def make_meta_value_page(website: Website, file: HtmlFile, meta_id: mojira.META_
 
    fname = field_name(website.metas, meta_id)
    flink = relative_link(website.root, file.path, website.meta_pages[meta_id].page.path)
+   value_tag = meta_badge_display(website, file, meta_id, display)
    h1 = [new_content_tag(soup, 'a', attrs={'href': flink}, content=fname)]
-   h2 = [meta_link(website, file, meta_id, value_key), ' issues']
+   h2 = [value_tag.outer, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
    add_table_scripts(website, file, [table.data])
@@ -956,8 +985,9 @@ def make_field_value_page(website: Website, file: HtmlFile, field_id: str, value
 
    fname = field_name(website.metas, field_id)
    flink = relative_link(website.root, file.path, website.field_pages[field_id].page.path)
+   value_tag = field_badge_display(website, file, field_id, display)
    h1 = [new_content_tag(soup, 'a', attrs={'href': flink}, content=fname)]
-   h2 = [field_link(website, file, field_id, value_key), ' issues']
+   h2 = [value_tag.outer, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
    add_table_scripts(website, file, [table.data])
@@ -1003,7 +1033,7 @@ def make_all_users_page(website: Website, file: HtmlFile):
    content.append(list_main)
    add_table_scripts(website, file, [table.data])
 
-def make_group_page(website: Website, file: HtmlFile, group: str, data: relations.GroupRelation):
+def make_group_users_page(website: Website, file: HtmlFile, group: str, data: relations.GroupRelation):
    soup = file.page.soup
    content = main_content(website, file)
 
@@ -1012,11 +1042,27 @@ def make_group_page(website: Website, file: HtmlFile, group: str, data: relation
 
    add_metadata(file, group, f'{len(users)} users', None)
 
-   # user-group-name for style.css
-   h1 = new_content_tag(soup, 'span', group, attrs={'class': 'user-group-name'})
-   list_main = build_list_main(soup, [h1], None, [table.filters, table.table])
+   list_main = build_list_main(soup, [group_name(website, file, group)], None, [table.filters, table.table])
    content.append(list_main)
    add_table_scripts(website, file, [table.data])
+
+def make_group_comments_page(website: Website, file: HtmlFile, group: str, data: relations.GroupRelation):
+   soup = file.page.soup
+   content = main_content(website, file)
+
+   all_comments: list[RenderableComment] = []
+   for issue_id, comments in data['comments'].items():
+      issue = get_issue(website.archive, issue_id)
+      for comment in issue['fields']['comment']['comments']:
+         if comment['id'] in comments:
+            body = website.markup_source.get_comment_body(issue_id, comment['id'])
+            renderable = RenderableComment(comment, issue, body, datetime.datetime.fromisoformat(comment['created']), secret=False)
+            bisect.insort_left(all_comments, renderable, key=lambda x: x.date)
+
+   add_metadata(file, group, f'{len(all_comments)} comments', None)
+
+   section = build_user_section(soup, [comment_to_user(website, file, x) for x in all_comments])
+   content.append(section)
 
 def build_list_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typing.Iterable[Tag] | None, parts: typing.Iterable[Tag]) -> bs4.Tag:
    # list-main for style.css
@@ -1306,15 +1352,14 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
       user_ref.inner.name = 'a'
       user_content = [soup.new_tag('a', attrs={'class': 'overlay', 'href': user_ref.link}), user_ref.outer]
       role = user_role(user)
-      # user-group-name for style.css
       if role is None:
          role_tag = soup.new_tag('div', attrs={'class': 'user-table-role'})
          index = 9999
       else:
          group, index = role
-         link = relative_link(website.root, file.path, website.get_group_path(group))
+         link = relative_link(website.root, file.path, website.group_pages[group].users.path)
          role_tag = new_content_tag(soup, 'a', attrs={'class': 'user-table-role', 'href': link}, content=[
-            new_content_tag(soup, 'span', group, attrs={'class': 'user-group-name'})
+            group_name(website, file, group)
          ])
       row_tags = [
          new_content_tag(soup, 'div', attrs={'class': 'user-table-username'}, content=user['name']),
@@ -1354,7 +1399,7 @@ class RenderableUserEntry:
 
 def comment_to_user(website: Website, file: HtmlFile, comment: RenderableComment) -> RenderableUserEntry:
    anchor = f'comment-id-{comment.comment['id']}'
-   head = user_head_comment(website, file, comment.comment, secret=comment.secret, issue=None)
+   head = user_head_comment(website, file, comment.comment, secret=comment.secret, issue=comment.external_issue)
    fix_markup(website, file, markup.parse_markup(comment.rendered_body))
    body = embed_wiki(website, file, comment.rendered_body)
    return RenderableUserEntry(anchor, list(head), [body])
@@ -1878,10 +1923,7 @@ class UserReference:
    display_name: str
 
 def user_reference(website: Website, file: HtmlFile, user: User | UnknownUser) -> UserReference:
-   if 'displayName' in user:
-      display_name = user['displayName']
-   else:
-      display_name = user['name']
+   display_name = user['displayName']
    img = user_avatar(website, file, user)
    link_url = relative_link(website.root, file.path, website.get_user_name_path(user['name']))
    # user-hover and rel for mojira.css
@@ -1994,11 +2036,9 @@ def user_head_comment(website: Website, file: HtmlFile, comment: Comment | NewCo
       more_info.append(inner_time)
    if 'visibility' in comment:
       if comment['visibility']['type'] == 'group':
-         assert comment['visibility']['value'] in website.relations.user.groups
-         link = relative_link(website.root, file.path, website.get_group_path(comment['visibility']['value']))
-         # user-group-name for style.css
-         restriction = new_content_tag(soup, 'a', attrs={'class': 'user-group-name', 'href': link}, content=comment['visibility']['value'])
+         restriction = group_link(website, file, comment['visibility']['value'])
       else:
+         # user-group-name for style.css
          restriction = new_content_tag(soup, 'span', attrs={'class': 'user-group-name'}, content=comment['visibility']['value'])
       more_info.extend([
          ' • ',
@@ -2051,9 +2091,15 @@ def project_link(website: Website, file: HtmlFile, project: Project, with_icon: 
    tag.attrs['href'] = relative_link(website.root, file.path, website.project_pages[project['id']].main.path)
    return tag
 
+def group_name(website: Website, file: HtmlFile, group: str) -> bs4.Tag:
+   assert group in website.relations.user.groups
+   # user-group-name for style.css
+   return new_content_tag(file.page.soup, 'span', attrs={'class': 'user-group-name'}, content=group)
+
 def group_link(website: Website, file: HtmlFile, group: str) -> bs4.Tag:
    assert group in website.relations.user.groups
-   link = relative_link(website.root, file.path, website.get_group_path(group))
+   link = relative_link(website.root, file.path, website.group_pages[group].users.path)
+   # user-group-name for style.css
    return new_content_tag(file.page.soup, 'a', attrs={'class': 'user-group-name', 'href': link}, content=group)
 
 def issue_attachments(website: Website, file: HtmlFile, attachments: list[str]) -> bs4.Tag:
@@ -2416,8 +2462,8 @@ def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
    return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'src': link, 'alt': 'Issue'})
 
 def user_avatar(website: Website, file: HtmlFile, user: User | UnknownUser) -> bs4.Tag:
-   gravatar_path1 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.png')
-   gravatar_path2 = website.archive.folder / 'assets/gravatar' / (user['key'] + '.jpeg')
+   gravatar_path1 = website.archive.folder / 'assets/gravatar' / (mojira.encode_user_string(user['key']) + '.png')
+   gravatar_path2 = website.archive.folder / 'assets/gravatar' / (mojira.encode_user_string(user['key']) + '.jpeg')
    if gravatar_path1.exists():
       link = str(relative_path(website.root, file.path, gravatar_path1))
    elif gravatar_path2.exists():

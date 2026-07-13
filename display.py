@@ -65,6 +65,7 @@ def issue_detail_links(issue: Issue, project: Project | None, json: pathlib.Pure
 @dataclasses.dataclass
 class RenderableComment:
    comment: Comment | NewComment
+   external_issue: Issue | None
    rendered_body: bs4.BeautifulSoup
    date: datetime.datetime
    secret: bool
@@ -73,10 +74,10 @@ def get_renderable_comments(source: markup.MarkupSource, secrets: mojira.SecretC
    result: list[RenderableComment] = []
    for comment in issue['fields']['comment']['comments']:
       body = source.get_comment_body(issue['id'], comment['id'])
-      result.append(RenderableComment(comment, body, datetime.datetime.fromisoformat(comment['created']), secret=False))
+      result.append(RenderableComment(comment, None, body, datetime.datetime.fromisoformat(comment['created']), secret=False))
    for comment in secrets.get(issue['id']):
       body = source.get_secret_comment_body(issue['id'], comment['id'])
-      bisect.insort_left(result, RenderableComment(comment, body, datetime.datetime.fromisoformat(comment['created']), secret=True), key=lambda x: x.date)
+      bisect.insort_left(result, RenderableComment(comment, None, body, datetime.datetime.fromisoformat(comment['created']), secret=True), key=lambda x: x.date)
    return result
 
 @dataclasses.dataclass
@@ -540,7 +541,7 @@ def portal_number(project_key: str) -> int | None:
    return {'MCPE': 6, 'MC': 2, 'MCL': 7, 'REALMS': 9, 'WEB': 10, 'BDS': 4, 'MCM': 11}.get(project_key)
 
 def field_name(metas: mojira.ArchiveMetas, field_id: str) -> str:
-   extras = {'customfield_12400': 'Dungeons Platform', 'customfield_12900': 'Legends Platform', 'components': 'Component'}
+   extras = {'components': 'Component'}
    if field_id in extras:
       return extras[field_id]
    return metas.fields[field_id]['name']
@@ -557,3 +558,389 @@ def get_link_dir(full_str: str, issue_key: str) -> str:
    assert full_str.startswith('This issue ')
    assert full_str.endswith(issue_key)
    return full_str[len('This issue '):-(len(issue_key) + 1)]
+
+def import_fake_missing_data(archive: mojira.Archive, metas: mojira.ArchiveMetas):
+   metas.fields['customfield_12400'] = {
+      'id': 'customfield_12400',
+      'custom': True,
+      'name': 'Dungeons Platform'
+   }
+   metas.fields['customfield_12900'] = {
+      'id': 'customfield_12900',
+      'custom': True,
+      'name': 'Legends Platform'
+   }
+   metas.projects['11901'] = {
+      'id': '11901',
+      'key': 'MCD',
+      'name': 'Minecraft Dungeons',
+      'lead': 'mattgartzke',
+      'description': '<div>\r\n<p><img src="https://assets.mojang.com/bugs_minecraft_dungeons.svg" align="absmiddle" border="0" width="439"></p>\r\n<p><strong>Welcome to the Minecraft Dungeons Bug Tracker!</strong></p>\r\n\r\n<p>The Minecraft Dungeons bug tracker is no longer active for new bug reports.</p>\r\n\r\n<p>Version 1.17 was Minecraft Dungeons\' final update. Our team has now moved on to new projects that continue to explore experiences in the Minecraft universe. This means that there are no new features or content updates planned for the game.</p>\r\n\r\n<p>All online services in Minecraft Dungeons remain functional including multiplayer, cloud saves, Tower rotations, etc. </p>\r\n\r\n<p>Learn more at <a class="external-link" href="https://aka.ms/Dungeons25Million" rel="nofollow">aka.ms/Dungeons25Million</a></p>\r\n\r\n<p>You can still discuss the game on the Minecraft Discord server at <a class="external-link" href="https://discord.gg/Minecraft" rel="nofollow">discord.gg/Minecraft</a>. If you need technical support for the game or encounter server issues, please visit <a class="external-link" href="https://help.minecraft.net/" rel="nofollow">help.minecraft.net</a></p>\r\n\r\n</div>',
+      'avatarUrls': {
+         '48x48': 'https://bugs-legacy.mojang.com/secure/projectavatar?pid=11901&avatarId=35072'
+      },
+      'versions': {
+         '19204': {
+            'id': '19204',
+            'name': 'Version #19204',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19304': {
+            'id': '19304',
+            'name': 'Version #19304',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19500': {
+            'id': '19500',
+            'name': 'Version #19500',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19526': {
+            'id': '19526',
+            'name': 'Version #19526',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19536': {
+            'id': '19536',
+            'name': 'Version #19536',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19553': {
+            'id': '19553',
+            'name': 'Version #19553',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19604': {
+            'id': '19604',
+            'name': 'Version #19604',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19622': {
+            'id': '19622',
+            'name': 'Version #19622',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19637': {
+            'id': '19637',
+            'name': 'Version #19637',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19647': {
+            'id': '19647',
+            'name': 'Version #19647',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19650': {
+            'id': '19650',
+            'name': 'Version #19650',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19710': {
+            'id': '19710',
+            'name': 'Version #19710',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19718': {
+            'id': '19718',
+            'name': 'Version #19718',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19820': {
+            'id': '19820',
+            'name': 'Version #19820',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19821': {
+            'id': '19821',
+            'name': 'Version #19821',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19834': {
+            'id': '19834',
+            'name': 'Version #19834',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19902': {
+            'id': '19902',
+            'name': 'Version #19902',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19903': {
+            'id': '19903',
+            'name': 'Version #19903',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19904': {
+            'id': '19904',
+            'name': 'Version #19904',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '19930': {
+            'id': '19930',
+            'name': 'Version #19930',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20006': {
+            'id': '20006',
+            'name': 'Version #20006',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20120': {
+            'id': '20120',
+            'name': 'Version #20120',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20223': {
+            'id': '20223',
+            'name': 'Version #20223',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20224': {
+            'id': '20224',
+            'name': 'Version #20224',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20231': {
+            'id': '20231',
+            'name': 'Version #20231',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20311': {
+            'id': '20311',
+            'name': 'Version #20311',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20506': {
+            'id': '20506',
+            'name': 'Version #20506',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20602': {
+            'id': '20602',
+            'name': 'Version #20602',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20609': {
+            'id': '20609',
+            'name': 'Version #20609',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20625': {
+            'id': '20625',
+            'name': 'Version #20625',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20802': {
+            'id': '20802',
+            'name': 'Version #20802',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20912': {
+            'id': '20912',
+            'name': 'Version #20912',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '20928': {
+            'id': '20928',
+            'name': 'Version #20928',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '21204': {
+            'id': '21204',
+            'name': 'Version #21204',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '21205': {
+            'id': '21205',
+            'name': 'Version #21205',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '21209': {
+            'id': '21209',
+            'name': 'Version #21209',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+         '21247': {
+            'id': '21247',
+            'name': 'Version #21247',
+            'projectId': 11901,
+            'archived': True,
+            'released': True
+         },
+      }
+   }
+   metas.projects['12200'] = {
+      'id': '12200',
+      'key': 'MCLG',
+      'name': 'Minecraft Legends',
+      'lead': 'mega_spud',
+      'description': '<div>\r\n<p><img src="https://assets.mojang.com/bugs_minecraft_legends.svg" align="absmiddle" border="0" width="439"></p>\r\n<p><strong>Welcome to the Minecraft Legends Bug Tracker!</strong></p>\r\n<p>Thank you for all of your bug reports in this project! However, the Minecraft Legends bug tracker is no longer active for new bug reports and comments.</p>\r\n<p>More information can be found at <a class="external-link" href="https://aka.ms/LegendsJanuaryUpdates" rel="nofollow">aka.ms/LegendsJanuaryUpdates</a>.</p>\r\n<p>You can still discuss the game on the Minecraft Discord server at <a class="external-link" href="https://discord.gg/Minecraft" rel="nofollow">discord.gg/Minecraft</a>. If you need technical support for the game or encounter server issues, please visit <a class="external-link" href="https://help.minecraft.net/" rel="nofollow">help.minecraft.net</a></p>\r\n</div>',
+      'avatarUrls': {
+         '48x48': 'https://bugs-legacy.mojang.com/secure/projectavatar?pid=12200&avatarId=86040'
+      },
+      'versions': {
+         '21436': {
+            'id': '21436',
+            'name': 'Version #21436',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21444': {
+            'id': '21444',
+            'name': 'Version #21444',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21478': {
+            'id': '21478',
+            'name': 'Version #21478',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21479': {
+            'id': '21479',
+            'name': 'Version #21479',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21510': {
+            'id': '21510',
+            'name': 'Version #21510',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21511': {
+            'id': '21511',
+            'name': 'Version #21511',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21552': {
+            'id': '21552',
+            'name': 'Version #21552',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21553': {
+            'id': '21553',
+            'name': 'Version #21553',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21605': {
+            'id': '21605',
+            'name': 'Version #21605',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21606': {
+            'id': '21606',
+            'name': 'Version #21606',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21623': {
+            'id': '21623',
+            'name': 'Version #21623',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21807': {
+            'id': '21807',
+            'name': 'Version #21807',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+         '21829': {
+            'id': '21829',
+            'name': 'Version #21829',
+            'projectId': 12200,
+            'archived': True,
+            'released': True
+         },
+      }
+   }

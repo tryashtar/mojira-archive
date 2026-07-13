@@ -3,13 +3,16 @@ import os
 import pathlib
 import re
 import urllib.parse
-import bs4
-import dotenv
-from jiratypes import Issue
-import mojira
 import subprocess
 import json
+
+import bs4
+import dotenv
+
+import mojira
 import relations
+
+from jiratypes import Issue
 
 class MarkupSource:
    def __init__(self, folder: pathlib.Path):
