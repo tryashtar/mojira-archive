@@ -22,7 +22,7 @@ import markup
 
 from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewAuthor, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, UnknownUser, User, Version
 from web import HtmlFile, Tag, add_metadata, append_class, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
-from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, category_splitter, field_display, field_name, format_number, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_comments, get_renderable_issue_mentions, get_renderable_user_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
+from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, ViewPerms, category_splitter, field_display, field_name, format_number, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_issue_comments, get_renderable_issue_mentions, get_renderable_user_comments, get_renderable_user_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
 
 @dataclasses.dataclass
 class ProjectPage:
@@ -65,6 +65,7 @@ class Website:
    markup_source: markup.MarkupSource
    markup_rels: markup_relations.MarkupRelations
    secret_comments: mojira.SecretComments
+   perms: ViewPerms
 
    def get_issue_path(self, issue: Issue) -> pathlib.PurePath:
       return self.get_issue_key_path(issue['key'])
@@ -110,6 +111,14 @@ def main():
    markup_rels.load(pathlib.Path(os.environ['ARCHIVE_MARKUP_RELATIONS']))
    secret_comments = mojira.SecretComments(pathlib.Path(os.environ['ARCHIVE_SECRET_COMMENTS']))
    meta_list: list[mojira.META_TYPE] = ['resolution', 'status']
+   perms = ViewPerms(
+      hidden_projects=[],
+      hidden_group_comments=[],
+      hidden_security_levels=[],
+      hidden_secret_comments=False,
+      hidden_deleted_comments=False,
+      hidden_json_data=False
+   )
    website = Website(
       root=root,
       home=make_jira_file(root, pathlib.PurePath('web/home.html'), 'Mojira Archive'),
@@ -126,11 +135,12 @@ def main():
       relations=rels,
       markup_source=markup_source,
       markup_rels=markup_rels,
-      secret_comments=secret_comments
+      secret_comments=secret_comments,
+      perms=perms
    )
-   for id, value in metas.projects.items():
+   for value in perms.filter_projects(metas.projects.values()):
       full_title = f'[{value['key']}] {value['name']}'
-      website.project_pages[id] = ProjectPage(
+      website.project_pages[value['id']] = ProjectPage(
          make_jira_file(root, pathlib.PurePath('web/projects') / (value['key'] + '.html'), full_title),
          make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'versions.html', full_title) if len(value['versions']) > 0 else None,
          make_jira_file(root, pathlib.PurePath('web/projects') / value['key'] / 'issues.html', full_title),
@@ -149,9 +159,13 @@ def main():
          pathlib.PurePath('web/fields') / fname
       )
    for group, data in rels.user.groups.items():
+      if len(data['comments']) > 0 and perms.group_comments_visible(group):
+         comments = make_jira_file(root, pathlib.PurePath('web/groups') / group / 'comments.html', group)
+      else:
+         comments = None
       website.group_pages[group] = GroupPage(
          make_jira_file(root, pathlib.PurePath('web/groups') / group / 'users.html', group),
-         make_jira_file(root, pathlib.PurePath('web/groups') / group / 'comments.html', group) if len(data['comments']) > 0 else None,
+          comments
       )
 
 
@@ -183,16 +197,17 @@ def main():
          field_page = website.field_pages[key]
          make_field_page(website, field_page.page, key)
          save_file(website, field_page.page)
+   project_order = reversed(sorted_projects(metas, rels.fields, perms))
    if 'project_main' in to_render:
       print('Project main...')
-      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
+      for project in project_order:
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          make_project_main_page(website, project_page.main, project)
          save_file(website, project_page.main)
    if 'project_versions' in to_render:
       print('Project versions...')
-      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
+      for project in project_order:
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          if project_page.versions is not None:
@@ -200,20 +215,20 @@ def main():
             save_file(website, project_page.versions)
    if 'project_issues' in to_render:
       print('Project issues...')
-      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
+      for project in project_order:
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          make_project_issues_page(website, project_page.issues, project)
          save_file(website, project_page.issues)
    if 'project_version_issues' in to_render:
       print('Project versions issues...')
-      for project in reversed(sorted_projects(website.metas, website.relations.fields)):
+      for project in project_order:
          print('\t' + project['key'])
          project_page = website.project_pages[project['id']]
          for version in project['versions'].values():
             print('\t\t' + version['name'])
             full_title = f'[{project['key']}] {version['name']}'
-            file = make_jira_file(website.root, project_page.get_version_path(version), full_title)
+            file = make_jira_file(root, project_page.get_version_path(version), full_title)
             make_version_page(website, file, version)
             save_file(website, file)
    if 'meta_issues' in to_render:
@@ -226,11 +241,11 @@ def main():
          if key == 'resolution':
             value_keys.insert(0, None)
          for value_key in value_keys:
-            display = meta_display(website.metas, key, value_key)
+            display = meta_display(metas, key, value_key)
             assert display is not None
             print('\t\t' + display.name)
             full_title = f'[{fname}] {display.name}'
-            file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
+            file = make_jira_file(root, field_page.get_value_path(display.name), full_title)
             make_meta_value_page(website, file, key, value_key)
             save_file(website, file)
    if 'field_issues' in to_render:
@@ -240,11 +255,13 @@ def main():
          field_page = website.field_pages[key]
          fname = field_name(metas, key)
          for value_key in values.keys():
-            display = field_display(website.relations.fields, key, value_key)
+            if not perms.field_visible(key, value_key):
+               continue
+            display = field_display(rels.fields, key, value_key)
             assert display is not None
             print('\t\t' + display.name)
             full_title = f'[{fname}] {display.name}'
-            file = make_jira_file(website.root, field_page.get_value_path(display.name), full_title)
+            file = make_jira_file(root, field_page.get_value_path(display.name), full_title)
             make_field_value_page(website, file, key, value_key)
             save_file(website, file)
    if 'issues_list' in to_render:
@@ -253,26 +270,26 @@ def main():
       save_file(website, website.all_issues_list)
    if 'issues' in to_render:
       print('Issues...')
-      written_issues: set[str] = set()
       for i, issue in enumerate(archive.issues()):
+         if not perms.issue_visible(website.relations.fields, issue['id']):
+            continue
          print('\t' + issue['key'])
          if i % 1000 == 0:
             print(f'\t== {i} ==')
          path = website.get_issue_path(issue)
          full_title = f'[{issue['key']}] {issue['fields']['summary']}'
-         file = make_jira_file(website.root, path, full_title)
+         file = make_jira_file(root, path, full_title)
          make_issue_page(website, file, issue)
          save_file(website, file)
-         written_issues.add(issue['key'])
       print('Moved issues...')
       for issue_key, issue_id in rels.keys.issue_keys.items():
-         if issue_key not in written_issues:
+         issue = get_issue(archive, issue_id)
+         if issue['key'] != issue_key:
             print('\t' + issue_key)
-            issue = get_issue(website.archive, issue_id)
             from_path = website.get_issue_key_path(issue_key)
             to_path = website.get_issue_path(issue)
-            relative = relative_path(website.root, from_path, website.root / to_path)
-            from_full = website.root / from_path
+            relative = relative_path(root, from_path, root / to_path)
+            from_full = root / from_path
             if from_full.is_symlink():
                if from_full.readlink() != relative:
                   from_full.unlink()
@@ -305,7 +322,7 @@ def main():
          if i % 1000 == 0:
             print(f'\t== {i} ==')
          path = website.get_user_path(user)
-         file = make_jira_file(website.root, path, user['displayName'])
+         file = make_jira_file(root, path, user['displayName'])
          make_user_page(website, file, user)
          save_file(website, file)
 
@@ -349,8 +366,12 @@ def include_wiki_rendering(website: Website, file: HtmlFile):
 
 def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
    for entry in parsed.issues:
-      _issue_id = website.relations.keys.get_issue_key(entry.key)
-      entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_issue_key_path(entry.key))
+      issue_id = website.relations.keys.get_issue_key(entry.key)
+      if website.perms.issue_visible(website.relations.fields, issue_id):
+         entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_issue_key_path(entry.key))
+      else:
+         del entry.tag.attrs[entry.attr]
+         del entry.tag.attrs['title']
    for entry in parsed.users:
       _user_key = website.relations.keys.get_user_key(entry.username)
       entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_user_name_path(entry.username))
@@ -380,7 +401,7 @@ def make_home_page(website: Website, file: HtmlFile):
    soup = file.page.soup
    content = main_content(website, file)
 
-   issue_count = sum(1 for _ in website.archive.issue_ids())
+   issue_count = sum(1 for x in website.archive.issue_ids() if website.perms.issue_visible(website.relations.fields, x))
    user_count = sum(1 for _ in website.archive.user_keys())
    add_metadata(file, 'Mojira Archive', f'{format_number(issue_count)} issues, {format_number(user_count)} users', None)
 
@@ -407,7 +428,7 @@ def make_home_page(website: Website, file: HtmlFile):
             f'{format_number(user_count)} users'
          ]
       ])),
-      ('Projects', build_tile_grid(soup, (project_grid_entry(website, file, x) for x in sorted_projects(website.metas, website.relations.fields)))),
+      ('Projects', build_tile_grid(soup, (project_grid_entry(website, file, x) for x in sorted_projects(website.metas, website.relations.fields, website.perms)))),
       ('Fields', build_tile_grid(soup,
          [meta_grid_entry(website, file, x) for x in sorted_metas]
          + [field_grid_entry(website, file, x) for x in sorted_fields]
@@ -434,7 +455,7 @@ def make_field_page(website: Website, file: HtmlFile, field_id: str):
    content = main_content(website, file)
 
    name = field_name(website.metas, field_id)
-   values = sorted_field_values(website.relations.fields, field_id)
+   values = sorted_field_values(website.relations.fields, website.perms, field_id)
    add_metadata(file, name, f'{len(values)} values', None)
 
    main = build_grid_main(soup, [
@@ -458,7 +479,7 @@ def build_tile_grid(soup: bs4.BeautifulSoup, entries: typing.Iterable[list[Tag]]
    return grid
 
 def project_grid_entry(website: Website, file: HtmlFile, project: Project) -> list[Tag]:
-   issues = website.relations.fields.metas['project'][project['id']]
+   issues = [x for x in website.relations.fields.metas['project'][project['id']] if website.perms.issue_visible(website.relations.fields, x)]
    versions = project['versions']
    project_page = website.project_pages[project['id']]
    content: list[Tag] = [
@@ -493,7 +514,7 @@ def field_grid_entry(website: Website, file: HtmlFile, field_id: str) -> list[Ta
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name', 'href': link}, content=name),
    ]
-   values = sorted_field_values(website.relations.fields, field_id)
+   values = sorted_field_values(website.relations.fields, website.perms, field_id)
    if len(values) > 15:
       content.append(f'{format_number(len(values))} values')
    else:
@@ -518,7 +539,7 @@ def group_grid_entry(website: Website, file: HtmlFile, group: str) -> list[Tag]:
    return content
 
 def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: ValueDisplay) -> list[Tag]:
-   issues = website.relations.fields.metas[meta_id]['' if value.id is None else value.id]
+   issues = [x for x in website.relations.fields.metas[meta_id]['' if value.id is None else value.id] if website.perms.issue_visible(website.relations.fields, x)]
    content: list[Tag] = [
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'span', attrs={'class': 'tile-grid-name'}, content=meta_link_display(website, file, meta_id, value))
@@ -531,7 +552,7 @@ def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META
 
 def field_value_grid_entry(website: Website, file: HtmlFile, field_id: str, value: ValueDisplay) -> list[Tag]:
    assert value.id is not None
-   issues = website.relations.fields.fields[field_id][value.id]['issues']
+   issues = [x for x in website.relations.fields.fields[field_id][value.id]['issues'] if website.perms.issue_visible(website.relations.fields, x)]
    content: list[Tag] = [
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'span', attrs={'class': 'tile-grid-name'}, content=field_link_display(website, file, field_id, value))
@@ -565,9 +586,12 @@ def make_project_main_page(website: Website, file: HtmlFile, project: Project):
 
 def project_details(website: Website, file: HtmlFile, project: Project) -> typing.Generator[tuple[Tag, Tag]]:
    project_page = website.project_pages[project['id']]
-   issues = website.relations.fields.metas['project'][project['id']]
+   issues = [x for x in website.relations.fields.metas['project'][project['id']] if website.perms.issue_visible(website.relations.fields, x)]
    versions = project['versions']
-   data_link = relative_path(website.root, file.path, website.archive.folder / website.metas.projects_path)
+   if website.perms.hidden_json_data:
+      data_link = None
+   else:
+      data_link = relative_path(website.root, file.path, website.archive.folder / website.metas.projects_path)
    links = project_detail_links(project, data_link)
    yield ('Project Lead:', user_link(website, file, project['lead']))
    yield ('Issues:', new_content_tag(file.page.soup, 'a', format_number(len(issues)), attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}))
@@ -592,8 +616,8 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
    main = build_info_main(soup, top, body, details, None, None)
    content.append(main)
 
-   affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
-   fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
+   affected_issues = [x for x in website.relations.fields.metas['versions'].get(version['id'], []) if website.perms.issue_visible(website.relations.fields, x)]
+   fixed_issues = [x for x in website.relations.fields.metas['fixVersions'].get(version['id'], []) if website.perms.issue_visible(website.relations.fields, x)]
    table_scripts: list[TableData] = []
    tab_data: list[InfoTabData] = []
    if len(affected_issues) > 0:
@@ -638,13 +662,13 @@ def make_user_page(website: Website, file: HtmlFile, user: User):
    main = build_info_main(soup, top, [], details, None, None)
    content.append(main)
 
-   all_reported = website.relations.fields.metas['reporter'].get(user['key'], [])
-   all_created = website.relations.fields.metas['creator'].get(user['key'], [])
+   all_reported = [x for x in website.relations.fields.metas['reporter'].get(user['key'], []) if website.perms.issue_visible(website.relations.fields, x)]
+   all_created = [x for x in website.relations.fields.metas['creator'].get(user['key'], []) if website.perms.issue_visible(website.relations.fields, x)]
    reported_and_created = [x for x in all_reported if x in all_created]
    reported_not_created = [x for x in all_reported if x not in all_created]
    created_not_reported = [x for x in all_created if x not in all_reported]
    issue_list = reported_and_created + created_not_reported + reported_not_created
-   assigned_issues = website.relations.fields.metas['assignee'].get(user['key'], [])
+   assigned_issues = [x for x in website.relations.fields.metas['assignee'].get(user['key'], []) if website.perms.issue_visible(website.relations.fields, x)]
    table_scripts: list[TableData] = []
    tab_data: list[InfoTabData] = []
    if len(issue_list) > 0:
@@ -663,7 +687,13 @@ def make_user_page(website: Website, file: HtmlFile, user: User):
          ['Assigned Issues', count_badge(soup, len(assigned_issues))],
          [assigned_table.filters, assigned_table.table]
       ))
-   all_mentions = get_renderable_user_mentions(website.archive, website.markup_source, website.markup_rels.users[user['key']], website.relations.keys, user['key']) if user['key'] in website.markup_rels.users else []
+   all_comments = get_renderable_user_comments(website.archive, website.markup_source, website.relations.fields, website.perms, website.relations.user.comments.get(user['key'], {}))
+   tab_data.append(InfoTabData(
+      'comments',
+      ['Comments', count_badge(soup, len(all_comments))],
+      [issue_comments(website, file, all_comments)]
+   ))
+   all_mentions = get_renderable_user_mentions(website.archive, website.markup_source, website.markup_rels.users[user['key']], website.relations.fields, website.perms,  website.relations.keys, user['key']) if user['key'] in website.markup_rels.users else []
    if len(all_mentions) > 0:
          tab_data.append(InfoTabData(
             'mentions',
@@ -685,9 +715,10 @@ def user_details(website: Website, file: HtmlFile, user: User) -> typing.Generat
       new_content_tag(file.page.soup, 'li', group_link(website, file, x['name'])) for x in user['groups']['items']
    ])
    yield ('Groups:', group_list)
-   data_link = relative_path(website.root, file.path, website.archive.get_user_path(user['key']))
-   links = [('JSON', urllib.parse.quote(str(data_link)))]
-   yield ('Links:', build_link_list(file.page.soup, 'ul', links))
+   if not website.perms.hidden_json_data:
+      data_link = relative_path(website.root, file.path, website.archive.get_user_path(user['key']))
+      links = [('JSON', urllib.parse.quote(str(data_link)))]
+      yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
 def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
    soup = file.page.soup
@@ -742,8 +773,8 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
 
    add_metadata(file, full_title, desc_text, image_url)
 
-   all_comments = get_renderable_comments(website.markup_source, website.secret_comments, issue)
-   all_mentions = get_renderable_issue_mentions(website.archive, website.markup_source, website.markup_rels.issues[issue_id], website.relations.keys, issue_id) if issue_id in website.markup_rels.issues else []
+   all_comments = get_renderable_issue_comments(website.markup_source, website.secret_comments, issue, include_secrets=not website.perms.hidden_secret_comments)
+   all_mentions = get_renderable_issue_mentions(website.archive, website.markup_source, website.markup_rels.issues[issue_id], website.relations.fields, website.perms, website.relations.keys, issue_id) if issue_id in website.markup_rels.issues else []
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
@@ -831,7 +862,10 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
    if 'fixVersions' in fields and project is not None:
       versions = list(map(lambda x: project['versions'][x], fields['fixVersions']))
       yield ('Fix Versions:', version_list(website, file, project, versions))
-   data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
+   if website.perms.hidden_json_data:
+      data_link = None
+   else:
+      data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
    links = issue_detail_links(issue, project, data_link)
    yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
@@ -944,7 +978,7 @@ def make_all_issues_page(website: Website, file: HtmlFile):
    soup = file.page.soup
    content = main_content(website, file)
 
-   all_issues = sorted(website.archive.issues(), key=lambda x: int(x['id']))
+   all_issues = sorted((x for x in website.archive.issues() if website.perms.issue_visible(website.relations.fields, x['id'])), key=lambda x: int(x['id']))
    table = create_issue_list(website, file, 'issue', all_issues)
 
    add_metadata(file, 'All Issues', f'{format_number(len(all_issues))} issues', None)
@@ -997,7 +1031,7 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
    soup = file.page.soup
    content = main_content(website, file)
 
-   issue_ids = website.relations.fields.metas['project'][project['id']]
+   issue_ids = [x for x in website.relations.fields.metas['project'][project['id']] if website.perms.issue_visible(website.relations.fields, x)]
    table = create_issue_list(website, file, 'issue', (get_issue(website.archive, x) for x in issue_ids))
 
    add_metadata(file, project['name'], f'{format_number(len(issue_ids))} issues', project['avatarUrls']['48x48'])
@@ -1087,8 +1121,8 @@ def create_versions_table(website: Website, file: HtmlFile, project: Project, ve
    # version-table for style.css
    table.attrs['class'] = 'issue-table'
    for version in versions:
-      affected_issues = website.relations.fields.metas['versions'].get(version['id'], [])
-      fixed_issues = website.relations.fields.metas['fixVersions'].get(version['id'], [])
+      affected_issues = [x for x in website.relations.fields.metas['versions'].get(version['id'], []) if website.perms.issue_visible(website.relations.fields, x)]
+      fixed_issues = [x for x in website.relations.fields.metas['fixVersions'].get(version['id'], []) if website.perms.issue_visible(website.relations.fields, x)]
       link = relative_link(website.root, file.path, website.project_pages[project['id']].get_version_path(version))
       badge = status_badge(soup, version['name'])
       append_row(soup, table, [
@@ -1205,10 +1239,10 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
       summary_id: 'Summary'
    }
    filter: dict[str, tuple[str, list[ValueDisplay]]] = {
-      project_id: ('Project', [ValueDisplay(x['id'], x['key'], None, None) for x in sorted_projects(website.metas, website.relations.fields)]),
+      project_id: ('Project', [ValueDisplay(x['id'], x['key'], None, None) for x in sorted_projects(website.metas, website.relations.fields, website.perms)]),
       resolution_id: ('Resolution', sorted_meta_values(website.metas, 'resolution')),
-      confirmation_id: ('Confirmation', sorted_field_values(website.relations.fields, 'customfield_10500')),
-      priority_id: ('Priority', sorted_field_values(website.relations.fields, 'customfield_12200')),
+      confirmation_id: ('Confirmation', sorted_field_values(website.relations.fields, website.perms, 'customfield_10500')),
+      priority_id: ('Priority', sorted_field_values(website.relations.fields, website.perms, 'customfield_12200')),
    }
    settings = VirtualTableSettings(columns, search, filter)
    rows: list[bs4.Tag] = []
@@ -1853,7 +1887,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
          case 'Comment': # from always text, all the rest always null
             assert change['from'] is not None
             assert change['to'] is None
-            if UNKNOWN_COMMENT_RE.match(change['from']) is None:
+            if UNKNOWN_COMMENT_RE.match(change['from']) is None and not website.perms.hidden_deleted_comments:
                comment = website.markup_source.get_deleted_comment_body(issue['id'], rev_id)
                fix_markup(website, file, markup.parse_markup(comment))
                yield revision_quoted(soup, 'Deleted Comment:', [embed_wiki(website, file, comment)])
@@ -2161,6 +2195,8 @@ def issue_links(website: Website, file: HtmlFile, links: typing.Iterable[Outward
          linked_id = link['outwardIssue']
       if identity not in link_types:
          link_types[identity] = []
+      if not website.perms.issue_visible(website.relations.fields, linked_id):
+         continue
       linked_data = website.archive.get_issue_data(linked_id)
       assert linked_data is not None
       link_types[identity].append(linked_issue(website, file, linked_data))
@@ -2198,10 +2234,12 @@ def historic_links(website: Website, file: HtmlFile, links: typing.Iterable[Hist
 
 def historic_linked_issue(website: Website, file: HtmlFile, ticket: str) -> bs4.Tag:
    if ticket in website.relations.keys.issue_keys:
-      relevant_issue = website.archive.get_issue_data(website.relations.keys.issue_keys[ticket])
-      assert relevant_issue is not None
-      # wrap in a div so misode.css includes the top border
-      return new_content_tag(file.page.soup, 'div', linked_issue(website, file, relevant_issue))
+      issue_id = website.relations.keys.issue_keys[ticket]
+      if website.perms.issue_visible(website.relations.fields, issue_id):
+         relevant_issue = website.archive.get_issue_data(issue_id)
+         assert relevant_issue is not None
+         # wrap in a div so misode.css includes the top border
+         return new_content_tag(file.page.soup, 'div', linked_issue(website, file, relevant_issue))
    return new_content_tag(file.page.soup, 'div', issue_key(website, file, None, ticket, with_icon=True))
 
 def version_list(website: Website, file: HtmlFile, project: Project, versions: list[Version]) -> Tag:
@@ -2424,18 +2462,20 @@ def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
    link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))
    return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'src': link, 'alt': 'Issue'})
 
-def user_avatar(website: Website, file: HtmlFile, user: User | UnknownUser) -> bs4.Tag:
+def user_avatar_link(website: Website, file: HtmlFile, user: User | UnknownUser) -> str:
    gravatar_path1 = website.archive.folder / 'assets/gravatar' / (mojira.encode_user_string(user['key']) + '.png')
    gravatar_path2 = website.archive.folder / 'assets/gravatar' / (mojira.encode_user_string(user['key']) + '.jpeg')
    if gravatar_path1.exists():
-      link = str(relative_path(website.root, file.path, gravatar_path1))
-   elif gravatar_path2.exists():
-      link = str(relative_path(website.root, file.path, gravatar_path2))
-   else:
-      avatar_url = user['avatarUrls']['48x48']
-      avatar_path = get_avatar_path(website.archive, website.archive.users_avatars_folder, avatar_url)
-      assert avatar_path is not None
-      link = str(relative_path(website.root, file.path, avatar_path))
+      return str(relative_path(website.root, file.path, gravatar_path1))
+   if gravatar_path2.exists():
+      return str(relative_path(website.root, file.path, gravatar_path2))
+   avatar_url = user['avatarUrls']['48x48']
+   avatar_path = get_avatar_path(website.archive, website.archive.users_avatars_folder, avatar_url)
+   assert avatar_path is not None
+   return str(relative_path(website.root, file.path, avatar_path))
+
+def user_avatar(website: Website, file: HtmlFile, user: User | UnknownUser) -> bs4.Tag:
+   link = user_avatar_link(website, file, user)
    # avatar for misode.css
    return file.page.soup.new_tag('img', attrs={'class': 'avatar', 'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': user['displayName']})
 

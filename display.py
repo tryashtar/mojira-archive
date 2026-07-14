@@ -15,6 +15,45 @@ from jiratypes import Comment, InwardIssueLink, Issue, NewComment, OutwardIssueL
 from web import append_class
 
 @dataclasses.dataclass
+class ViewPerms:
+   hidden_projects: list[str]
+   hidden_group_comments: list[str]
+   hidden_security_levels: list[str]
+   hidden_secret_comments: bool
+   hidden_deleted_comments: bool
+   hidden_json_data: bool
+
+   def project_visible(self, project_id: str) -> bool:
+      return project_id not  in self.hidden_projects
+
+   def group_comments_visible(self, group: str) -> bool:
+      return group not in self.hidden_group_comments
+
+   def field_visible(self, field_id: str, value_key: str) -> bool:
+      if field_id == 'security' and value_key in self.hidden_security_levels:
+         return False
+      return True
+
+   def comment_visible(self, comment: Comment) -> bool:
+      if 'visibility' not in comment:
+         return True
+      if comment['visibility']['type'] != 'group':
+         return True
+      return comment['visibility']['value'] not in self.hidden_group_comments
+
+   def issue_visible(self, rels: relations.FieldRelations, issue_id: str) -> bool:
+      for project in self.hidden_projects:
+         if issue_id in rels.metas['project'][project]:
+            return False
+      for security in self.hidden_security_levels:
+         if issue_id in rels.fields['security'][security]:
+            return False
+      return True
+
+   def filter_projects(self, projects: typing.Iterable[Project]) -> typing.Iterable[Project]:
+      return filter(lambda x: self.project_visible(x['id']), projects)
+
+@dataclasses.dataclass
 class ValueDisplay:
    id: str | None
    name: str
@@ -44,18 +83,20 @@ def field_display(rels: relations.FieldRelations, field_id: str, value_id: str) 
       return ValueDisplay(value_id, full_value['name'], desc, icon)
    return ValueDisplay(value_id, full_value['value'], desc, icon)
 
-def project_detail_links(project: Project, json: pathlib.PurePath) -> typing.Generator[tuple[str, str]]:
+def project_detail_links(project: Project, json: pathlib.PurePath | None) -> typing.Generator[tuple[str, str]]:
    portal_num = portal_number(project['key'])
-   yield ('JSON', urllib.parse.quote(str(json)))
+   if json is not None:
+      yield ('JSON', urllib.parse.quote(str(json)))
    yield ('bugs.mojang.com', f'https://bugs.mojang.com/browse/{project['key']}')
    if portal_num is not None:
       yield ('report.bugs.mojang.com', f'https://report.bugs.mojang.com/servicedesk/customer/portal/{portal_num}')
    yield ('mojira.atlassian.net', f'https://mojira.atlassian.net/browse/{project['key']}')
 
-def issue_detail_links(issue: Issue, project: Project | None, json: pathlib.PurePath) -> typing.Generator[tuple[str, str]]:
+def issue_detail_links(issue: Issue, project: Project | None, json: pathlib.PurePath | None) -> typing.Generator[tuple[str, str]]:
    key = issue['key']
    portal_num = portal_number(project['key']) if project is not None else None
-   yield ('JSON', urllib.parse.quote(str(json)))
+   if json is not None:
+      yield ('JSON', urllib.parse.quote(str(json)))
    yield ('mojira.dev', f'https://mojira.dev/{key}')
    yield ('bugs.mojang.com', f'https://bugs.mojang.com/browse/{key}')
    if portal_num is not None:
@@ -70,14 +111,29 @@ class RenderableComment:
    date: datetime.datetime
    secret: bool
 
-def get_renderable_comments(source: markup.MarkupSource, secrets: mojira.SecretComments, issue: Issue) -> list[RenderableComment]:
+def get_renderable_issue_comments(source: markup.MarkupSource, secrets: mojira.SecretComments, issue: Issue, include_secrets: bool) -> list[RenderableComment]:
    result: list[RenderableComment] = []
    for comment in issue['fields']['comment']['comments']:
       body = source.get_comment_body(issue['id'], comment['id'])
       result.append(RenderableComment(comment, None, body, datetime.datetime.fromisoformat(comment['created']), secret=False))
-   for comment in secrets.get(issue['id']):
-      body = source.get_secret_comment_body(issue['id'], comment['id'])
-      bisect.insort_left(result, RenderableComment(comment, None, body, datetime.datetime.fromisoformat(comment['created']), secret=True), key=lambda x: x.date)
+   if include_secrets:
+      for comment in secrets.get(issue['id']):
+         body = source.get_secret_comment_body(issue['id'], comment['id'])
+         bisect.insort_left(result, RenderableComment(comment, None, body, datetime.datetime.fromisoformat(comment['created']), secret=True), key=lambda x: x.date)
+   return result
+
+def get_renderable_user_comments(archive: mojira.Archive, source: markup.MarkupSource, fields: relations.FieldRelations, perms: ViewPerms, comment_dict: dict[str, list[str]]) -> list[RenderableComment]:
+   result: list[RenderableComment] = []
+   for issue_id, comments in comment_dict.items():
+      if not perms.issue_visible(fields, issue_id):
+         continue
+      issue = get_issue(archive, issue_id)
+      for comment_id in comments:
+         comment = next(filter(lambda x: x['id'] == comment_id, issue['fields']['comment']['comments']))
+         if not perms.comment_visible(comment):
+            continue
+         body = source.get_comment_body(issue_id, comment_id)
+         bisect.insort_left(result, RenderableComment(comment, issue, body, datetime.datetime.fromisoformat(comment['created']), secret=False), key=lambda x: x.date)
    return result
 
 @dataclasses.dataclass
@@ -102,39 +158,47 @@ def highlight_user_mentions(tag: bs4.BeautifulSoup, user_key: str, keys: relatio
          append_class(entry.tag, 'mention')
    return parsed
 
-def get_renderable_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, parser: typing.Callable[[bs4.BeautifulSoup], markup.ParsedMarkup]) -> list[RenderableMention]:
+def get_renderable_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, fields: relations.FieldRelations, perms: ViewPerms, parser: typing.Callable[[bs4.BeautifulSoup], markup.ParsedMarkup]) -> list[RenderableMention]:
    result: list[RenderableMention] = []
    for issue_id in rels['descriptions']:
+      if not perms.issue_visible(fields, issue_id):
+         continue
       subissue = archive.get_issue_data(issue_id)
       assert subissue is not None
       desc = source.get_issue_description(issue_id)
       parsed = parser(desc)
       bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), desc, parsed), key=lambda x: x.date)
    for issue_id in rels['environments']:
+      if not perms.issue_visible(fields, issue_id):
+         continue
       subissue = archive.get_issue_data(issue_id)
       assert subissue is not None
       env = source.get_issue_environment(issue_id)
       parsed = parser(env)
       bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), env, parsed), key=lambda x: x.date)
    for issue_id, comment_ids in rels['comments'].items():
+      if not perms.issue_visible(fields, issue_id):
+         continue
       subissue = archive.get_issue_data(issue_id)
       assert subissue is not None
       for comment_id in comment_ids:
+         comment = next(filter(lambda x: x['id'] == comment_id, subissue['fields']['comment']['comments']))
+         if not perms.comment_visible(comment):
+            continue
          body = source.get_comment_body(issue_id, comment_id)
          parsed = parser(body)
-         comment = next(filter(lambda x: x['id'] == comment_id, subissue['fields']['comment']['comments']))
          bisect.insort_left(result, RenderableMention(subissue, comment, datetime.datetime.fromisoformat(comment['created']), body, parsed), key=lambda x: x.date)
    return result
 
-def get_renderable_issue_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, issue_id: str) -> list[RenderableMention]:
+def get_renderable_issue_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, fields: relations.FieldRelations, perms: ViewPerms, keys: relations.KeyLookups, issue_id: str) -> list[RenderableMention]:
    def parser(tag: bs4.BeautifulSoup) -> markup.ParsedMarkup:
       return highlight_issue_mentions(tag, issue_id, keys)
-   return get_renderable_mentions(archive, source, rels, parser)
+   return get_renderable_mentions(archive, source, rels, fields, perms, parser)
 
-def get_renderable_user_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, user_key: str) -> list[RenderableMention]:
+def get_renderable_user_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, fields: relations.FieldRelations, perms: ViewPerms, keys: relations.KeyLookups, user_key: str) -> list[RenderableMention]:
    def parser(tag: bs4.BeautifulSoup) -> markup.ParsedMarkup:
       return highlight_user_mentions(tag, user_key, keys)
-   return get_renderable_mentions(archive, source, rels, parser)
+   return get_renderable_mentions(archive, source, rels, fields, perms, parser)
 
 @dataclasses.dataclass
 class HistoricValue:
@@ -525,8 +589,9 @@ def get_user(archive: mojira.Archive, user_key: str) -> User:
    assert user is not None
    return user
 
-def sorted_projects(metas: mojira.ArchiveMetas, rels: relations.FieldRelations) -> list[Project]:
-   return sorted(metas.projects.values(), key=lambda x: len(rels.metas['project'][x['id']]), reverse=True)
+def sorted_projects(metas: mojira.ArchiveMetas, rels: relations.FieldRelations, perms: ViewPerms) -> list[Project]:
+   filtered = perms.filter_projects(metas.projects.values())
+   return sorted(filtered, key=lambda x: len(rels.metas['project'][x['id']]), reverse=True)
 
 def sorted_meta_values(metas: mojira.ArchiveMetas, meta_id: mojira.META_TYPE) -> list[ValueDisplay]:
    def order_key(display: ValueDisplay):
@@ -542,7 +607,7 @@ def sorted_meta_values(metas: mojira.ArchiveMetas, meta_id: mojira.META_TYPE) ->
       bisect.insort_left(displays, display, key=order_key)
    return displays
 
-def sorted_field_values(rels: relations.FieldRelations, field_id: str) -> list[ValueDisplay]:
+def sorted_field_values(rels: relations.FieldRelations, perms: ViewPerms, field_id: str) -> list[ValueDisplay]:
    def order_key(display: ValueDisplay):
       relation = rels.fields[field_id]['' if display.id is None else display.id]
       return (-len(relation['issues']), display.name)
@@ -550,6 +615,8 @@ def sorted_field_values(rels: relations.FieldRelations, field_id: str) -> list[V
    displays: list[ValueDisplay] = []
    for value in values:
       value_id = value['value'] if isinstance(value['value'], str) else value['value']['id']
+      if not perms.field_visible(field_id, value_id):
+         continue
       display = field_display(rels, field_id, value_id)
       assert display is not None
       bisect.insort_left(displays, display, key=order_key)
