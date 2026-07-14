@@ -2,8 +2,6 @@ package com.renderer;
 
 import java.io.FileReader;
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
@@ -39,18 +37,8 @@ public class FakeUserManager implements UserManager {
         return this.getUserByKey(id);
     }
 
-    public ApplicationUser getUserByNameEvenWhenUnknown(String username) {
-        var id = this.usernameMap.get(username.toLowerCase());
-        if (id == null) {
-            return new FakeUser(username, username);
-        }
-        return this.getUserByKey(id.getAsString());
-    }
-
     public ApplicationUser getUserByKey(String key) {
-        String encoded = URLEncoder.encode(key, StandardCharsets.UTF_8);
-        encoded = encoded.replaceAll("\\*", "%2A");
-        var path = userFolder.resolve(encoded + ".json");
+        var path = userFolder.resolve(key.replace('/', '⁄') + ".json");
         JsonObject data;
         try {
             data = JsonParser.parseReader(new FileReader(path.toFile())).getAsJsonObject();
@@ -60,6 +48,10 @@ public class FakeUserManager implements UserManager {
         var name = data.get("name").getAsString();
         var display = data.get("displayName").getAsString();
         return new FakeUser(name, display);
+    }
+
+    public ApplicationUser getUserByNameEvenWhenUnknown(String username) {
+        throw new UnsupportedOperationException();
     }
 
     public boolean canDirectoryUpdateUserPassword(Directory arg0) {

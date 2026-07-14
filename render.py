@@ -349,22 +349,16 @@ def include_wiki_rendering(website: Website, file: HtmlFile):
 
 def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
    for entry in parsed.issues:
-      if website.relations.keys.try_get_issue_key(entry.key) is None:
-         del entry.tag.attrs[entry.attr]
-      else:
-         entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_issue_key_path(entry.key))
+      _issue_id = website.relations.keys.get_issue_key(entry.key)
+      entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_issue_key_path(entry.key))
    for entry in parsed.users:
-      if website.relations.keys.try_get_user_key(entry.username) is None:
-         del entry.tag.attrs[entry.attr]
-      else:
-         entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_user_name_path(entry.username))
+      _user_key = website.relations.keys.get_user_key(entry.username)
+      entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_user_name_path(entry.username))
    for entry in [*parsed.attachments, *parsed.thumbnails]:
       data = website.archive.get_attachment_data(entry.id)
-      if data is None:
-         del entry.tag.attrs[entry.attr]
-      else:
-         path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(entry.id, data['filename']))
-         entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
+      assert data is not None
+      path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(entry.id, data['filename']))
+      entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
    for entry in parsed.thumbnails:
       append_class(entry.tag, 'thumbnail')
    for entry in parsed.icons:
@@ -1671,18 +1665,14 @@ def revision_quoted(soup: bs4.BeautifulSoup, label: Tag | list[Tag], content: li
 def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, process: typing.Callable[[bs4.Tag], bs4.Tag], panel_class: str) -> bs4.Tag:
    if before is not None and after is not None:
       diff = html_diff(soup, before, after)
-      has_insertions = diff.find('diff:insert') is not None or diff.find(attrs={'diff:insert': True}) is not None
-      has_deletions = diff.find('diff:delete') is not None or diff.find(attrs={'diff:delete': True}) is not None
+      has_insertions = diff.find(_class='diff-insert') is not None
+      has_deletions = diff.find(_class='diff-delete') is not None
       if has_insertions and has_deletions:
          before_diff = copy.deepcopy(diff)
          after_diff = copy.deepcopy(diff)
-         for tag in before_diff.find_all('diff:insert'):
+         for tag in before_diff.find_all(_class='diff-insert'):
             tag.extract()
-         for tag in before_diff.find_all(attrs={'diff:insert': True}):
-            tag.extract()
-         for tag in after_diff.find_all('diff:delete'):
-            tag.extract()
-         for tag in after_diff.find_all(attrs={'diff:delete': True}):
+         for tag in after_diff.find_all(_class='diff-delete'):
             tag.extract()
          panel = new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[process(before_diff), process(after_diff)])
          return revision_quoted(soup, f'Changed {label}:', [panel])
