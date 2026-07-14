@@ -28,6 +28,18 @@ class KeyLookups:
       save_one(self.issue_keys, folder / 'issues.json')
       save_one(self.user_keys, folder / 'users.json')
 
+   def get_user_key(self, username: str) -> str:
+      return self.user_keys[username.casefold()]
+
+   def try_get_user_key(self, username: str) -> str | None:
+      return self.user_keys.get(username.casefold())
+
+   def get_issue_key(self, issue_id: str) -> str:
+      return self.issue_keys[issue_id]
+
+   def try_get_issue_key(self, issue_id: str) -> str | None:
+      return self.issue_keys.get(issue_id)
+
 GroupRelation = typing.TypedDict('GroupRelation', {
    'users': list[str],
    'comments': dict[str, list[str]]
@@ -76,25 +88,25 @@ class FieldRelations:
       self.fields = {}
       self.metas = {}
 
-   def load(self, folder: pathlib.Path):
+   def load(self, fields: pathlib.Path, metas: pathlib.Path):
       self.fields.clear()
       self.metas.clear()
-      if (folder / 'fields').exists():
-         for file in (folder / 'fields').iterdir():
+      if fields.exists():
+         for file in fields.iterdir():
             data = {}
             load_one(data, file)
             self.fields[file.stem] = data
-      if (folder / 'metas').exists():
-         for file in (folder / 'metas').iterdir():
+      if metas.exists():
+         for file in metas.iterdir():
             data = {}
             load_one(data, file)
             self.metas[file.stem] = data
 
-   def save(self, folder: pathlib.Path):
+   def save(self, fields: pathlib.Path, metas: pathlib.Path):
       for key, value in self.fields.items():
-         save_one(value, folder / 'fields' / (key + '.json'))
+         save_one(value, fields / (key + '.json'))
       for key, value in self.metas.items():
-         save_one(value, folder / 'metas' / (key + '.json'))
+         save_one(value, metas / (key + '.json'))
 
 def load_one(data: dict, path: pathlib.Path):
    data.clear()
@@ -169,12 +181,12 @@ class RelationsBundle:
    def load(self, folder: pathlib.Path):
       self.keys.load(folder / 'keys')
       self.user.load(folder / 'user')
-      self.fields.load(folder)
+      self.fields.load(folder / 'fields', folder / 'metas')
 
    def save(self, folder: pathlib.Path):
       self.keys.save(folder / 'keys')
       self.user.save(folder / 'user')
-      self.fields.save(folder)
+      self.fields.save(folder / 'fields', folder / 'metas')
 
 def create_relations(archive: mojira.Archive) -> RelationsBundle:
    key_rel = KeyLookups()

@@ -22,7 +22,7 @@ import markup
 
 from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewAuthor, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, UnknownUser, User, Version
 from web import HtmlFile, Tag, add_metadata, append_class, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_file, make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
-from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, category_splitter, field_display, field_name, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_comments, get_renderable_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
+from display import HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment, RenderableMention, ValueDisplay, category_splitter, field_display, field_name, format_number, forwards_revision_order_key, get_avatar_path, get_initial_data, get_issue, get_link_dir, get_renderable_comments, get_renderable_issue_mentions, get_renderable_user_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, meta_display, project_detail_links, sorted_field_values, sorted_meta_values, sorted_projects, try_project, user_role
 
 @dataclasses.dataclass
 class ProjectPage:
@@ -349,12 +349,12 @@ def include_wiki_rendering(website: Website, file: HtmlFile):
 
 def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
    for entry in parsed.issues:
-      if entry.key not in website.relations.keys.issue_keys:
+      if website.relations.keys.try_get_issue_key(entry.key) is None:
          del entry.tag.attrs[entry.attr]
       else:
          entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_issue_key_path(entry.key))
    for entry in parsed.users:
-      if entry.username not in website.relations.keys.user_keys:
+      if website.relations.keys.try_get_user_key(entry.username) is None:
          del entry.tag.attrs[entry.attr]
       else:
          entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_user_name_path(entry.username))
@@ -388,7 +388,7 @@ def make_home_page(website: Website, file: HtmlFile):
 
    issue_count = sum(1 for _ in website.archive.issue_ids())
    user_count = sum(1 for _ in website.archive.user_keys())
-   add_metadata(file, 'Mojira Archive', f'{issue_count} issues, {user_count} users', None)
+   add_metadata(file, 'Mojira Archive', f'{format_number(issue_count)} issues, {format_number(user_count)} users', None)
 
    def meta_order(meta_id: mojira.META_TYPE):
       return {'resolution': 0, 'status': 1}[meta_id]
@@ -406,11 +406,11 @@ def make_home_page(website: Website, file: HtmlFile):
       ('Full Lists', build_tile_grid(soup, [
          [
             new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': relative_link(website.root, file.path, website.all_issues_list.path)}, content='All Issues'),
-            f'{issue_count} issues'
+            f'{format_number(issue_count)} issues'
          ],
          [
             new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': relative_link(website.root, file.path, website.all_users_list.path)}, content='All Users'),
-            f'{user_count} users'
+            f'{format_number(user_count)} users'
          ]
       ])),
       ('Projects', build_tile_grid(soup, (project_grid_entry(website, file, x) for x in sorted_projects(website.metas, website.relations.fields)))),
@@ -471,10 +471,10 @@ def project_grid_entry(website: Website, file: HtmlFile, project: Project) -> li
       project_link(website, file, project, with_icon=True),
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'span', attrs={'class': 'tile-grid-name'}, content=project['name']),
-      new_content_tag(file.page.soup, 'a', f'{len(issues)} issues', attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}),
+      new_content_tag(file.page.soup, 'a', f'{format_number(len(issues))} issues', attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}),
    ]
    if project_page.versions is not None:
-      content.append(new_content_tag(file.page.soup, 'a', f'{len(versions)} versions', attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
+      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(len(versions))} versions', attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
    return content
 
 def meta_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE) -> list[Tag]:
@@ -486,7 +486,7 @@ def meta_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE)
    ]
    values = sorted_meta_values(website.metas, meta_id)
    if len(values) > 15:
-      content.append(f'{len(values)} values')
+      content.append(f'{format_number(len(values))} values')
    else:
       tags = inline_list(file.page.soup, (meta_link_display(website, file, meta_id, x) for x in values))
       content.append(tags)
@@ -501,7 +501,7 @@ def field_grid_entry(website: Website, file: HtmlFile, field_id: str) -> list[Ta
    ]
    values = sorted_field_values(website.relations.fields, field_id)
    if len(values) > 15:
-      content.append(f'{len(values)} values')
+      content.append(f'{format_number(len(values))} values')
    else:
       tags = inline_list(file.page.soup, (field_link_display(website, file, field_id, x) for x in values))
       content.append(tags)
@@ -515,12 +515,12 @@ def group_grid_entry(website: Website, file: HtmlFile, group: str) -> list[Tag]:
    append_class(title, 'tile-grid-name')
    content: list[Tag] = [
       title,
-      new_content_tag(file.page.soup, 'a', f'{len(users)} users', attrs={'href': relative_link(website.root, file.path, website.group_pages[group].users.path)}),
+      new_content_tag(file.page.soup, 'a', f'{format_number(len(users))} users', attrs={'href': relative_link(website.root, file.path, website.group_pages[group].users.path)}),
    ]
    group_page = website.group_pages[group]
    if group_page.comments is not None:
       comment_count = sum(len(x) for x in rels['comments'].values())
-      content.append(new_content_tag(file.page.soup, 'a', f'{comment_count} restricted comments', attrs={'href': relative_link(website.root, file.path, group_page.comments.path)}))
+      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(comment_count)} restricted comments', attrs={'href': relative_link(website.root, file.path, group_page.comments.path)}))
    return content
 
 def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: ValueDisplay) -> list[Tag]:
@@ -529,7 +529,7 @@ def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'span', attrs={'class': 'tile-grid-name'}, content=meta_link_display(website, file, meta_id, value))
    ]
-   content.append(new_content_tag(file.page.soup, 'p', f'{len(issues)} issues'))
+   content.append(new_content_tag(file.page.soup, 'p', f'{format_number(len(issues))} issues'))
    if value.description is not None:
       # tile-grid-desc for style.css
       content.append(new_content_tag(file.page.soup, 'p', attrs={'class': 'tile-grid-desc'}, content=value.description))
@@ -542,7 +542,7 @@ def field_value_grid_entry(website: Website, file: HtmlFile, field_id: str, valu
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'span', attrs={'class': 'tile-grid-name'}, content=field_link_display(website, file, field_id, value))
    ]
-   content.append(new_content_tag(file.page.soup, 'p', f'{len(issues)} issues'))
+   content.append(new_content_tag(file.page.soup, 'p', f'{format_number(len(issues))} issues'))
    if value.description is not None:
       # tile-grid-desc for style.css
       content.append(new_content_tag(file.page.soup, 'p', attrs={'class': 'tile-grid-desc'}, content=value.description))
@@ -576,9 +576,9 @@ def project_details(website: Website, file: HtmlFile, project: Project) -> typin
    data_link = relative_path(website.root, file.path, website.archive.folder / website.metas.projects_path)
    links = project_detail_links(project, data_link)
    yield ('Project Lead:', user_link(website, file, project['lead']))
-   yield ('Issues:', new_content_tag(file.page.soup, 'a', str(len(issues)), attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}))
+   yield ('Issues:', new_content_tag(file.page.soup, 'a', format_number(len(issues)), attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}))
    if project_page.versions is not None:
-      yield ('Versions:', new_content_tag(file.page.soup, 'a', str(len(versions)), attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
+      yield ('Versions:', new_content_tag(file.page.soup, 'a', format_number(len(versions)), attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
    yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
 def make_version_page(website: Website, file: HtmlFile, version: Version):
@@ -669,6 +669,13 @@ def make_user_page(website: Website, file: HtmlFile, user: User):
          ['Assigned Issues', count_badge(soup, len(assigned_issues))],
          [assigned_table.filters, assigned_table.table]
       ))
+   all_mentions = get_renderable_user_mentions(website.archive, website.markup_source, website.markup_rels.users[user['key']], website.relations.keys, user['key']) if user['key'] in website.markup_rels.users else []
+   if len(all_mentions) > 0:
+         tab_data.append(InfoTabData(
+            'mentions',
+            ['Mentions', count_badge(soup, len(all_mentions))],
+            [issue_mentions(website, file, all_mentions)]
+         ))
    tabs = build_info_tabs(soup, tab_data, orderable=False)
    main.append(tabs)
    if len(table_scripts) > 0:
@@ -742,7 +749,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
    add_metadata(file, full_title, desc_text, image_url)
 
    all_comments = get_renderable_comments(website.markup_source, website.secret_comments, issue)
-   all_mentions = get_renderable_mentions(website.archive, website.markup_source, website.relations.keys, issue_id, website.markup_rels.issues[issue_id]) if issue_id in website.markup_rels.issues else []
+   all_mentions = get_renderable_issue_mentions(website.archive, website.markup_source, website.markup_rels.issues[issue_id], website.relations.keys, issue_id) if issue_id in website.markup_rels.issues else []
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
@@ -946,7 +953,7 @@ def make_all_issues_page(website: Website, file: HtmlFile):
    all_issues = sorted(website.archive.issues(), key=lambda x: int(x['id']))
    table = create_issue_list(website, file, 'issue', all_issues)
 
-   add_metadata(file, 'All Issues', f'{len(all_issues)} issues', None)
+   add_metadata(file, 'All Issues', f'{format_number(len(all_issues))} issues', None)
 
    list_main = build_list_main(soup, ['All Issues'], None, [table.filters, table.table])
    content.append(list_main)
@@ -999,7 +1006,7 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
    issue_ids = website.relations.fields.metas['project'][project['id']]
    table = create_issue_list(website, file, 'issue', (get_issue(website.archive, x) for x in issue_ids))
 
-   add_metadata(file, project['name'], f'{len(issue_ids)} issues', project['avatarUrls']['48x48'])
+   add_metadata(file, project['name'], f'{format_number(len(issue_ids))} issues', project['avatarUrls']['48x48'])
 
    h1 = [project_link(website, file, project, with_icon=True), ' issues']
    list_main = build_list_main(soup, h1, None, [table.filters, table.table])
@@ -1013,7 +1020,7 @@ def make_project_versions_page(website: Website, file: HtmlFile, project: Projec
    versions = project['versions'].values()
    table = create_versions_table(website, file, project, versions)
 
-   add_metadata(file, project['name'], f'{len(versions)} versions', project['avatarUrls']['48x48'])
+   add_metadata(file, project['name'], f'{format_number(len(versions))} versions', project['avatarUrls']['48x48'])
 
    h1 = [project_link(website, file, project, with_icon=True), ' versions']
    # issue-list for misode.css
@@ -1027,7 +1034,7 @@ def make_all_users_page(website: Website, file: HtmlFile):
    all_users = sorted(website.archive.users(), key=lambda x: x['key'])
    table = create_user_list(website, file, 'user', all_users)
 
-   add_metadata(file, 'All Users', f'{len(all_users)} all_users', None)
+   add_metadata(file, 'All Users', f'{format_number(len(all_users))} all_users', None)
 
    list_main = build_list_main(soup, ['All Users'], None, [table.filters, table.table])
    content.append(list_main)
@@ -1040,7 +1047,7 @@ def make_group_users_page(website: Website, file: HtmlFile, group: str, data: re
    users = data['users']
    table = create_user_list(website, file, 'user', (get_user(website.archive, x) for x in users))
 
-   add_metadata(file, group, f'{len(users)} users', None)
+   add_metadata(file, group, f'{format_number(len(users))} users', None)
 
    list_main = build_list_main(soup, [group_name(website, file, group)], None, [table.filters, table.table])
    content.append(list_main)
@@ -1059,7 +1066,7 @@ def make_group_comments_page(website: Website, file: HtmlFile, group: str, data:
             renderable = RenderableComment(comment, issue, body, datetime.datetime.fromisoformat(comment['created']), secret=False)
             bisect.insort_left(all_comments, renderable, key=lambda x: x.date)
 
-   add_metadata(file, group, f'{len(all_comments)} comments', None)
+   add_metadata(file, group, f'{format_number(len(all_comments))} comments', None)
 
    section = build_user_section(soup, [comment_to_user(website, file, x) for x in all_comments])
    content.append(section)
@@ -1095,8 +1102,8 @@ def create_versions_table(website: Website, file: HtmlFile, project: Project, ve
          new_content_tag(soup, 'td', attrs={'class': 'version-table-name'}, content=new_content_tag(soup, 'a', attrs={'href': link}, content=new_content_tag(soup, 'div', badge))),
          new_content_tag(soup, 'td', attrs={'class': 'version-table-desc'}, content=new_content_tag(soup, 'div', version['description'] if 'description' in version else [])),
          new_content_tag(soup, 'td', attrs={'class': 'version-table-date'}, content=new_content_tag(soup, 'div', render_date(soup, datetime.datetime.fromisoformat(version['releaseDate'])) if 'releaseDate' in version else [])),
-         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(affected_issues)} issues' if len(affected_issues) > 0 else [])),
-         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{len(fixed_issues)} issues' if len(fixed_issues) > 0 else [])),
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{format_number(len(affected_issues))} issues' if len(affected_issues) > 0 else [])),
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{format_number(len(fixed_issues))} issues' if len(fixed_issues) > 0 else [])),
       ])
    # issue-table-container for misode.css
    return new_content_tag(soup, 'div', attrs={'class': 'issue-table-container'}, content=table)
@@ -1114,52 +1121,18 @@ TableData = typing.TypedDict('TableData', {
    'rows': list[bs4.Tag]
 })
 
-SerializedTableData = typing.TypedDict('SerializedTableData', {
-   'rowHeight': int,
-   'tableHeaderId': str,
-   'tableBodyId': str,
-   'scrollId': str,
-   'countId': str,
-   'labelText': str,
-   'search': dict[str, list[str]],
-   'filter': dict[str, list[str | None]],
-   'sort': list[list[int]],
-   'rows': list[str]
-})
-
 def add_table_scripts(website: Website, file: HtmlFile, scripts: list[TableData]):
-   result: list[SerializedTableData] = []
-   for entry in scripts:
-      result.append({
-         'rowHeight': entry['rowHeight'],
-         'tableHeaderId': entry['tableHeaderId'],
-         'tableBodyId': entry['tableBodyId'],
-         'scrollId': entry['scrollId'],
-         'countId': entry['countId'],
-         'labelText': entry['labelText'],
-         'search': entry['search'],
-         'filter': entry['filter'],
-         'sort': entry['sort'],
-         'rows': [x.decode(formatter='html5') for x in entry['rows']],
-      })
-   json_str = json.dumps(result, separators=(',', ':'))
-   if len(json_str) <= 200_000_000:
-      escaped = json_str.replace('\\', '\\\\').replace('\'', '\\\'')
-      script = f'window.tableData = JSON.parse(\'{escaped}\');'
-   else:
-      script = 'window.tableData = [];\n'
-      for i, entry in enumerate(result):
-         row_data = entry['rows']
-         entry['rows'] = []
-         main_str = json.dumps(result, separators=(',', ':'))
-         main_str_escaped = main_str.replace('\\', '\\\\').replace('\'', '\\\'')
-         print(len(main_str), len(main_str_escaped))
-         script += f'window.tableData.push(JSON.parse(\'{main_str_escaped}\'));\n'
-         for row_partial in itertools.batched(row_data, 100_000):
-            row_str = json.dumps(row_partial, separators=(',', ':'))
-            row_str_escaped = row_str.replace('\\', '\\\\').replace('\'', '\\\'')
-            print(len(row_str), len(row_str_escaped))
-            script += f'window.tableData[{i}].rows = window.tableData[{i}].rows.concat(JSON.parse(\'{row_str_escaped}\'));\n'
+   script = 'window.tableData = [];\n'
+   for i, entry in enumerate(scripts):
+      row_data = [x.decode(formatter='html5') for x in entry['rows']]
+      entry['rows'] = []
+      main_str = json.dumps(entry, separators=(',', ':'))
+      main_str_escaped = main_str.replace('\\', '\\\\').replace('\'', '\\\'')
+      script += f'window.tableData.push(JSON.parse(\'{main_str_escaped}\'));\n'
+      for row_partial in itertools.batched(row_data, 10_000):
+         row_str = json.dumps(row_partial, separators=(',', ':'))
+         row_str_escaped = row_str.replace('\\', '\\\\').replace('\'', '\\\'')
+         script += f'window.tableData[{i}].rows = window.tableData[{i}].rows.concat(JSON.parse(\'{row_str_escaped}\'));\n'
    file.page.body.append(new_content_tag(file.page.soup, 'script', script))
    file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
 
@@ -1209,7 +1182,7 @@ def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings,
          del data['filter'][id]
    # issue-controls for misode.css
    controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls'}, content=[
-      new_content_tag(soup, 'div', attrs={'id': data['countId']}, content=[f'{len(data['rows'])} {data['labelText']}'])
+      new_content_tag(soup, 'div', attrs={'id': data['countId']}, content=[f'{format_number(len(data['rows']))} {data['labelText']}'])
    ])
    # issue-list for misode.css
    result = new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
@@ -2451,7 +2424,7 @@ def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[R
 
 def count_badge(soup: bs4.BeautifulSoup, amount: int) -> bs4.Tag:
    # count-badge for misode.css
-   return new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=str(amount))
+   return new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=format_number(amount))
 
 def status_badge(soup: bs4.BeautifulSoup, content: Tag | list[Tag]) -> bs4.Tag:
    # status-badge for misode.css

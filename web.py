@@ -197,6 +197,22 @@ def html_diff(soup: bs4.BeautifulSoup, before: bs4.Tag, after: bs4.Tag) -> bs4.T
    assert diff is not None
    diff.name = 'div'
    html_find_replace(diff, CONTROL_MAP_REV)
+   if 'xmlns:diff' in diff.attrs:
+      del diff.attrs['xmlns:diff']
+   for tag in diff.find_all(name='diff:delete'):
+      tag.name = 'del'
+      append_class(tag, 'diff-delete')
+   for tag in diff.find_all(name='diff:insert'):
+      tag.name = 'ins'
+      append_class(tag, 'diff-insert')
+   for tag in diff.find_all(attrs={'diff:delete': True}):
+      del tag.attrs['diff:delete']
+      append_class(tag, 'diff-delete')
+   for tag in diff.find_all(attrs={'diff:insert': True}):
+      del tag.attrs['diff:insert']
+      append_class(tag, 'diff-insert')
+   for tag in diff.find_all(attrs={'diff:rename': True}):
+      del tag.attrs['diff:rename']
    return diff
 
 def same_day(day1: datetime.datetime, day2: datetime.datetime) -> bool:

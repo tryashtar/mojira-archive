@@ -88,35 +88,53 @@ class RenderableMention:
    rendered_body: bs4.BeautifulSoup
    parsed: markup.ParsedMarkup
 
-def get_renderable_mentions(archive: mojira.Archive, source: markup.MarkupSource, keys: relations.KeyLookups, target_id: str, rels: markup_relations.MarkupRelation) -> list[RenderableMention]:
+def highlight_issue_mentions(tag: bs4.BeautifulSoup, issue_id: str, keys: relations.KeyLookups) -> markup.ParsedMarkup:
+   parsed = markup.parse_markup(tag)
+   for entry in parsed.issues:
+      if keys.try_get_issue_key(entry.key) == issue_id:
+         append_class(entry.tag, 'mention')
+   return parsed
+
+def highlight_user_mentions(tag: bs4.BeautifulSoup, user_key: str, keys: relations.KeyLookups) -> markup.ParsedMarkup:
+   parsed = markup.parse_markup(tag)
+   for entry in parsed.users:
+      if keys.try_get_user_key(entry.username) == user_key:
+         append_class(entry.tag, 'mention')
+   return parsed
+
+def get_renderable_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, parser: typing.Callable[[bs4.BeautifulSoup], markup.ParsedMarkup]) -> list[RenderableMention]:
    result: list[RenderableMention] = []
-   def handle(tag: bs4.BeautifulSoup):
-      parsed = markup.parse_markup(tag)
-      for entry in parsed.issues:
-         if entry.key in keys.issue_keys and keys.issue_keys[entry.key] == target_id:
-            append_class(entry.tag, 'mention')
-      return parsed
    for issue_id in rels['descriptions']:
       subissue = archive.get_issue_data(issue_id)
       assert subissue is not None
       desc = source.get_issue_description(issue_id)
-      parsed = handle(desc)
+      parsed = parser(desc)
       bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), desc, parsed), key=lambda x: x.date)
    for issue_id in rels['environments']:
       subissue = archive.get_issue_data(issue_id)
       assert subissue is not None
       env = source.get_issue_environment(issue_id)
-      parsed = handle(env)
+      parsed = parser(env)
       bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), env, parsed), key=lambda x: x.date)
    for issue_id, comment_ids in rels['comments'].items():
       subissue = archive.get_issue_data(issue_id)
       assert subissue is not None
       for comment_id in comment_ids:
          body = source.get_comment_body(issue_id, comment_id)
-         parsed = handle(body)
+         parsed = parser(body)
          comment = next(filter(lambda x: x['id'] == comment_id, subissue['fields']['comment']['comments']))
          bisect.insort_left(result, RenderableMention(subissue, comment, datetime.datetime.fromisoformat(comment['created']), body, parsed), key=lambda x: x.date)
    return result
+
+def get_renderable_issue_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, issue_id: str) -> list[RenderableMention]:
+   def parser(tag: bs4.BeautifulSoup) -> markup.ParsedMarkup:
+      return highlight_issue_mentions(tag, issue_id, keys)
+   return get_renderable_mentions(archive, source, rels, parser)
+
+def get_renderable_user_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, user_key: str) -> list[RenderableMention]:
+   def parser(tag: bs4.BeautifulSoup) -> markup.ParsedMarkup:
+      return highlight_user_mentions(tag, user_key, keys)
+   return get_renderable_mentions(archive, source, rels, parser)
 
 @dataclasses.dataclass
 class HistoricValue:
@@ -558,6 +576,9 @@ def get_link_dir(full_str: str, issue_key: str) -> str:
    assert full_str.startswith('This issue ')
    assert full_str.endswith(issue_key)
    return full_str[len('This issue '):-(len(issue_key) + 1)]
+
+def format_number(number: int) -> str:
+   return format(number, ',')
 
 def import_fake_missing_data(archive: mojira.Archive, metas: mojira.ArchiveMetas):
    metas.fields['customfield_12400'] = {
