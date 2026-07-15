@@ -23,6 +23,14 @@ class ViewPerms:
    hidden_deleted_comments: bool
    hidden_json_data: bool
 
+   def __init__(self, data: dict[str, typing.Any]):
+      self.hidden_projects = data['hidden_projects']
+      self.hidden_group_comments = data['hidden_group_comments']
+      self.hidden_security_levels = data['hidden_security_levels']
+      self.hidden_secret_comments = data['hidden_secret_comments']
+      self.hidden_deleted_comments = data['hidden_deleted_comments']
+      self.hidden_json_data = data['hidden_json_data']
+
    def project_visible(self, project_id: str) -> bool:
       return project_id not  in self.hidden_projects
 

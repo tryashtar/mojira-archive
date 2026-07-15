@@ -111,14 +111,8 @@ def main():
    markup_rels.load(pathlib.Path(os.environ['ARCHIVE_MARKUP_RELATIONS']))
    secret_comments = mojira.SecretComments(pathlib.Path(os.environ['ARCHIVE_SECRET_COMMENTS']))
    meta_list: list[mojira.META_TYPE] = ['resolution', 'status']
-   perms = ViewPerms(
-      hidden_projects=[],
-      hidden_group_comments=[],
-      hidden_security_levels=[],
-      hidden_secret_comments=False,
-      hidden_deleted_comments=False,
-      hidden_json_data=False
-   )
+   perms_data = json.loads(os.environ[os.environ['ARCHIVE_PERMS']])
+   perms = ViewPerms(perms_data)
    website = Website(
       root=root,
       home=make_jira_file(root, pathlib.PurePath('web/home.html'), 'Mojira Archive'),
@@ -638,8 +632,7 @@ def make_version_page(website: Website, file: HtmlFile, version: Version):
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=False)
    main.append(tabs)
-   if len(table_scripts) > 0:
-      add_table_scripts(website, file, table_scripts)
+   add_virtual_scripts(website, file, table_scripts, [])
 
 def version_details(website: Website, file: HtmlFile, version: Version) -> typing.Generator[tuple[Tag, Tag]]:
    if 'startDate' in version:
@@ -669,11 +662,12 @@ def make_user_page(website: Website, file: HtmlFile, user: User):
    created_not_reported = [x for x in all_created if x not in all_reported]
    issue_list = reported_and_created + created_not_reported + reported_not_created
    assigned_issues = [x for x in website.relations.fields.metas['assignee'].get(user['key'], []) if website.perms.issue_visible(website.relations.fields, x)]
-   table_scripts: list[TableData] = []
+   table_data: list[TableData] = []
+   user_data: list[UserSectionData] = []
    tab_data: list[InfoTabData] = []
    if len(issue_list) > 0:
       reported_table = create_issue_list(website, file, 'reported', (get_issue(website.archive, x) for x in issue_list))
-      table_scripts.append(reported_table.data)
+      table_data.append(reported_table.data)
       tab_data.append(InfoTabData(
          'reported',
          ['Reported Issues', count_badge(soup, len(issue_list))],
@@ -681,29 +675,34 @@ def make_user_page(website: Website, file: HtmlFile, user: User):
       ))
    if len(assigned_issues) > 0:
       assigned_table = create_issue_list(website, file, 'assigned', (get_issue(website.archive, x) for x in assigned_issues))
-      table_scripts.append(assigned_table.data)
+      table_data.append(assigned_table.data)
       tab_data.append(InfoTabData(
          'assigned',
          ['Assigned Issues', count_badge(soup, len(assigned_issues))],
          [assigned_table.filters, assigned_table.table]
       ))
    all_comments = get_renderable_user_comments(website.archive, website.markup_source, website.relations.fields, website.perms, website.relations.user.comments.get(user['key'], {}))
+   comment_section = issue_comments(website, file, all_comments)
+   if comment_section.data is not None:
+      user_data.append(comment_section.data)
    tab_data.append(InfoTabData(
       'comments',
       ['Comments', count_badge(soup, len(all_comments))],
-      [issue_comments(website, file, all_comments)]
+      [comment_section.controls, comment_section.section]
    ))
    all_mentions = get_renderable_user_mentions(website.archive, website.markup_source, website.markup_rels.users[user['key']], website.relations.fields, website.perms,  website.relations.keys, user['key']) if user['key'] in website.markup_rels.users else []
+   mention_section = issue_mentions(website, file, all_mentions)
+   if mention_section.data is not None:
+      user_data.append(mention_section.data)
    if len(all_mentions) > 0:
-         tab_data.append(InfoTabData(
-            'mentions',
-            ['Mentions', count_badge(soup, len(all_mentions))],
-            [issue_mentions(website, file, all_mentions)]
-         ))
+      tab_data.append(InfoTabData(
+         'mentions',
+         ['Mentions', count_badge(soup, len(all_mentions))],
+         [mention_section.controls, mention_section.section]
+      ))
    tabs = build_info_tabs(soup, tab_data, orderable=False)
    main.append(tabs)
-   if len(table_scripts) > 0:
-      add_table_scripts(website, file, table_scripts)
+   add_virtual_scripts(website, file, table_data, user_data)
 
 def user_details(website: Website, file: HtmlFile, user: User) -> typing.Generator[tuple[Tag, Tag]]:
    yield ('Username:', user['name'])
@@ -775,26 +774,37 @@ def make_issue_page(website: Website, file: HtmlFile, issue: Issue):
 
    all_comments = get_renderable_issue_comments(website.markup_source, website.secret_comments, issue, include_secrets=not website.perms.hidden_secret_comments)
    all_mentions = get_renderable_issue_mentions(website.archive, website.markup_source, website.markup_rels.issues[issue_id], website.relations.fields, website.perms, website.relations.keys, issue_id) if issue_id in website.markup_rels.issues else []
+   comment_section = issue_comments(website, file, all_comments)
+   history_section = issue_history(website, file, issue, issue['changelog']['histories'])
+   user_data: list[UserSectionData] = []
+   if comment_section.data is not None:
+      user_data.append(comment_section.data)
+   if history_section.data is not None:
+      user_data.append(history_section.data)
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
          ['Comments', count_badge(soup, len(all_comments))],
-         [issue_comments(website, file, all_comments)]
+         [comment_section.controls, comment_section.section]
       ),
       InfoTabData(
          'history',
          ['History', count_badge(soup, len(issue['changelog']['histories']))],
-         [issue_history(website, file, issue, issue['changelog']['histories'])]
+         [history_section.controls, history_section.section]
       )
    ]
    if len(all_mentions) > 0:
+      mention_section = issue_mentions(website, file, all_mentions)
+      if mention_section.data is not None:
+         user_data.append(mention_section.data)
       tab_data.append(InfoTabData(
          'mentions',
          ['Mentions', count_badge(soup, len(all_mentions))],
-         [issue_mentions(website, file, all_mentions)]
+         [mention_section.controls, mention_section.section]
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
+   add_virtual_scripts(website, file, [], user_data)
 
 def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Generator[tuple[Tag, Tag]]:
    soup = file.page.soup
@@ -985,7 +995,7 @@ def make_all_issues_page(website: Website, file: HtmlFile):
 
    list_main = build_list_main(soup, ['All Issues'], None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_virtual_scripts(website, file, [table.data], [])
 
 def make_meta_value_page(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None):
    soup = file.page.soup
@@ -1005,7 +1015,7 @@ def make_meta_value_page(website: Website, file: HtmlFile, meta_id: mojira.META_
    h2 = [value_tag.outer, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_virtual_scripts(website, file, [table.data], [])
 
 def make_field_value_page(website: Website, file: HtmlFile, field_id: str, value_key: str):
    soup = file.page.soup
@@ -1025,7 +1035,7 @@ def make_field_value_page(website: Website, file: HtmlFile, field_id: str, value
    h2 = [value_tag.outer, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_virtual_scripts(website, file, [table.data], [])
 
 def make_project_issues_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
@@ -1039,7 +1049,7 @@ def make_project_issues_page(website: Website, file: HtmlFile, project: Project)
    h1 = [project_link(website, file, project, with_icon=True), ' issues']
    list_main = build_list_main(soup, h1, None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_virtual_scripts(website, file, [table.data], [])
 
 def make_project_versions_page(website: Website, file: HtmlFile, project: Project):
    soup = file.page.soup
@@ -1066,7 +1076,7 @@ def make_all_users_page(website: Website, file: HtmlFile):
 
    list_main = build_list_main(soup, ['All Users'], None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_virtual_scripts(website, file, [table.data], [])
 
 def make_group_users_page(website: Website, file: HtmlFile, group: str, data: relations.GroupRelation):
    soup = file.page.soup
@@ -1079,7 +1089,7 @@ def make_group_users_page(website: Website, file: HtmlFile, group: str, data: re
 
    list_main = build_list_main(soup, [group_name(website, file, group)], None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_virtual_scripts(website, file, [table.data], [])
 
 def make_group_comments_page(website: Website, file: HtmlFile, group: str, data: relations.GroupRelation):
    soup = file.page.soup
@@ -1096,8 +1106,13 @@ def make_group_comments_page(website: Website, file: HtmlFile, group: str, data:
 
    add_metadata(file, group, f'{format_number(len(all_comments))} comments', None)
 
-   section = build_user_section(soup, [comment_to_user(website, file, x) for x in all_comments])
-   content.append(section)
+   section = build_user_section(soup, 'group', 500, [comment_to_user(website, file, x) for x in all_comments])
+   content.append(section.controls)
+   content.append(section.section)
+   user_data: list[UserSectionData] = []
+   if section.data is not None:
+      user_data.append(section.data)
+   add_virtual_scripts(website, file, [], user_data)
 
 def build_list_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typing.Iterable[Tag] | None, parts: typing.Iterable[Tag]) -> bs4.Tag:
    # list-main for style.css
@@ -1149,20 +1164,43 @@ TableData = typing.TypedDict('TableData', {
    'rows': list[bs4.Tag]
 })
 
-def add_table_scripts(website: Website, file: HtmlFile, scripts: list[TableData]):
-   script = 'window.tableData = [];\n'
-   for i, entry in enumerate(scripts):
-      row_data = [x.decode(formatter='html5') for x in entry['rows']]
-      entry['rows'] = []
-      main_str = json.dumps(entry, separators=(',', ':'))
-      main_str_escaped = main_str.replace('\\', '\\\\').replace('\'', '\\\'')
-      script += f'window.tableData.push(JSON.parse(\'{main_str_escaped}\'));\n'
-      for row_partial in itertools.batched(row_data, 10_000):
-         row_str = json.dumps(row_partial, separators=(',', ':'))
-         row_str_escaped = row_str.replace('\\', '\\\\').replace('\'', '\\\'')
-         script += f'window.tableData[{i}].rows = window.tableData[{i}].rows.concat(JSON.parse(\'{row_str_escaped}\'));\n'
-   file.page.body.append(new_content_tag(file.page.soup, 'script', script))
-   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
+UserSectionData = typing.TypedDict('UserSectionData', {
+   'contentId': str,
+   'visibleId': str,
+   'prevId': str,
+   'pageId': str,
+   'nextId': str,
+   'pages': list[list[bs4.Tag]],
+})
+
+def add_virtual_scripts(website: Website, file: HtmlFile, tables: list[TableData], users: list[UserSectionData]):
+   if len(tables) > 0:
+      script = 'window.tableData = [];\n'
+      for i, entry in enumerate(tables):
+         row_data = [x.decode(formatter='html5') for x in entry['rows']]
+         entry['rows'] = []
+         main_str = json.dumps(entry, separators=(',', ':'))
+         main_str_escaped = main_str.replace('\\', '\\\\').replace('\'', '\\\'')
+         script += f'window.tableData.push(JSON.parse(\'{main_str_escaped}\'));\n'
+         for row_partial in itertools.batched(row_data, 10_000):
+            row_str = json.dumps(row_partial, separators=(',', ':'))
+            row_str_escaped = row_str.replace('\\', '\\\\').replace('\'', '\\\'')
+            script += f'window.tableData[{i}].rows = window.tableData[{i}].rows.concat(JSON.parse(\'{row_str_escaped}\'));\n'
+      file.page.body.append(new_content_tag(file.page.soup, 'script', script))
+   if len(users) > 0:
+      script = 'window.userData = [];\n'
+      for i, entry in enumerate(users):
+         page_data = [[y.decode(formatter='html5') for y in x] for x in entry['pages']]
+         entry['pages'] = []
+         main_str = json.dumps(entry, separators=(',', ':'))
+         main_str_escaped = main_str.replace('\\', '\\\\').replace('\'', '\\\'')
+         script += f'window.userData.push(JSON.parse(\'{main_str_escaped}\'));\n'
+         page_str = json.dumps(page_data, separators=(',', ':'))
+         page_str_escaped = page_str.replace('\\', '\\\\').replace('\'', '\\\'')
+         script += f'window.userData[{i}].pages = window.userData[{i}].pages.concat(JSON.parse(\'{page_str_escaped}\'));\n'
+      file.page.body.append(new_content_tag(file.page.soup, 'script', script))
+   if len(tables) > 0 or len(users) > 0:
+      file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/virtual.js'))))
 
 @dataclasses.dataclass
 class VirtualTable:
@@ -1467,18 +1505,56 @@ def mention_to_user(website: Website, file: HtmlFile, mention: RenderableMention
       body = embed_wiki(website, file, mention.rendered_body)
       return RenderableUserEntry(None, list(head), [body])
 
-def build_user_section(soup: bs4.BeautifulSoup, entries: typing.Iterable[RenderableUserEntry]) -> bs4.Tag:
-   comment_list: list[bs4.Tag] = []
-   for entry in entries:
-      # styles for misode.css
-      comment = soup.new_tag('div', attrs={'class': 'comment'})
-      if entry.anchor is not None:
-         comment.append(soup.new_tag('div', attrs={'class': 'anchor', 'id': entry.anchor}))
-      comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=entry.head))
-      comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=entry.body))
-      comment_list.append(comment)
+@dataclasses.dataclass
+class UserSection:
+   section: bs4.Tag
+   controls: bs4.Tag
+   data: UserSectionData | None
+
+def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int, entries: typing.Iterable[RenderableUserEntry]) -> UserSection:
+   pages: list[list[bs4.Tag]] = []
+   for batch in itertools.batched(entries, batch_size):
+      page: list[bs4.Tag] = []
+      for entry in batch:
+         # styles for misode.css
+         comment = soup.new_tag('div', attrs={'class': 'comment'})
+         if entry.anchor is not None:
+            comment.append(soup.new_tag('div', attrs={'class': 'anchor', 'id': entry.anchor}))
+         comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=entry.head))
+         comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=entry.body))
+         page.append(comment)
+      pages.append(page)
    # comment-section for style.css
-   return new_content_tag(soup, 'div', attrs={'class': 'comment-section'}, content=comment_list)
+   section = new_content_tag(soup, 'div', attrs={'id': f'{id_prefix}-section-content', 'class': 'comment-section'}, content=pages[0] if len(pages) >= 1 else [])
+   if len(pages) > 1:
+      data: UserSectionData | None = {
+         'contentId': f'{id_prefix}-section-content',
+         'visibleId': f'{id_prefix}-section-visible',
+         'prevId': f'{id_prefix}-section-prev-page',
+         'pageId': f'{id_prefix}-section-page',
+         'nextId': f'{id_prefix}-section-next-page',
+         'pages': pages
+      }
+      controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls'}, content=[
+         new_content_tag(soup, 'div', attrs={'class': 'issue-pagination'}, content=[
+            new_content_tag(soup, 'button', attrs={'id': data['prevId']}, content=[
+               new_content_tag(soup, 'svg', attrs={'xmlns': 'http://www.w3.org/2000/svg', 'viewBox': '0 0 16 16', 'width': '16', 'height': '16'}, content=[
+                  soup.new_tag('path', attrs={'d': 'M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06Z'})
+               ])
+            ]),
+            new_content_tag(soup, 'div', attrs={'id': data['pageId'], 'class': 'issue-page'}, content='1'),
+            new_content_tag(soup, 'button', attrs={'id': data['nextId']}, content=[
+               new_content_tag(soup, 'svg', attrs={'xmlns': 'http://www.w3.org/2000/svg', 'viewBox': '0 0 16 16', 'width': '16', 'height': '16'}, content=[
+                  soup.new_tag('path', attrs={'d': 'M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z'})
+               ])
+            ])
+         ]),
+         new_content_tag(soup, 'div', attrs={'id': data['visibleId'], 'class': 'issue-count'}, content=f'1 - {len(pages[0])}'),
+      ])
+   else:
+      data = None
+      controls = new_content_tag(soup, 'div', [])
+   return UserSection(section, controls, data)
 
 # history
 def historic_issue(website: Website, file: HtmlFile, issue: Issue, data: InitialData) -> bs4.Tag:
@@ -1699,14 +1775,14 @@ def revision_quoted(soup: bs4.BeautifulSoup, label: Tag | list[Tag], content: li
 def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, process: typing.Callable[[bs4.Tag], bs4.Tag], panel_class: str) -> bs4.Tag:
    if before is not None and after is not None:
       diff = html_diff(soup, before, after)
-      has_insertions = diff.find(_class='diff-insert') is not None
-      has_deletions = diff.find(_class='diff-delete') is not None
+      has_insertions = diff.find(class_='diff-insert') is not None
+      has_deletions = diff.find(class_='diff-delete') is not None
       if has_insertions and has_deletions:
          before_diff = copy.deepcopy(diff)
          after_diff = copy.deepcopy(diff)
-         for tag in before_diff.find_all(_class='diff-insert'):
+         for tag in before_diff.find_all(class_='diff-insert'):
             tag.extract()
-         for tag in after_diff.find_all(_class='diff-delete'):
+         for tag in after_diff.find_all(class_='diff-delete'):
             tag.extract()
          panel = new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[process(before_diff), process(after_diff)])
          return revision_quoted(soup, f'Changed {label}:', [panel])
@@ -2440,15 +2516,15 @@ def issue_body(soup: bs4.BeautifulSoup, desc: bs4.Tag | None, env: bs4.Tag | Non
          new_content_tag(soup, 'p', content=impact)
       ])
 
-def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[RenderableComment]) -> bs4.Tag:
-   return build_user_section(file.page.soup, (comment_to_user(website, file, x) for x in comments))
+def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[RenderableComment]) -> UserSection:
+   return build_user_section(file.page.soup, 'comment', 250, (comment_to_user(website, file, x) for x in comments))
 
-def issue_history(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> bs4.Tag:
+def issue_history(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> UserSection:
    renderable = get_renderable_revisions(website, file, issue, revisions)
-   return build_user_section(file.page.soup, (revision_to_user(website, file, x) for x in renderable))
+   return build_user_section(file.page.soup, 'history', 250, (revision_to_user(website, file, x) for x in renderable))
 
-def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> bs4.Tag:
-   return build_user_section(file.page.soup, (mention_to_user(website, file, x) for x in mentions))
+def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> UserSection:
+   return build_user_section(file.page.soup, 'mention', 250, (mention_to_user(website, file, x) for x in mentions))
 
 def count_badge(soup: bs4.BeautifulSoup, amount: int) -> bs4.Tag:
    # count-badge for misode.css
