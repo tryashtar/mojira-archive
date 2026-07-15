@@ -19,7 +19,7 @@ Project = typing.TypedDict('Project', {
    'name': str,
    'description': str,
    'lead': str,
-   'versions': dict[str, Version],
+   'versions': list[Version],
    'avatarUrls': AvatarUrls
 })
 

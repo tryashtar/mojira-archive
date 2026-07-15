@@ -11,7 +11,7 @@ import markup
 import markup_relations
 import mojira
 import relations
-from jiratypes import Comment, InwardIssueLink, Issue, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, User
+from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, User, Version
 from web import append_class
 
 @dataclasses.dataclass
@@ -37,11 +37,6 @@ class ViewPerms:
    def group_comments_visible(self, group: str) -> bool:
       return group not in self.hidden_group_comments
 
-   def field_visible(self, field_id: str, value_key: str) -> bool:
-      if field_id == 'security' and value_key in self.hidden_security_levels:
-         return False
-      return True
-
    def comment_visible(self, comment: Comment) -> bool:
       if 'visibility' not in comment:
          return True
@@ -57,9 +52,6 @@ class ViewPerms:
          if issue_id in rels.fields['security'][security]:
             return False
       return True
-
-   def filter_projects(self, projects: typing.Iterable[Project]) -> typing.Iterable[Project]:
-      return filter(lambda x: self.project_visible(x['id']), projects)
 
 @dataclasses.dataclass
 class ValueDisplay:
@@ -88,8 +80,10 @@ def field_display(rels: relations.FieldRelations, field_id: str, value_id: str) 
    desc = full_value.get('description')
    icon = full_value.get('iconUrl')
    if 'name' in full_value:
-      return ValueDisplay(value_id, full_value['name'], desc, icon)
-   return ValueDisplay(value_id, full_value['value'], desc, icon)
+      name = full_value['name']
+   else:
+      name = full_value['value']
+   return ValueDisplay(value_id, name, desc, icon)
 
 def project_detail_links(project: Project, json: pathlib.PurePath | None) -> typing.Generator[tuple[str, str]]:
    portal_num = portal_number(project['key'])
@@ -110,103 +104,6 @@ def issue_detail_links(issue: Issue, project: Project | None, json: pathlib.Pure
    if portal_num is not None:
       yield ('report.bugs.mojang.com', f'https://report.bugs.mojang.com/servicedesk/customer/portal/{portal_num}/{key}')
    yield ('mojira.atlassian.net', f'https://mojira.atlassian.net/browse/{key}')
-
-@dataclasses.dataclass
-class RenderableComment:
-   comment: Comment | NewComment
-   external_issue: Issue | None
-   rendered_body: bs4.BeautifulSoup
-   date: datetime.datetime
-   secret: bool
-
-def get_renderable_issue_comments(source: markup.MarkupSource, secrets: mojira.SecretComments, issue: Issue, include_secrets: bool) -> list[RenderableComment]:
-   result: list[RenderableComment] = []
-   for comment in issue['fields']['comment']['comments']:
-      body = source.get_comment_body(issue['id'], comment['id'])
-      result.append(RenderableComment(comment, None, body, datetime.datetime.fromisoformat(comment['created']), secret=False))
-   if include_secrets:
-      for comment in secrets.get(issue['id']):
-         body = source.get_secret_comment_body(issue['id'], comment['id'])
-         bisect.insort_left(result, RenderableComment(comment, None, body, datetime.datetime.fromisoformat(comment['created']), secret=True), key=lambda x: x.date)
-   return result
-
-def get_renderable_user_comments(archive: mojira.Archive, source: markup.MarkupSource, fields: relations.FieldRelations, perms: ViewPerms, comment_dict: dict[str, list[str]]) -> list[RenderableComment]:
-   result: list[RenderableComment] = []
-   for issue_id, comments in comment_dict.items():
-      if not perms.issue_visible(fields, issue_id):
-         continue
-      issue = get_issue(archive, issue_id)
-      for comment_id in comments:
-         comment = next(filter(lambda x: x['id'] == comment_id, issue['fields']['comment']['comments']))
-         if not perms.comment_visible(comment):
-            continue
-         body = source.get_comment_body(issue_id, comment_id)
-         bisect.insort_left(result, RenderableComment(comment, issue, body, datetime.datetime.fromisoformat(comment['created']), secret=False), key=lambda x: x.date)
-   return result
-
-@dataclasses.dataclass
-class RenderableMention:
-   issue: Issue
-   comment: Comment | None
-   date: datetime.datetime
-   rendered_body: bs4.BeautifulSoup
-   parsed: markup.ParsedMarkup
-
-def highlight_issue_mentions(tag: bs4.BeautifulSoup, issue_id: str, keys: relations.KeyLookups) -> markup.ParsedMarkup:
-   parsed = markup.parse_markup(tag)
-   for entry in parsed.issues:
-      if keys.try_get_issue_key(entry.key) == issue_id:
-         append_class(entry.tag, 'mention')
-   return parsed
-
-def highlight_user_mentions(tag: bs4.BeautifulSoup, user_key: str, keys: relations.KeyLookups) -> markup.ParsedMarkup:
-   parsed = markup.parse_markup(tag)
-   for entry in parsed.users:
-      if keys.try_get_user_key(entry.username) == user_key:
-         append_class(entry.tag, 'mention')
-   return parsed
-
-def get_renderable_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, fields: relations.FieldRelations, perms: ViewPerms, parser: typing.Callable[[bs4.BeautifulSoup], markup.ParsedMarkup]) -> list[RenderableMention]:
-   result: list[RenderableMention] = []
-   for issue_id in rels['descriptions']:
-      if not perms.issue_visible(fields, issue_id):
-         continue
-      subissue = archive.get_issue_data(issue_id)
-      assert subissue is not None
-      desc = source.get_issue_description(issue_id)
-      parsed = parser(desc)
-      bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), desc, parsed), key=lambda x: x.date)
-   for issue_id in rels['environments']:
-      if not perms.issue_visible(fields, issue_id):
-         continue
-      subissue = archive.get_issue_data(issue_id)
-      assert subissue is not None
-      env = source.get_issue_environment(issue_id)
-      parsed = parser(env)
-      bisect.insort_left(result, RenderableMention(subissue, None, datetime.datetime.fromisoformat(subissue['fields']['created']), env, parsed), key=lambda x: x.date)
-   for issue_id, comment_ids in rels['comments'].items():
-      if not perms.issue_visible(fields, issue_id):
-         continue
-      subissue = archive.get_issue_data(issue_id)
-      assert subissue is not None
-      for comment_id in comment_ids:
-         comment = next(filter(lambda x: x['id'] == comment_id, subissue['fields']['comment']['comments']))
-         if not perms.comment_visible(comment):
-            continue
-         body = source.get_comment_body(issue_id, comment_id)
-         parsed = parser(body)
-         bisect.insort_left(result, RenderableMention(subissue, comment, datetime.datetime.fromisoformat(comment['created']), body, parsed), key=lambda x: x.date)
-   return result
-
-def get_renderable_issue_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, fields: relations.FieldRelations, perms: ViewPerms, keys: relations.KeyLookups, issue_id: str) -> list[RenderableMention]:
-   def parser(tag: bs4.BeautifulSoup) -> markup.ParsedMarkup:
-      return highlight_issue_mentions(tag, issue_id, keys)
-   return get_renderable_mentions(archive, source, rels, fields, perms, parser)
-
-def get_renderable_user_mentions(archive: mojira.Archive, source: markup.MarkupSource, rels: markup_relations.MarkupRelation, fields: relations.FieldRelations, perms: ViewPerms, keys: relations.KeyLookups, user_key: str) -> list[RenderableMention]:
-   def parser(tag: bs4.BeautifulSoup) -> markup.ParsedMarkup:
-      return highlight_user_mentions(tag, user_key, keys)
-   return get_renderable_mentions(archive, source, rels, fields, perms, parser)
 
 @dataclasses.dataclass
 class HistoricValue:
@@ -258,9 +155,8 @@ class InitialData:
    description_revision_id: str | None
    environment_revision_id: str | None
 
-def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue: Issue, revisions: list[Revision]) -> InitialData:
+def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue: Issue, final_project: Project | None, revisions: list[Revision]) -> InitialData:
    fields = issue['fields']
-   final_project = try_project(metas, fields['project'])
    result: HistoricFields = {
       'issuelinks': [to_historic_link(archive, metas, x) for x in fields['issuelinks']],
       'attachments': [to_historic_attachment(archive, x) for x in fields['attachment']],
@@ -465,7 +361,7 @@ def to_historic_attachment(archive: mojira.Archive, attach_id: str) -> HistoricV
    return HistoricValue(attach_id, attach_data['filename'])
 
 def to_historic_version(project: Project, version_id: str) -> HistoricProjectValue:
-   version_data = project['versions'][version_id]
+   version_data = next(x for x in project['versions'] if x['id'] == version_id)
    return HistoricProjectValue(version_id, version_data['name'], project['id'])
 
 def label_splitter(source: str | None, string: str | None) -> list[HistoricValue]:
@@ -582,11 +478,6 @@ def get_avatar_path(archive: mojira.Archive, folder: pathlib.Path, url: str) -> 
       return avatar_file
    return None
 
-def try_project(metas: mojira.ArchiveMetas, project_id: str) -> Project | None:
-   if project_id in metas.projects:
-      return metas.projects[project_id]
-   return None
-
 def get_issue(archive: mojira.Archive, issue_id: str) -> Issue:
    issue = archive.get_issue_data(issue_id)
    assert issue is not None
@@ -596,39 +487,6 @@ def get_user(archive: mojira.Archive, user_key: str) -> User:
    user = archive.get_user_data(user_key)
    assert user is not None
    return user
-
-def sorted_projects(metas: mojira.ArchiveMetas, rels: relations.FieldRelations, perms: ViewPerms) -> list[Project]:
-   filtered = perms.filter_projects(metas.projects.values())
-   return sorted(filtered, key=lambda x: len(rels.metas['project'][x['id']]), reverse=True)
-
-def sorted_meta_values(metas: mojira.ArchiveMetas, meta_id: mojira.META_TYPE) -> list[ValueDisplay]:
-   def order_key(display: ValueDisplay):
-      resolved = (meta_id == 'resolution' and display.id is not None) or (meta_id == 'status' and display.id in ('5', '6'))
-      return (resolved, display.name)
-   value_ids: list[str | None] = [x['id'] for x in metas.metas[meta_id].values()]
-   if meta_id == 'resolution':
-      value_ids.insert(0, None)
-   displays: list[ValueDisplay] = []
-   for value_id in value_ids:
-      display = meta_display(metas, meta_id, value_id)
-      assert display is not None
-      bisect.insort_left(displays, display, key=order_key)
-   return displays
-
-def sorted_field_values(rels: relations.FieldRelations, perms: ViewPerms, field_id: str) -> list[ValueDisplay]:
-   def order_key(display: ValueDisplay):
-      relation = rels.fields[field_id]['' if display.id is None else display.id]
-      return (-len(relation['issues']), display.name)
-   values = rels.fields[field_id].values()
-   displays: list[ValueDisplay] = []
-   for value in values:
-      value_id = value['value'] if isinstance(value['value'], str) else value['value']['id']
-      if not perms.field_visible(field_id, value_id):
-         continue
-      display = field_display(rels, field_id, value_id)
-      assert display is not None
-      bisect.insort_left(displays, display, key=order_key)
-   return displays
 
 def portal_number(project_key: str) -> int | None:
    return {'MCPE': 6, 'MC': 2, 'MCL': 7, 'REALMS': 9, 'WEB': 10, 'BDS': 4, 'MCM': 11}.get(project_key)
@@ -675,267 +533,267 @@ def import_fake_missing_data(archive: mojira.Archive, metas: mojira.ArchiveMetas
       'avatarUrls': {
          '48x48': 'https://bugs-legacy.mojang.com/secure/projectavatar?pid=11901&avatarId=35072'
       },
-      'versions': {
-         '19204': {
+      'versions': [
+         {
             'id': '19204',
             'name': 'Version #19204',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19304': {
+         {
             'id': '19304',
             'name': 'Version #19304',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19500': {
+         {
             'id': '19500',
             'name': 'Version #19500',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19526': {
+         {
             'id': '19526',
             'name': 'Version #19526',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19536': {
+         {
             'id': '19536',
             'name': 'Version #19536',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19553': {
+         {
             'id': '19553',
             'name': 'Version #19553',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19604': {
+         {
             'id': '19604',
             'name': 'Version #19604',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19622': {
+         {
             'id': '19622',
             'name': 'Version #19622',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19637': {
+         {
             'id': '19637',
             'name': 'Version #19637',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19647': {
+         {
             'id': '19647',
             'name': 'Version #19647',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19650': {
+         {
             'id': '19650',
             'name': 'Version #19650',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19710': {
+         {
             'id': '19710',
             'name': 'Version #19710',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19718': {
+         {
             'id': '19718',
             'name': 'Version #19718',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19820': {
+         {
             'id': '19820',
             'name': 'Version #19820',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19821': {
+         {
             'id': '19821',
             'name': 'Version #19821',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19834': {
+         {
             'id': '19834',
             'name': 'Version #19834',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19902': {
+         {
             'id': '19902',
             'name': 'Version #19902',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19903': {
+         {
             'id': '19903',
             'name': 'Version #19903',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19904': {
+         {
             'id': '19904',
             'name': 'Version #19904',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '19930': {
+         {
             'id': '19930',
             'name': 'Version #19930',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20006': {
+         {
             'id': '20006',
             'name': 'Version #20006',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20120': {
+         {
             'id': '20120',
             'name': 'Version #20120',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20223': {
+         {
             'id': '20223',
             'name': 'Version #20223',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20224': {
+         {
             'id': '20224',
             'name': 'Version #20224',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20231': {
+         {
             'id': '20231',
             'name': 'Version #20231',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20311': {
+         {
             'id': '20311',
             'name': 'Version #20311',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20506': {
+         {
             'id': '20506',
             'name': 'Version #20506',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20602': {
+         {
             'id': '20602',
             'name': 'Version #20602',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20609': {
+         {
             'id': '20609',
             'name': 'Version #20609',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20625': {
+         {
             'id': '20625',
             'name': 'Version #20625',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20802': {
+         {
             'id': '20802',
             'name': 'Version #20802',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20912': {
+         {
             'id': '20912',
             'name': 'Version #20912',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '20928': {
+         {
             'id': '20928',
             'name': 'Version #20928',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '21204': {
+         {
             'id': '21204',
             'name': 'Version #21204',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '21205': {
+         {
             'id': '21205',
             'name': 'Version #21205',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '21209': {
+         {
             'id': '21209',
             'name': 'Version #21209',
             'projectId': 11901,
             'archived': True,
             'released': True
          },
-         '21247': {
+         {
             'id': '21247',
             'name': 'Version #21247',
             'projectId': 11901,
             'archived': True,
             'released': True
-         },
-      }
+         }
+      ]
    }
    metas.projects['12200'] = {
       'id': '12200',
@@ -946,97 +804,456 @@ def import_fake_missing_data(archive: mojira.Archive, metas: mojira.ArchiveMetas
       'avatarUrls': {
          '48x48': 'https://bugs-legacy.mojang.com/secure/projectavatar?pid=12200&avatarId=86040'
       },
-      'versions': {
-         '21436': {
+      'versions': [
+         {
             'id': '21436',
             'name': 'Version #21436',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21444': {
+         {
             'id': '21444',
             'name': 'Version #21444',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21478': {
+         {
             'id': '21478',
             'name': 'Version #21478',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21479': {
+         {
             'id': '21479',
             'name': 'Version #21479',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21510': {
+         {
             'id': '21510',
             'name': 'Version #21510',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21511': {
+         {
             'id': '21511',
             'name': 'Version #21511',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21552': {
+         {
             'id': '21552',
             'name': 'Version #21552',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21553': {
+         {
             'id': '21553',
             'name': 'Version #21553',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21605': {
+         {
             'id': '21605',
             'name': 'Version #21605',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21606': {
+         {
             'id': '21606',
             'name': 'Version #21606',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21623': {
+         {
             'id': '21623',
             'name': 'Version #21623',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21807': {
+         {
             'id': '21807',
             'name': 'Version #21807',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-         '21829': {
+         {
             'id': '21829',
             'name': 'Version #21829',
             'projectId': 12200,
             'archived': True,
             'released': True
          },
-      }
+      ]
    }
+
+@dataclasses.dataclass
+class CachedValueInfo:
+   display: ValueDisplay
+   issues: list[str]
+
+@dataclasses.dataclass
+class CachedMetaInfo:
+   id: mojira.META_TYPE
+   name: str
+   values: dict[str | None, CachedValueInfo]
+
+@dataclasses.dataclass
+class CachedFieldInfo:
+   id: str
+   name: str
+   values: dict[str, CachedValueInfo]
+
+@dataclasses.dataclass
+class CachedGroupInfo:
+   id: str
+   users: list[str]
+   comments: dict[str, list[str]]
+
+@dataclasses.dataclass
+class CachedVersionInfo:
+   version: Version
+   affected: list[str]
+   fixed: list[str]
+
+@dataclasses.dataclass
+class CachedProjectInfo:
+   project: Project
+   description: bs4.BeautifulSoup | None
+   issues: list[str]
+   versions: dict[str, CachedVersionInfo]
+
+@dataclasses.dataclass
+class CachedIssue:
+   issue: Issue
+   created: datetime.datetime
+   description: markup.ParsedMarkup | None
+   environment: markup.ParsedMarkup | None
+   comments: dict[str, Comment]
+   linked_issues: dict[str, list[str]]
+   mentions: markup_relations.MarkupRelation
+
+@dataclasses.dataclass
+class CachedComment:
+   issue: Issue
+   comment: Comment | NewComment
+   parsed: markup.ParsedMarkup
+   date: datetime.datetime
+
+@dataclasses.dataclass
+class CachedUser:
+   user: User
+   reported: list[str]
+   created: list[str]
+   assigned: list[str]
+   comments: dict[str, list[str]]
+   mentions: markup_relations.MarkupRelation
+
+class DisplayCache:
+   issue_getter: typing.Callable[[str], CachedIssue]
+   issue_cache: dict[str, CachedIssue]
+   comment_getter: typing.Callable[[str, str], CachedComment]
+   comment_cache: dict[tuple[str, str], CachedComment]
+   secret_comment_getter: typing.Callable[[str], list[CachedComment]]
+   secret_comment_cache: dict[str, list[CachedComment]]
+   user_getter: typing.Callable[[str], CachedUser]
+   user_cache: dict[str, CachedUser]
+   attachment_getter: typing.Callable[[str], Attachment]
+   attachment_cache: dict[str, Attachment]
+   metas: dict[mojira.META_TYPE, CachedMetaInfo]
+   fields: dict[str, CachedFieldInfo]
+   groups: dict[str, CachedGroupInfo]
+   projects: dict[str, CachedProjectInfo]
+   valid_issues: set[str]
+   all_issues: list[str]
+   all_users: list[str]
+
+   def get_issues(self, issues: list[str]) -> typing.Iterable[Issue]:
+      return (self.issue_getter(x).issue for x in issues)
+
+   def __init__(self, archive: mojira.Archive, metas: mojira.ArchiveMetas, rels: relations.RelationsBundle, source: markup.MarkupSource, markup_rels: markup_relations.MarkupRelations, secret_comments: mojira.SecretComments, perms: ViewPerms):
+      self.valid_issues = set(x for x in rels.keys.issue_keys.values() if perms.issue_visible(rels.fields, x))
+      self.all_issues = sorted(self.valid_issues)
+      self.all_users = sorted(set(rels.keys.user_keys.values()))
+
+      def filter_issues(issues: list[str]) -> list[str]:
+         return [x for x in issues if x in self.valid_issues]
+
+      self.issue_cache = {}
+      def issue_get(issue_id: str) -> CachedIssue:
+         assert issue_id in self.valid_issues
+         if issue_id in self.issue_cache:
+            return self.issue_cache[issue_id]
+         issue = get_issue(archive, issue_id)
+         date = datetime.datetime.fromisoformat(issue['fields']['created'])
+         if issue['fields']['description'] is not None:
+            body = source.get_issue_description(issue_id)
+            desc = markup.parse_markup(body)
+         else:
+            desc = None
+         if 'environment' in issue['fields'] and issue['fields']['environment'] is not None:
+            body = source.get_issue_environment(issue_id)
+            env = markup.parse_markup(body)
+         else:
+            env = None
+         comments = {x['id']: x for x in issue['fields']['comment']['comments']}
+         linked: dict[str, list[str]] = {}
+         for link in issue['fields']['issuelinks']:
+            if 'inwardIssue' in link:
+               identity = metas.link_types[link['type']]['inward']
+               linked_id = link['inwardIssue']
+            else:
+               identity = metas.link_types[link['type']]['outward']
+               linked_id = link['outwardIssue']
+            if linked_id in self.valid_issues:
+               if identity not in linked:
+                  linked[identity] = []
+               linked[identity].append(linked_id)
+         mentions = markup_rels.issues.get(issue['id'], {
+            'descriptions': [],
+            'environments': [],
+            'comments': {}
+         })
+         cached = CachedIssue(issue, date, desc, env, comments, linked, mentions)
+         self.issue_cache[issue_id] = cached
+         return cached
+      self.issue_getter = issue_get
+
+      self.comment_cache = {}
+      def comment_get(issue_id: str, comment_id: str) -> CachedComment:
+         assert issue_id in self.valid_issues
+         key = (issue_id, comment_id)
+         if key in self.comment_cache:
+            return self.comment_cache[key]
+         issue = issue_get(issue_id)
+         comment = issue.comments[comment_id]
+         body = source.get_comment_body(issue_id, comment_id)
+         parsed = markup.parse_markup(body)
+         date = datetime.datetime.fromisoformat(comment['created'])
+         cached = CachedComment(issue.issue, comment, parsed, date)
+         self.comment_cache[key] = cached
+         return cached
+      self.comment_getter = comment_get
+
+      self.secret_comment_cache = {}
+      def secret_comment_get(issue_id: str) -> list[CachedComment]:
+         assert issue_id in self.valid_issues
+         if issue_id in self.secret_comment_cache:
+            return self.secret_comment_cache[issue_id]
+         issue = issue_get(issue_id)
+         comments = secret_comments.get(issue_id)
+         cached: list[CachedComment] = []
+         for comment in comments:
+            body = source.get_secret_comment_body(issue_id, comment['id'])
+            parsed = markup.parse_markup(body)
+            date = datetime.datetime.fromisoformat(comment['created'])
+            cached.append(CachedComment(issue.issue, comment, parsed, date))
+         self.secret_comment_cache[issue_id] = cached
+         return cached
+      self.secret_comment_getter = secret_comment_get
+
+      self.user_cache = {}
+      def user_get(user_key: str) -> CachedUser:
+         assert user_key in self.all_users
+         if user_key in self.user_cache:
+            return self.user_cache[user_key]
+         user = get_user(archive, user_key)
+         reported = rels.fields.metas['reporter'].get(user_key, [])
+         created = rels.fields.metas['creator'].get(user_key, [])
+         assigned = rels.fields.metas['assignee'].get(user_key, [])
+         comments = rels.user.comments.get(user_key, {})
+         mentions = markup_rels.users.get(user_key, {
+            'descriptions': [],
+            'environments': [],
+            'comments': {}
+         })
+         cached = CachedUser(
+            user,
+            filter_issues(reported),
+            filter_issues(created),
+            filter_issues(assigned),
+            {k: v for k, v in comments.items() if k in self.valid_issues},
+            mentions
+         )
+         self.user_cache[user_key] = cached
+         return cached
+      self.user_getter = user_get
+
+      self.attachment_cache = {}
+      def attachment_get(attachment_id: str) -> Attachment:
+         if attachment_id in self.attachment_cache:
+            return self.attachment_cache[attachment_id]
+         attachment = archive.get_attachment_data(attachment_id)
+         assert attachment is not None
+         self.attachment_cache[attachment_id] = attachment
+         return attachment
+      self.attachment_getter = attachment_get
+
+      def project_order(info: CachedProjectInfo):
+         return -len(info.issues)
+      def meta_order(meta_id: mojira.META_TYPE):
+         index = {'resolution': 0, 'status': 1}.get(meta_id, 2)
+         return (index, meta_id)
+      def field_order(info: CachedFieldInfo):
+         return -sum(len(x.issues) for x in info.values.values())
+      def group_order(info: CachedGroupInfo):
+         return (-len(info.users), info.id)
+      def meta_value_order(meta_id: mojira.META_TYPE, info: CachedValueInfo):
+         resolved = (meta_id == 'resolution' and info.display.id is not None) or (meta_id == 'status' and info.display.id in ('5', '6'))
+         return (resolved, info.display.name)
+      def field_value_order(info: CachedValueInfo):
+         return (-len(info.issues), info.display.name)
+
+      self.projects = {}
+      for project_id, project in metas.projects.items():
+         issues = rels.fields.metas['project'].get(project_id, [])
+         if perms.project_visible(project_id):
+            if len(project['description']) > 0:
+               desc = bs4.BeautifulSoup(project['description'], 'html.parser')
+            else:
+               desc = None
+            versions: dict[str, CachedVersionInfo] = {}
+            for version in project['versions']:
+               affected = rels.fields.metas['versions'].get(version['id'], [])
+               fixed = rels.fields.metas['fixVersions'].get(version['id'], [])
+               versions[version['id']] = CachedVersionInfo(version, filter_issues(affected), filter_issues(fixed))
+            self.projects[project_id] = CachedProjectInfo(project, desc, filter_issues(issues), versions)
+      sort_dict(self.projects, lambda x: project_order(x[1]))
+
+      self.metas = {}
+      for meta_id, meta in metas.metas.items():
+         fname = field_name(metas, meta_id)
+         self.metas[meta_id] = CachedMetaInfo(meta_id, fname, {})
+         value_keys: list[str | None] = list(meta.keys())
+         if meta_id == 'resolution':
+            value_keys.insert(0, None)
+         for value_key in value_keys:
+            display = meta_display(metas, meta_id, value_key)
+            assert display is not None
+            issues = rels.fields.metas[meta_id].get('' if value_key is None else value_key, [])
+            self.metas[meta_id].values[value_key] = CachedValueInfo(display, filter_issues(issues))
+         sort_dict(self.metas[meta_id].values, lambda x: meta_value_order(typing.cast(mojira.META_TYPE, meta_id), x[1]))
+      sort_dict(self.metas, lambda x: meta_order(x[0]))
+
+      self.fields = {}
+      for field_id, field in rels.fields.fields.items():
+         fname = field_name(metas, field_id)
+         self.fields[field_id] = CachedFieldInfo(field_id, fname, {})
+         for value_key in field.keys():
+            display = field_display(rels.fields, field_id, value_key)
+            assert display is not None
+            issues = rels.fields.fields[field_id][value_key]['issues']
+            self.fields[field_id].values[value_key] = CachedValueInfo(display, filter_issues(issues))
+         sort_dict(self.fields[field_id].values, lambda x: field_value_order(x[1]))
+      sort_dict(self.fields, lambda x: field_order(x[1]))
+
+      self.groups = {}
+      for group, info in rels.user.groups.items():
+         comments = info['comments'] if perms.group_comments_visible(group) else {}
+         self.groups[group] = CachedGroupInfo(group, info['users'], {k: v for k, v in comments.items() if k in self.valid_issues})
+      sort_dict(self.groups, lambda x: group_order(x[1]))
+
+K = typing.TypeVar('K')
+V = typing.TypeVar('V')
+def sort_dict(dictionary: dict[K, V], key: typing.Callable[[tuple[K, V]], typing.Any]):
+   pairs = list(dictionary.items())
+   dictionary.clear()
+   for k, v in sorted(pairs, key=key):
+      dictionary[k] = v
+
+@dataclasses.dataclass
+class RenderableComment:
+   comment: Comment | NewComment
+   external_issue: Issue | None
+   rendered_body: bs4.BeautifulSoup
+   date: datetime.datetime
+   secret: bool
+
+def get_renderable_issue_comments(cache: DisplayCache, issue: Issue, include_secrets: bool) -> list[RenderableComment]:
+   result: list[RenderableComment] = []
+   for comment in issue['fields']['comment']['comments']:
+      info = cache.comment_getter(issue['id'], comment['id'])
+      entry = RenderableComment(comment, None, info.parsed.root, info.date, secret=False)
+      result.append(entry)
+   if include_secrets:
+      for info in cache.secret_comment_getter(issue['id']):
+         entry = RenderableComment(info.comment, None, info.parsed.root, info.date, secret=True)
+         bisect.insort_left(result, entry, key=lambda x: x.date)
+   return result
+
+def get_renderable_user_comments(cache: DisplayCache, comment_dict: dict[str, list[str]]) -> list[RenderableComment]:
+   result: list[RenderableComment] = []
+   for issue_id, comments in comment_dict.items():
+      issue = cache.issue_getter(issue_id)
+      for comment_id in comments:
+         info = cache.comment_getter(issue_id, comment_id)
+         entry = RenderableComment(info.comment, issue.issue, info.parsed.root, info.date, secret=False)
+         bisect.insort_left(result, entry, key=lambda x: x.date)
+   return result
+
+@dataclasses.dataclass
+class RenderableMention:
+   issue: Issue
+   comment: Comment | NewComment | None
+   date: datetime.datetime
+   parsed: markup.ParsedMarkup
+
+def highlight_issue_mentions(parsed: markup.ParsedMarkup, issue_id: str, keys: relations.KeyLookups):
+   for entry in parsed.issues:
+      if keys.try_get_issue_key(entry.key) == issue_id:
+         append_class(entry.tag, 'mention')
+
+def highlight_user_mentions(parsed: markup.ParsedMarkup, user_key: str, keys: relations.KeyLookups):
+   for entry in parsed.users:
+      if keys.try_get_user_key(entry.username) == user_key:
+         append_class(entry.tag, 'mention')
+
+def get_renderable_mentions(cache: DisplayCache, rels: markup_relations.MarkupRelation, process: typing.Callable[[markup.ParsedMarkup]]) -> list[RenderableMention]:
+   result: list[RenderableMention] = []
+   for issue_id in rels['descriptions']:
+      issue = cache.issue_getter(issue_id)
+      if issue.description is not None:
+         process(issue.description)
+         entry = RenderableMention(issue.issue, None, issue.created, issue.description)
+         bisect.insort_left(result, entry, key=lambda x: x.date)
+   for issue_id in rels['environments']:
+      issue = cache.issue_getter(issue_id)
+      if issue.environment is not None:
+         process(issue.environment)
+         entry = RenderableMention(issue.issue, None, issue.created, issue.environment)
+         bisect.insort_left(result, entry, key=lambda x: x.date)
+   for issue_id, comment_ids in rels['comments'].items():
+      issue = cache.issue_getter(issue_id)
+      for comment_id in comment_ids:
+         info = cache.comment_getter(issue_id, comment_id)
+         process(info.parsed)
+         entry = RenderableMention(issue.issue, info.comment, info.date, info.parsed)
+         bisect.insort_left(result, entry, key=lambda x: x.date)
+   return result
+
+def get_renderable_issue_mentions(cache: DisplayCache, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, issue_id: str) -> list[RenderableMention]:
+   def process(tag: markup.ParsedMarkup):
+      highlight_issue_mentions(tag, issue_id, keys)
+   return get_renderable_mentions(cache, rels, process)
+
+def get_renderable_user_mentions(cache: DisplayCache, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, user_key: str) -> list[RenderableMention]:
+   def process(tag: markup.ParsedMarkup):
+      highlight_user_mentions(tag, user_key, keys)
+   return get_renderable_mentions(cache, rels, process)
+
+def try_project(cache: DisplayCache, project_id: str) -> Project | None:
+   if project_id in cache.projects:
+      return cache.projects[project_id].project
+   return None

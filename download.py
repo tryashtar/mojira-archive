@@ -55,9 +55,7 @@ def fetch_metas(metas: mojira.ArchiveMetas, users: FetchedUsers, client: jira.JI
    for entry in client.projects():
       project = client.project(entry.id, expand='description,lead,url').raw
       simplify_user(users, project, 'lead')
-      project['versions'] = mojira.key_by(project['versions'], 'id')
-      assert project is Project
-      metas.import_project(project)
+      metas.import_project(typing.cast(Project, project))
 
 def flush_users(archive: mojira.Archive, users: FetchedUsers, client: jira.JIRA, dry: bool):
    for key, value in users.new_users.items():

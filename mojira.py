@@ -1,5 +1,6 @@
 import pathlib
 import json
+import re
 import urllib.parse
 import typing
 
@@ -34,10 +35,7 @@ class ArchiveMetas:
       load_one(self.link_types, folder / self.link_types_path)
       load_one(self.resolutions, folder / self.resolutions_path)
       load_one(self.statuses, folder / self.statuses_path)
-      self.projects.clear()
-      for entry in load_or(folder / self.projects_path, default=[]):
-         entry['versions'] = key_by(entry['versions'], 'id')
-         self.projects[entry['id']] = entry
+      load_one(self.projects, folder / self.projects_path)
 
    def save(self, folder: pathlib.Path):
       save_one(self.fields, folder / self.fields_path)
@@ -45,14 +43,7 @@ class ArchiveMetas:
       save_one(self.link_types, folder / self.link_types_path)
       save_one(self.resolutions, folder / self.resolutions_path)
       save_one(self.statuses, folder / self.statuses_path)
-      save_projects: dict[str, typing.Any] = {}
-      for key, value in self.projects.items():
-         final_value: dict[str, typing.Any] = {}
-         for k, v in value.items():
-            final_value[k] = v
-         final_value['versions'] = list(final_value['versions'].values())
-         save_projects[key] = final_value
-      save_one(save_projects, folder / self.projects_path)
+      save_one(self.projects, folder / self.projects_path)
 
    def import_field(self, field: Field):
       self.fields[field['id']] = field
@@ -197,6 +188,8 @@ def save_one(data: dict[str, typing.Any], path: pathlib.Path):
    with open(path, 'w', encoding='utf-8') as file:
       json.dump(list(data.values()), file, indent=3)
 
+UUID_RE = re.compile(r'^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$')
+
 class SecretComments:
    def __init__(self, path: pathlib.Path):
       with open(path, 'r', encoding='utf-8') as file:
@@ -204,3 +197,7 @@ class SecretComments:
 
    def get(self, issue_id: str) -> list[NewComment]:
       return self.comments.get(issue_id, [])
+
+   def remove_uuid_comments(self):
+      for comments in self.comments.values():
+         comments[:] = [x for x in comments if UUID_RE.match(x['body']) is None]
