@@ -58,6 +58,7 @@ class GroupPage:
 @dataclasses.dataclass
 class Website:
    root: pathlib.Path
+   web_export: pathlib.PurePath
    home: HtmlFile
    all_issues_list: HtmlFile
    all_users_list: HtmlFile
@@ -127,6 +128,7 @@ def main():
    cache = DisplayCache(archive, metas, rels, markup_source, markup_rels, secret_comments, perms)
    website = Website(
       root=root,
+      web_export=web_export,
       home=make_jira_file(root, web_export / 'home.html', 'Mojira Archive'),
       all_issues_list=make_jira_file(root, web_export / 'issues.html', 'All Issues'),
       all_users_list=make_jira_file(root, web_export / 'users.html', 'All Users'),
@@ -199,7 +201,7 @@ def main():
          save_file(website, field_page.page)
    if 'fields' in to_render:
       print('Fields...')
-      for field in cache.fields.values():
+      for field in reversed(cache.fields.values()):
          print('\t' + field.id)
          field_page = website.field_pages[field.id]
          make_field_page(website, field_page.page, field)
@@ -244,7 +246,7 @@ def main():
          print('\t' + meta_id)
          field_page = website.meta_pages[meta_id]
          field_info = cache.metas[meta_id]
-         for value_info in field_info.values.values():
+         for value_info in reversed(field_info.values.values()):
             print('\t\t' + value_info.display.name)
             full_title = f'[{field_info.name}] {value_info.display.name}'
             file = make_jira_file(root, field_page.get_value_path(value_info.display.name), full_title)
@@ -252,10 +254,10 @@ def main():
             save_file(website, file)
    if 'field_issues' in to_render:
       print('Field issues...')
-      for field_info in cache.fields.values():
+      for field_info in reversed(cache.fields.values()):
          print('\t' + field_info.id)
          field_page = website.field_pages[field_info.id]
-         for value_info in field_info.values.values():
+         for value_info in reversed(field_info.values.values()):
             print('\t\t' + value_info.display.name)
             full_title = f'[{field_info.name}] {value_info.display.name}'
             file = make_jira_file(root, field_page.get_value_path(value_info.display.name), full_title)
@@ -344,7 +346,7 @@ def make_generic_header(website: Website, file: HtmlFile) -> bs4.Tag:
       new_content_tag(file.page.soup, 'form', attrs={'id': 'jump', 'class': 'jump'}, content=[
          file.page.soup.new_tag('input', attrs={'id': 'jump-input', 'type': 'text', 'name': 'jump', 'placeholder': 'Issue or User'}),
          new_content_tag(file.page.soup, 'button', attrs={'id': 'jump-submit', 'type': 'submit'}, content='Go'),
-         new_content_tag(file.page.soup, 'script', f'window.jumpStart = "{relative_path(website.root, file.path, website.root)}";')
+         new_content_tag(file.page.soup, 'script', f'window.jumpStart = "{relative_path(website.root, file.path, website.root / website.web_export)}";')
       ])
    ])
    file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/jump.js'))))
@@ -387,13 +389,15 @@ def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
       path = relative_path(website.root, file.path, website.archive.folder / 'assets/images' / entry.path)
       entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
 
-def embed_wiki(website: Website, file: HtmlFile, wiki: bs4.Tag) -> bs4.Tag:
+def embed_wiki(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup) -> bs4.Tag:
+   cloned = copy.deepcopy(parsed)
+   fix_markup(website, file, cloned)
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'jira-wiki'}, content=[
       new_content_tag(file.page.soup, 'template', attrs={'shadowrootmode': 'open'}, content=[
          file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/jira-wiki.css'))),
          file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('data/assets/mojira.css'))),
          file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/wiki-tweaks.css'))),
-         new_content_tag(file.page.soup, 'div', wiki)
+         new_content_tag(file.page.soup, 'div', cloned.root)
       ])
    ])
 
@@ -704,7 +708,6 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    soup = file.page.soup
    content = main_content(website, file)
 
-   issue_id = issue.issue['id']
    key = issue.issue['key']
    fields = issue.issue['fields']
    summary = fields['summary']
@@ -718,15 +721,13 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    top = issue_top(website, file, project, key, summary)
 
    if issue.description is not None:
-      fix_markup(website, file, issue.description)
-      desc = embed_wiki(website, file, issue.description.root)
+      desc = embed_wiki(website, file, issue.description)
       desc_text = html_to_text(desc)
    else:
       desc = None
       desc_text = None
    if issue.environment is not None:
-      fix_markup(website, file, issue.environment)
-      env = embed_wiki(website, file, issue.environment.root)
+      env = embed_wiki(website, file, issue.environment)
    else:
       env = None
    impact = fields.get('customfield_11801')
@@ -754,7 +755,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    all_comments = get_renderable_issue_comments(website.cache, issue.issue, include_secrets=not website.perms.hidden_secret_comments)
    all_mentions = get_renderable_issue_mentions(website.cache, issue.mentions, website.keys, issue.issue['id'])
    comment_section = issue_comments(website, file, all_comments)
-   history_section = issue_history(website, file, issue.issue, issue.issue['changelog']['histories'])
+   history_section = issue_history(website, file, issue, issue.issue['changelog']['histories'])
    user_data: list[UserSectionData] = []
    if comment_section.data is not None:
       user_data.append(comment_section.data)
@@ -1083,7 +1084,7 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
          issue = website.cache.issue_getter(issue_id)
          comments = website.cache.secret_comment_getter(issue_id)
          for comment in comments:
-            renderable = RenderableComment(comment.comment, issue.issue, comment.parsed.root, datetime.datetime.fromisoformat(comment.comment['created']), secret=True)
+            renderable = RenderableComment(comment.comment, issue.issue, comment.body, datetime.datetime.fromisoformat(comment.comment['created']), secret=True)
             bisect.insort_left(all_comments, renderable, key=lambda x: x.date)
 
    add_metadata(file, 'Secret Comments', f'{format_number(len(all_comments))} comments', None)
@@ -1257,7 +1258,7 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
       summary_id: 'Summary'
    }
    filter: dict[str, tuple[str, list[ValueDisplay]]] = {
-      project_id: ('Project', [website.cache.metas['project'].values[x].display for x in website.cache.projects.keys()]),
+      project_id: ('Project', [ValueDisplay(x.project['id'], x.project['key'], None, None) for x in website.cache.projects.values()]),
       resolution_id: ('Resolution', [x.display for x in website.cache.metas['resolution'].values.values()]),
       confirmation_id: ('Confirmation', [x.display for x in website.cache.fields['customfield_10500'].values.values()]),
       priority_id: ('Priority', [x.display for x in website.cache.fields['customfield_12200'].values.values()]),
@@ -1419,8 +1420,7 @@ class RenderableUserEntry:
 def comment_to_user(website: Website, file: HtmlFile, comment: RenderableComment) -> RenderableUserEntry:
    anchor = f'comment-id-{comment.comment['id']}'
    head = user_head_comment(website, file, comment.comment, secret=comment.secret, issue=comment.external_issue)
-   fix_markup(website, file, markup.parse_markup(comment.rendered_body))
-   body = embed_wiki(website, file, comment.rendered_body)
+   body = embed_wiki(website, file, comment.parsed)
    return RenderableUserEntry(anchor, list(head), [body])
 
 @dataclasses.dataclass
@@ -1431,9 +1431,10 @@ class RenderableRevision:
    end_time: datetime.datetime | None
    content: list[Tag]
 
-def get_renderable_revisions(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> list[RenderableRevision]:
+def get_renderable_revisions(website: Website, file: HtmlFile, info: CachedIssue, revisions: list[Revision]) -> list[RenderableRevision]:
+   issue = info.issue
    data = get_initial_data(website.archive, website.metas, issue, try_project(website.cache, issue['fields']['project']), revisions)
-   content = historic_issue(website, file, issue, data)
+   content = historic_issue(website, file, info, data)
    initial: list[Tag] = [
       # classes for style.css
       new_content_tag(file.page.soup, 'details', attrs={'open': ''}, content=[
@@ -1475,14 +1476,13 @@ def revision_to_user(website: Website, file: HtmlFile, revision: RenderableRevis
    return RenderableUserEntry(anchor, head, body)
 
 def mention_to_user(website: Website, file: HtmlFile, mention: RenderableMention) -> RenderableUserEntry:
-   fix_markup(website, file, mention.parsed)
    if mention.comment is not None:
       head = user_head_comment(website, file, mention.comment, secret=False, issue=mention.issue)
-      body = embed_wiki(website, file, mention.parsed.root)
+      body = embed_wiki(website, file, mention.parsed)
       return RenderableUserEntry(None, list(head), [body])
    else:
       head = user_head_issue(website, file, mention.issue)
-      body = embed_wiki(website, file, mention.parsed.root)
+      body = embed_wiki(website, file, mention.parsed)
       return RenderableUserEntry(None, list(head), [body])
 
 @dataclasses.dataclass
@@ -1515,7 +1515,7 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
          'nextId': f'{id_prefix}-section-next-page',
          'pages': pages
       }
-      controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls'}, content=[
+      controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls comment-controls'}, content=[
          new_content_tag(soup, 'div', attrs={'class': 'issue-pagination'}, content=[
             new_content_tag(soup, 'button', attrs={'id': data['prevId'], 'disabled': ''}, content=[
                new_content_tag(soup, 'svg', attrs={'xmlns': 'http://www.w3.org/2000/svg', 'viewBox': '0 0 16 16', 'width': '16', 'height': '16'}, content=[
@@ -1537,7 +1537,8 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
    return UserSection(section, controls, data)
 
 # history
-def historic_issue(website: Website, file: HtmlFile, issue: Issue, data: InitialData) -> bs4.Tag:
+def historic_issue(website: Website, file: HtmlFile, info: CachedIssue, data: InitialData) -> bs4.Tag:
+   issue = info.issue
    fields = data.fields
    initial_project = try_project(website.cache, fields['project'])
 
@@ -1545,22 +1546,18 @@ def historic_issue(website: Website, file: HtmlFile, issue: Issue, data: Initial
    assert 'summary' in fields
    top = issue_top(website, file, initial_project, fields['key'], fields['summary'])
    if data.description_revision_id is not None:
-      desc = website.markup_source.get_issue_description_revision(issue['id'], data.description_revision_id)[0]
-   elif issue['fields']['description'] is not None:
-      desc = website.markup_source.get_issue_description(issue['id'])
+      desc_soup = website.markup_source.get_issue_description_revision(issue['id'], data.description_revision_id)[0]
+      desc = markup.parse_markup(desc_soup) if desc_soup is not None else None
    else:
-      desc = None
+      desc = info.description
    if desc is not None:
-      fix_markup(website, file, markup.parse_markup(desc))
       desc = embed_wiki(website, file, desc)
    if data.environment_revision_id is not None:
-      env = website.markup_source.get_issue_environment_revision(issue['id'], data.environment_revision_id)[0]
-   elif 'environment' in issue['fields'] and issue['fields']['environment'] is not None:
-      env = website.markup_source.get_issue_environment(issue['id'])
+      env_soup = website.markup_source.get_issue_environment_revision(issue['id'], data.environment_revision_id)[0]
+      env = markup.parse_markup(env_soup) if env_soup is not None else None
    else:
-      env = None
+      env = info.environment
    if env is not None:
-      fix_markup(website, file, markup.parse_markup(env))
       env = embed_wiki(website, file, env)
    impact = fields.get('customfield_11801')
 
@@ -1774,24 +1771,14 @@ def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | No
    raise ValueError()
 
 def revision_large_diff(website: Website, file: HtmlFile, label: str, before: bs4.BeautifulSoup | None, after: bs4.BeautifulSoup | None) -> bs4.Tag:
-   if before is not None:
-      fix_markup(website, file, markup.parse_markup(before))
-      before_tag = before
-   else:
-      before_tag = None
-   if after is not None:
-      fix_markup(website, file, markup.parse_markup(after))
-      after_tag = after
-   else:
-      after_tag = None
    def process(tag: bs4.Tag) -> bs4.Tag:
-      wiki =  embed_wiki(website, file, tag)
+      wiki =  embed_wiki(website, file, markup.parse_markup(tag))
       template = wiki.find('template')
       assert template is not None
       template.insert(0, file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
       return wiki
    # diff-panel-side for style.css
-   return revision_html_diff(file.page.soup, label, before_tag, after_tag, process, 'diff-panel-side')
+   return revision_html_diff(file.page.soup, label, before, after, process, 'diff-panel-side')
 
 @dataclasses.dataclass
 class TrackedProjectRevision:
@@ -1945,8 +1932,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             assert change['to'] is None
             if UNKNOWN_COMMENT_RE.match(change['from']) is None and not website.perms.hidden_deleted_comments:
                comment = website.markup_source.get_deleted_comment_body(issue['id'], rev_id)
-               fix_markup(website, file, markup.parse_markup(comment))
-               yield revision_quoted(soup, 'Deleted Comment:', [embed_wiki(website, file, comment)])
+               yield revision_quoted(soup, 'Deleted Comment:', [embed_wiki(website, file, markup.parse_markup(comment))])
          case 'project' | 'Project':
             assert change['from'] is not None
             project.id = change['from']
@@ -2478,7 +2464,7 @@ def issue_body(soup: bs4.BeautifulSoup, desc: bs4.Tag | None, env: bs4.Tag | Non
 def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[RenderableComment]) -> UserSection:
    return build_user_section(file.page.soup, 'comment', 250, (comment_to_user(website, file, x) for x in comments))
 
-def issue_history(website: Website, file: HtmlFile, issue: Issue, revisions: list[Revision]) -> UserSection:
+def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revisions: list[Revision]) -> UserSection:
    renderable = get_renderable_revisions(website, file, issue, revisions)
    return build_user_section(file.page.soup, 'history', 250, (revision_to_user(website, file, x) for x in renderable))
 

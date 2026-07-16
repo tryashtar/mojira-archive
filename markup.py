@@ -218,9 +218,11 @@ class ParsedMarkupUser:
    attr: str
    username: str
 
+# copying the markup relies on the semantics of deepcopy memoizing
+# otherwise the references back to the root would be cloned separately
 @dataclasses.dataclass
 class ParsedMarkup:
-   root: bs4.BeautifulSoup
+   root: bs4.Tag
    attachments: list[ParsedMarkupAttachment]
    thumbnails: list[ParsedMarkupAttachment]
    issues: list[ParsedMarkupIssue]
@@ -233,7 +235,7 @@ THUMBNAIL_RE = re.compile(r'^./secure/thumbnail/([0-9]+)/(.+)$')
 ICON_RE = re.compile(r'^./images/(.+)$')
 USER_RE = re.compile(r'^./secure/ViewProfile\.jspa\?name=(.*)$')
 
-def parse_markup(markup: bs4.BeautifulSoup) -> ParsedMarkup:
+def parse_markup(markup: bs4.Tag) -> ParsedMarkup:
    result = ParsedMarkup(markup, [], [], [], [], [])
    def append_link(tag: bs4.Tag, link: str, attr: str):
       if (match := ATTACH_RE.match(link)) is not None:
