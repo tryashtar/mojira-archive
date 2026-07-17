@@ -1,5 +1,4 @@
 import bisect
-import copy
 import dataclasses
 import datetime
 import pathlib
@@ -1117,8 +1116,18 @@ class DisplayCache:
       def group_order(info: CachedGroupInfo):
          return (-len(info.users), info.id)
       def meta_value_order(meta_id: mojira.META_TYPE, info: CachedValueInfo):
-         resolved = (meta_id == 'resolution' and info.display.id is not None) or (meta_id == 'status' and info.display.id in ('5', '6'))
-         return (resolved, info.display.name)
+         if meta_id == 'resolution':
+            resolution_status = 0 if info.display.id is None else 1
+         elif meta_id == 'status':
+            if info.display.id in ('5', '6'):
+               resolution_status = 2
+            elif info.display.id in ('3', '10200'):
+               resolution_status = 1
+            else:
+               resolution_status = 0
+         else:
+            resolution_status = 0
+         return (resolution_status, info.display.name)
       def field_value_order(info: CachedValueInfo):
          return (-len(info.issues), info.display.name)
 
@@ -1221,14 +1230,14 @@ def get_renderable_mentions(cache: DisplayCache, rels: markup_relations.MarkupRe
    for issue_id in rels['descriptions']:
       issue = cache.issue_getter(issue_id)
       if issue.description is not None:
-         cloned = copy.deepcopy(issue.description, {})
+         cloned = issue.description.clone()
          process(cloned)
          entry = RenderableMention(issue.issue, None, issue.created, cloned)
          bisect.insort_left(result, entry, key=lambda x: x.date)
    for issue_id in rels['environments']:
       issue = cache.issue_getter(issue_id)
       if issue.environment is not None:
-         cloned = copy.deepcopy(issue.environment, {})
+         cloned = issue.environment.clone()
          process(cloned)
          entry = RenderableMention(issue.issue, None, issue.created, cloned)
          bisect.insort_left(result, entry, key=lambda x: x.date)
@@ -1236,7 +1245,7 @@ def get_renderable_mentions(cache: DisplayCache, rels: markup_relations.MarkupRe
       issue = cache.issue_getter(issue_id)
       for comment_id in comment_ids:
          info = cache.comment_getter(issue_id, comment_id)
-         cloned = copy.deepcopy(info.body, {})
+         cloned = info.body.clone()
          process(cloned)
          entry = RenderableMention(issue.issue, info.comment, info.date, cloned)
          bisect.insort_left(result, entry, key=lambda x: x.date)

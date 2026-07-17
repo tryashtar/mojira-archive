@@ -124,7 +124,7 @@ def main():
    secret_comments.remove_uuid_comments()
    meta_list: list[mojira.META_TYPE] = ['resolution', 'status']
    web_export = pathlib.PurePath(os.environ['WEB_EXPORT'])
-   perms_data = json.loads(os.environ[os.environ['WEB_PERMS']])
+   perms_data = json.loads(os.environ['WEB_PERMS'])
    perms = ViewPerms(perms_data)
    cache = DisplayCache(archive, metas, rels, markup_source, markup_rels, secret_comments, perms)
    website = Website(
@@ -297,7 +297,7 @@ def main():
                   from_full.symlink_to(relative)
    if 'group_users' in to_render:
       print('Group users...')
-      for group in cache.groups.values():
+      for group in reversed(cache.groups.values()):
          print('\t\t' + group.id)
          group_page = website.group_pages[group.id]
          make_group_users_page(website, group_page.users, group)
@@ -391,7 +391,7 @@ def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
       entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
 
 def embed_wiki(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup) -> bs4.Tag:
-   cloned = copy.deepcopy(parsed, {})
+   cloned = parsed.clone()
    fix_markup(website, file, cloned)
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'jira-wiki'}, content=[
       new_content_tag(file.page.soup, 'template', attrs={'shadowrootmode': 'open'}, content=[
@@ -686,7 +686,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
          ['Mentions', count_badge(soup, len(all_mentions))],
          [mention_section.controls, mention_section.section]
       ))
-   tabs = build_info_tabs(soup, tab_data, orderable=False)
+   tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
    add_virtual_scripts(website, file, table_data, user_data)
 
@@ -1043,7 +1043,7 @@ def make_all_users_page(website: Website, file: HtmlFile):
    soup = file.page.soup
    content = main_content(website, file)
 
-   table = create_user_list(website, file, 'user', (website.cache.user_getter(x).user for x in website.cache.all_users))
+   table = create_user_list(website, file, 'user', (website.cache.user_getter(x) for x in website.cache.all_users))
 
    add_metadata(file, 'All Users', f'{format_number(len(website.cache.all_users))} all_users', None)
 
@@ -1055,7 +1055,7 @@ def make_group_users_page(website: Website, file: HtmlFile, info: CachedGroupInf
    soup = file.page.soup
    content = main_content(website, file)
 
-   table = create_user_list(website, file, 'user', (website.cache.user_getter(x).user for x in info.users))
+   table = create_user_list(website, file, 'user', (website.cache.user_getter(x) for x in info.users))
 
    add_metadata(file, info.id, f'{format_number(len(info.users))} users', None)
 
@@ -1205,6 +1205,10 @@ def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings,
    assert settings.search.keys() == data['search'].keys()
    assert settings.filter.keys() == data['filter'].keys()
    assert len(settings.columns) == len(data['sort'])
+   rows = len(data['rows'])
+   assert all(len(x) == rows for x in data['sort'])
+   assert all(len(x) == rows for x in data['search'].values())
+   assert all(len(x) == rows for x in data['filter'].values())
 
    # issue-table for misode.css
    # other classes for style.css
@@ -1304,15 +1308,11 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
          assignee = []
          assignee_name = None
       status = merged_status(website, file, issue)
-      status_cls = 'issue-table-status'
-      if issue['fields']['resolution'] is not None:
-         # issue-resolved for misode.css
-         status_cls += ' issue-resolved'
       created_date = datetime.datetime.fromisoformat(issue['fields']['created'])
       row_tags = [
          key,
          new_content_tag(soup, 'div', issue['fields']['summary'], attrs={'class': 'issue-table-summary', 'title': issue['fields']['summary']}),
-         new_content_tag(soup, 'a', new_content_tag(soup, 'div', status.badge.outer), attrs={'class': status_cls, 'href': status.badge.link}),
+         new_content_tag(soup, 'a', new_content_tag(soup, 'div', status.badge.outer), attrs={'class': 'issue-table-status', 'href': status.badge.link}),
          new_content_tag(soup, 'div', reporter, attrs={'class': 'issue-table-username'}),
          new_content_tag(soup, 'div', assignee, attrs={'class': 'issue-table-username'}),
          new_content_tag(soup, 'div', render_datetime(soup, created_date), attrs={'class': 'issue-table-time'})
@@ -1333,10 +1333,12 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
       filter_data[priority_id].append(issue['fields']['customfield_12200']['id'] if 'customfield_12200' in issue['fields'] and issue['fields']['customfield_12200'] is not None else None)
       filter_data[resolution_id].append(issue['fields']['resolution'])
       row = new_content_tag(soup, 'div', content=row_tags)
-      if issue['fields']['resolution'] is not None:
-         # issue-table-row for style.css
+      # issue-table-row for style.css
+      if status.kind == 'resolved':
          # issue-resolved for misode.css
          row.attrs['class'] = 'issue-table-row issue-resolved'
+      elif status.kind == 'progress':
+         row.attrs['class'] = 'issue-table-row issue-progress'
       else:
          row.attrs['class'] = 'issue-table-row'
       rows.append(row)
@@ -1354,14 +1356,16 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
    }
    return build_virtual_table(soup, settings, data)
 
-def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: typing.Iterable[User | UnknownUser]) -> VirtualTable:
+def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: typing.Iterable[CachedUser]) -> VirtualTable:
    soup = file.page.soup
    displayname_id = f'{id_prefix}-table-search'
    # classes for style.css
    columns: dict[str, str] = {
       'Username': 'user-table-username',
       'Display Name': 'user-table-fullname',
-      'Role': 'user-table-role'
+      'Role': 'user-table-role',
+      'Created': 'user-table-number',
+      'Assigned': 'user-table-number',
    }
    search: dict[str, str] = {
       displayname_id: 'Display Name'
@@ -1371,8 +1375,9 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
    search_data: dict[str, list[str]] = {
       displayname_id: []
    }
-   sort_data: list[list[tuple[int, typing.Any]]] = [[], [], []]
-   for i, user in enumerate(users):
+   sort_data: list[list[tuple[int, typing.Any]]] = [[], [], [], [], []]
+   for i, info in enumerate(users):
+      user = info.user
       user_ref = user_reference(website, file, user)
       # assign a without href to inner tag for mojira.css
       user_ref.inner.name = 'a'
@@ -1391,13 +1396,17 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
          new_content_tag(soup, 'div', attrs={'class': 'user-table-username'}, content=user['name']),
          new_content_tag(soup, 'div', attrs={'class': 'user-table-fullname'}, content=user_content),
          role_tag,
+         new_content_tag(soup, 'div', attrs={'class': 'user-table-number'}, content=f'{format_number(len(info.created))} issues' if len(info.created) > 0 else []),
+         new_content_tag(soup, 'div', attrs={'class': 'user-table-number'}, content=f'{format_number(len(info.assigned))} issues' if len(info.assigned) > 0 else []),
       ]
       def sorter_key(x: tuple[int, typing.Any]):
          key = natsort.natsort_keygen(alg=natsort.ns.IGNORECASE)
          return key(x[1])
       bisect.insort_left(sort_data[0], (i, user['name']), key=sorter_key)
       bisect.insort_left(sort_data[1], (i, user['displayName']), key=sorter_key)
-      bisect.insort_left(sort_data[2], (i, index), key=sorter_key)
+      bisect.insort_left(sort_data[2], (i, index), key=lambda x: x[1])
+      bisect.insort_left(sort_data[3], (i, -len(info.created)), key=lambda x: x[1])
+      bisect.insort_left(sort_data[4], (i, -len(info.assigned)), key=lambda x: x[1])
       search_data[displayname_id].append(user['displayName'].lower())
       row = new_content_tag(soup, 'div', content=row_tags)
       row.attrs['class'] = 'issue-table-row'
@@ -1554,14 +1563,14 @@ def historic_issue(website: Website, file: HtmlFile, info: CachedIssue, data: In
    assert 'summary' in fields
    top = issue_top(website, file, initial_project, fields['key'], fields['summary'])
    if data.description_revision_id is not None:
-      desc_soup = website.markup_source.get_issue_description_revision(issue['id'], data.description_revision_id)[0]
+      desc_soup = website.markup_source.get_issue_description_revision(issue['id'], data.description_revision_id).before
       desc = markup.parse_markup(desc_soup) if desc_soup is not None else None
    else:
       desc = info.description
    if desc is not None:
       desc = embed_wiki(website, file, desc)
    if data.environment_revision_id is not None:
-      env_soup = website.markup_source.get_issue_environment_revision(issue['id'], data.environment_revision_id)[0]
+      env_soup = website.markup_source.get_issue_environment_revision(issue['id'], data.environment_revision_id).before
       env = markup.parse_markup(env_soup) if env_soup is not None else None
    else:
       env = info.environment
@@ -1757,28 +1766,27 @@ def revision_quoted(soup: bs4.BeautifulSoup, label: Tag | list[Tag], content: li
       new_content_tag(soup, 'blockquote', attrs={'class': 'history-quote'}, content=content)
    ])
 
-def revision_html_diff(soup: bs4.BeautifulSoup, label: str, before: bs4.Tag | None, after: bs4.Tag | None, process: typing.Callable[[bs4.Tag], bs4.Tag], panel_class: str) -> bs4.Tag:
-   if before is not None and after is not None:
-      diff = html_diff(soup, before, after)
-      has_insertions = diff.find(class_='diff-insert') is not None
-      has_deletions = diff.find(class_='diff-delete') is not None
+def revision_html_diff(soup: bs4.BeautifulSoup, label: str, revision: markup.RevisionData, process: typing.Callable[[bs4.Tag], bs4.Tag], panel_class: str) -> bs4.Tag:
+   if revision.diff is not None:
+      has_insertions = revision.diff.find(class_='diff-insert') is not None
+      has_deletions = revision.diff.find(class_='diff-delete') is not None
       if has_insertions and has_deletions:
-         before_diff = copy.deepcopy(diff)
-         after_diff = copy.deepcopy(diff)
+         before_diff = copy.deepcopy(revision.diff)
+         after_diff = copy.deepcopy(revision.diff)
          for tag in before_diff.find_all(class_='diff-insert'):
             tag.extract()
          for tag in after_diff.find_all(class_='diff-delete'):
             tag.extract()
          panel = new_content_tag(soup, 'div', attrs={'class': panel_class}, content=[process(before_diff), process(after_diff)])
          return revision_quoted(soup, f'Changed {label}:', [panel])
-      return revision_quoted(soup, f'Changed {label}:', [process(diff)])
-   elif before is not None and after is None:
-      return revision_quoted(soup, f'Removed {label}:', [process(before)])
-   elif after is not None and before is None:
-      return revision_quoted(soup, f'Added {label}:', [process(after)])
+      return revision_quoted(soup, f'Changed {label}:', [process(revision.diff)])
+   elif revision.before is not None and revision.after is None:
+      return revision_quoted(soup, f'Removed {label}:', [process(revision.before)])
+   elif revision.after is not None and revision.before is None:
+      return revision_quoted(soup, f'Added {label}:', [process(revision.after)])
    raise ValueError()
 
-def revision_large_diff(website: Website, file: HtmlFile, label: str, before: bs4.BeautifulSoup | None, after: bs4.BeautifulSoup | None) -> bs4.Tag:
+def revision_large_diff(website: Website, file: HtmlFile, label: str, revision: markup.RevisionData) -> bs4.Tag:
    def process(tag: bs4.Tag) -> bs4.Tag:
       wiki =  embed_wiki(website, file, markup.parse_markup(tag))
       template = wiki.find('template')
@@ -1786,7 +1794,7 @@ def revision_large_diff(website: Website, file: HtmlFile, label: str, before: bs
       template.insert(0, file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
       return wiki
    # diff-panel-side for style.css
-   return revision_html_diff(file.page.soup, label, before, after, process, 'diff-panel-side')
+   return revision_html_diff(file.page.soup, label, revision, process, 'diff-panel-side')
 
 @dataclasses.dataclass
 class TrackedProjectRevision:
@@ -1927,14 +1935,15 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             assert change['toString'] is not None
             before = new_content_tag(soup, 'span', change['fromString'])
             after = new_content_tag(soup, 'span', change['toString'])
+            diff = html_diff(soup, before, after)
             # diff-panel-top for style.css
-            yield revision_html_diff(soup, 'Summary', before, after, lambda x: x, 'diff-panel-top')
+            yield revision_html_diff(soup, 'Summary', markup.RevisionData(before, after, diff), lambda x: x, 'diff-panel-top')
          case 'description': # source always null, string either null or text
-            before, after = website.markup_source.get_issue_description_revision(issue['id'], rev_id)
-            yield revision_large_diff(website, file, 'Description', before, after)
+            revision_markup = website.markup_source.get_issue_description_revision(issue['id'], rev_id)
+            yield revision_large_diff(website, file, 'Description', revision_markup)
          case 'environment': # source always null, string either null or text
-            before, after = website.markup_source.get_issue_environment_revision(issue['id'], rev_id)
-            yield revision_large_diff(website, file, 'Environment', before, after)
+            revision_markup = website.markup_source.get_issue_environment_revision(issue['id'], rev_id)
+            yield revision_large_diff(website, file, 'Environment', revision_markup)
          case 'Comment': # from always text, all the rest always null
             assert change['from'] is not None
             assert change['to'] is None
@@ -2245,14 +2254,18 @@ def issue_links(website: Website, file: HtmlFile, links: dict[str, list[str]]) -
 def linked_issue(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
    # issue-link for misode.css
    # issue-resolved for misode.css
-   cls = 'issue-link' if issue['fields']['resolution'] is None else 'issue-link issue-resolved'
+   status = merged_status(website, file, issue)
+   cls = 'issue-link'
+   if status.kind == 'resolved':
+      cls += ' issue-resolved'
+   elif status.kind == 'progress':
+      cls += ' issue-progress'
    link = relative_link(website.root, file.path, website.get_issue_path(issue))
    key = issue_key_issue(website, file, issue, with_icon=True)
    # issue-link-key for misode.css
    append_class(key, 'issue-link-key')
    # issue-link-summary for misode.css
    summary = new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-link-summary', 'title': issue['fields']['summary']}, content=issue['fields']['summary'])
-   status = merged_status(website, file, issue)
    return new_content_tag(file.page.soup, 'a', attrs={'class': cls, 'href': link}, content=[
       key,
       summary,
@@ -2318,6 +2331,7 @@ class FieldBadge:
    outer: bs4.Tag
    link: str
    resolved: bool
+   progress: bool
 
 def meta_badge_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, display: ValueDisplay) -> FieldBadge:
    link = relative_link(website.root, file.path, website.meta_pages[meta_id].get_value_path(display.name))
@@ -2326,7 +2340,8 @@ def meta_badge_display(website: Website, file: HtmlFile, meta_id: mojira.META_TY
    if display.description is not None:
       tag.attrs['title'] = display.description
    resolved = (meta_id == 'resolution' and display.id is not None) or (meta_id == 'status' and display.id in ('5', '6'))
-   return FieldBadge(tag, link, resolved)
+   progress = (meta_id == 'status' and display.id in ('3', '10200'))
+   return FieldBadge(tag, link, resolved, progress)
 
 def meta_badge(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> FieldBadge:
    display = website.cache.metas[meta_id].values[value_key].display
@@ -2339,6 +2354,8 @@ def meta_link_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYP
    if badge.resolved:
       # issue-resolved for misode.css
       return new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=badge.outer)
+   if badge.progress:
+      return new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-progress'}, content=badge.outer)
    return badge.outer
 
 def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value_key: str | None) -> bs4.Tag:
@@ -2360,7 +2377,7 @@ def field_badge_display(website: Website, file: HtmlFile, field_id: str, display
    append_class(tag, f'field-value-{field_name_str}')
    if display.description is not None:
       tag.attrs['title'] = display.description
-   return FieldBadge(tag, link, False)
+   return FieldBadge(tag, link, False, False)
 
 def field_badge(website: Website, file: HtmlFile, field_id: str, value_key: str) -> FieldBadge:
    display = website.cache.fields[field_id].values[value_key].display

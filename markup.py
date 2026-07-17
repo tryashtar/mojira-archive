@@ -1,10 +1,11 @@
-import dataclasses
+import copy
 import os
 import pathlib
 import re
 import urllib.parse
 import subprocess
 import json
+import dataclasses
 
 import bs4
 import dotenv
@@ -12,7 +13,58 @@ import dotenv
 import mojira
 import relations
 
-from jiratypes import Issue
+from jiratypes import Issue, RevisionChange
+from web import html_diff
+
+@dataclasses.dataclass
+class RevisionPaths:
+   before: pathlib.Path
+   after: pathlib.Path
+   diff: pathlib.Path
+
+@dataclasses.dataclass
+class RevisionData:
+   before: bs4.Tag | None
+   after: bs4.Tag | None
+   diff: bs4.Tag | None
+
+def load_revision_data(paths: RevisionPaths) -> RevisionData:
+   return RevisionData(
+      load_if_exists(paths.before),
+      load_if_exists(paths.after),
+      load_if_exists(paths.diff)
+   )
+
+def load_if_exists(path: pathlib.Path) -> bs4.BeautifulSoup | None:
+   if path.exists():
+      return load(path)
+   return None
+
+# use html.parser because lxml wraps the tags in <html><body>...</body></html>
+# and I'd rather not unwrap it and return a plain bs4.Tag
+def load(path: pathlib.Path) -> bs4.BeautifulSoup:
+   with open(path, 'r', encoding='utf-8') as file:
+      return bs4.BeautifulSoup(file, 'html.parser')
+
+def render_revision(renderer: subprocess.Popen, issue_id: int, change: RevisionChange, paths: RevisionPaths):
+   if change['fromString'] is not None and change['toString'] is not None and not paths.diff.exists():
+      before = load_if_exists(paths.before)
+      if before is None:
+         html = convert(renderer, change['fromString'], issue_id)
+         write(paths.before, html)
+         before = bs4.BeautifulSoup(html, 'html.parser')
+      after = load_if_exists(paths.after)
+      if after is None:
+         html = convert(renderer, change['fromString'], issue_id)
+         write(paths.after, html)
+         after = bs4.BeautifulSoup(html, 'html.parser')
+      diff = html_diff(bs4.BeautifulSoup(), before, after)
+      write(paths.diff, diff.decode(formatter='html5'))
+   else:
+      if change['fromString'] is not None:
+         render_to_file(renderer, issue_id, change['fromString'], paths.before)
+      if change['toString'] is not None:
+         render_to_file(renderer, issue_id, change['toString'], paths.after)
 
 class MarkupSource:
    def __init__(self, folder: pathlib.Path):
@@ -21,16 +73,16 @@ class MarkupSource:
    def get_issue_description_path(self, issue_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'description.html'
 
-   def get_issue_description_revision_paths(self, issue_id: str, revision_id: str) -> tuple[pathlib.Path, pathlib.Path]:
+   def get_issue_description_revision_paths(self, issue_id: str, revision_id: str) -> RevisionPaths:
       root = self.folder / issue_id / 'revisions' / revision_id / 'description'
-      return (root / 'before.html', root / 'after.html')
+      return RevisionPaths(root / 'before.html', root / 'after.html', root / 'diff.html')
 
    def get_issue_environment_path(self, issue_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'environment.html'
 
-   def get_issue_environment_revision_paths(self, issue_id: str, revision_id: str) -> tuple[pathlib.Path, pathlib.Path]:
+   def get_issue_environment_revision_paths(self, issue_id: str, revision_id: str) -> RevisionPaths:
       root = self.folder / issue_id / 'revisions' / revision_id / 'environment'
-      return (root / 'before.html', root / 'after.html')
+      return RevisionPaths(root / 'before.html', root / 'after.html', root / 'diff.html')
 
    def get_comment_body_path(self, issue_id: str, comment_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'comments' / (comment_id + '.html')
@@ -41,55 +93,28 @@ class MarkupSource:
    def get_deleted_comment_body_path(self, issue_id: str, revision_id: str) -> pathlib.Path:
       return self.folder / issue_id / 'deleted_comments' / (revision_id + '.html')
 
-   # use html.parser because lxml wraps the tags in <html><body>...</body></html>
-   # and I'd rather not unwrap it and return a plain bs4.Tag
    def get_issue_description(self, issue_id: str) -> bs4.BeautifulSoup:
-      with open(self.get_issue_description_path(issue_id), 'r', encoding='utf-8') as file:
-         return bs4.BeautifulSoup(file, 'html.parser')
+      return load(self.get_issue_description_path(issue_id))
 
-   def get_issue_description_revision(self, issue_id: str, revision_id: str) -> tuple[bs4.BeautifulSoup | None, bs4.BeautifulSoup | None]:
-      path1, path2 = self.get_issue_description_revision_paths(issue_id, revision_id)
-      if path1.exists():
-         with open(path1, 'r', encoding='utf-8') as file:
-            data1 = bs4.BeautifulSoup(file, 'html.parser')
-      else:
-         data1 = None
-      if path2.exists():
-         with open(path2, 'r', encoding='utf-8') as file:
-            data2 = bs4.BeautifulSoup(file, 'html.parser')
-      else:
-         data2 = None
-      return (data1, data2)
+   def get_issue_description_revision(self, issue_id: str, revision_id: str) -> RevisionData:
+      paths = self.get_issue_description_revision_paths(issue_id, revision_id)
+      return load_revision_data(paths)
 
    def get_issue_environment(self, issue_id: str) -> bs4.BeautifulSoup:
-      with open(self.get_issue_environment_path(issue_id), 'r', encoding='utf-8') as file:
-         return bs4.BeautifulSoup(file, 'html.parser')
+      return load(self.get_issue_environment_path(issue_id))
 
-   def get_issue_environment_revision(self, issue_id: str, revision_id: str) -> tuple[bs4.BeautifulSoup | None, bs4.BeautifulSoup | None]:
-      path1, path2 = self.get_issue_environment_revision_paths(issue_id, revision_id)
-      if path1.exists():
-         with open(path1, 'r', encoding='utf-8') as file:
-            data1 = bs4.BeautifulSoup(file, 'html.parser')
-      else:
-         data1 = None
-      if path2.exists():
-         with open(path2, 'r', encoding='utf-8') as file:
-            data2 = bs4.BeautifulSoup(file, 'html.parser')
-      else:
-         data2 = None
-      return (data1, data2)
+   def get_issue_environment_revision(self, issue_id: str, revision_id: str) -> RevisionData:
+      paths = self.get_issue_environment_revision_paths(issue_id, revision_id)
+      return load_revision_data(paths)
 
    def get_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
-      with open(self.get_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
-         return bs4.BeautifulSoup(file, 'html.parser')
+      return load(self.get_comment_body_path(issue_id, comment_id))
 
    def get_secret_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
-      with open(self.get_secret_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
-         return bs4.BeautifulSoup(file, 'html.parser')
+      return load(self.get_secret_comment_body_path(issue_id, comment_id))
 
    def get_deleted_comment_body(self, issue_id: str, comment_id: str) -> bs4.BeautifulSoup:
-      with open(self.get_deleted_comment_body_path(issue_id, comment_id), 'r', encoding='utf-8') as file:
-         return bs4.BeautifulSoup(file, 'html.parser')
+      return load(self.get_deleted_comment_body_path(issue_id, comment_id))
 
    def render_issue(self, issue: Issue, renderer: subprocess.Popen):
       issue_id = int(issue['id'])
@@ -102,17 +127,11 @@ class MarkupSource:
       for revision in issue['changelog']['histories']:
          for entry in revision['items']:
             if entry['field'] == 'description':
-               path1, path2 = self.get_issue_description_revision_paths(issue['id'], revision['id'])
-               if entry['fromString'] is not None:
-                  render_to_file(renderer, issue_id, entry['fromString'], path1)
-               if entry['toString'] is not None:
-                  render_to_file(renderer, issue_id, entry['toString'], path2)
+               paths = self.get_issue_description_revision_paths(issue['id'], revision['id'])
+               render_revision(renderer, issue_id, entry, paths)
             elif entry['field'] == 'environment':
-               path1, path2 = self.get_issue_environment_revision_paths(issue['id'], revision['id'])
-               if entry['fromString'] is not None:
-                  render_to_file(renderer, issue_id, entry['fromString'], path1)
-               if entry['toString'] is not None:
-                  render_to_file(renderer, issue_id, entry['toString'], path2)
+               paths = self.get_issue_environment_revision_paths(issue['id'], revision['id'])
+               render_revision(renderer, issue_id, entry, paths)
             elif entry['field'] == 'Comment':
                assert entry['from'] is not None
                assert entry['to'] is None
@@ -189,9 +208,12 @@ def convert(process: subprocess.Popen, markup: str, issue_id: int | None) -> str
 def render_to_file(renderer: subprocess.Popen, issue_id: int, markup: str, path: pathlib.Path):
    if not path.exists():
       html = convert(renderer, markup, issue_id)
-      path.parent.mkdir(parents=True, exist_ok=True)
-      with open(path, 'w', encoding='utf-8') as file:
-         file.write(html)
+      write(path, html)
+
+def write(path: pathlib.Path, text: str):
+   path.parent.mkdir(parents=True, exist_ok=True)
+   with open(path, 'w', encoding='utf-8') as file:
+      file.write(text)
 
 @dataclasses.dataclass
 class ParsedMarkupAttachment:
@@ -218,8 +240,6 @@ class ParsedMarkupUser:
    attr: str
    username: str
 
-# copying the markup relies on the semantics of deepcopy memoizing
-# otherwise the references back to the root would be cloned separately
 @dataclasses.dataclass
 class ParsedMarkup:
    root: bs4.Tag
@@ -228,6 +248,26 @@ class ParsedMarkup:
    issues: list[ParsedMarkupIssue]
    icons: list[ParsedMarkupIcon]
    users: list[ParsedMarkupUser]
+
+   # we need to fully copy the root, and repoint the references to the new root, rather than creating independent copies
+   # copy.deepcopy is supposed to do this, but it seems to not work nicely with bs4 tags
+   # so here is a manual implementation
+   def clone(self):
+      new_root = copy.deepcopy(self.root)
+      mapping = dict(zip(
+         (id(x) for x in self.root.find_all()),
+         new_root.find_all(),
+      ))
+      def remap_list(list: list) -> list:
+         return [dataclasses.replace(item, tag=mapping[id(item.tag)]) for item in list]
+      return ParsedMarkup(
+         root=new_root,
+         attachments=remap_list(self.attachments),
+         thumbnails=remap_list(self.thumbnails),
+         issues=remap_list(self.issues),
+         icons=remap_list(self.icons),
+         users=remap_list(self.users),
+      )
 
 BROWSE_RE = re.compile(r'^./browse/([A-Z]+-[0-9]+)$')
 ATTACH_RE = re.compile(r'^./secure/attachment/([0-9]+)/(.+)$')
