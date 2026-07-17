@@ -1,5 +1,6 @@
 package com.renderer;
 
+import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -38,10 +39,24 @@ public class FakeUserManager implements UserManager {
     }
 
     public ApplicationUser getUserByKey(String key) {
-        var path = userFolder.resolve(key.replace('/', '⁄') + ".json");
+        var filename = key.replace('/', '⁄') + ".json";
+        var path1 = userFolder.resolve(filename);
+        var file1 = path1.toFile();
+        if (file1.exists()) {
+            return getFromFile(file1);
+        }
+        var path2 = userFolder.resolve("unknown").resolve(filename);
+        var file2 = path2.toFile();
+        if (file2.exists()) {
+            return getFromFile(file2);
+        }
+        return null;
+    }
+
+    private FakeUser getFromFile(File file) {
         JsonObject data;
         try {
-            data = JsonParser.parseReader(new FileReader(path.toFile())).getAsJsonObject();
+            data = JsonParser.parseReader(new FileReader(file)).getAsJsonObject();
         } catch (IOException ex) {
             return null;
         }

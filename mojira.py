@@ -98,11 +98,10 @@ class Archive:
          if path.is_file():
             yield decode_user_string(path.stem)
 
-   def users(self) -> typing.Generator[User]:
-      for path in self.users_folder.iterdir():
+   def unknown_user_keys(self) -> typing.Generator[str]:
+      for path in self.unknown_users_folder.iterdir():
          if path.is_file():
-            with open(path, 'r', encoding='utf-8') as file:
-               yield json.load(file)
+            yield decode_user_string(path.stem)
 
    def get_user_path(self, user_key: str, unknown=False) -> pathlib.Path:
       base_folder = self.unknown_users_folder if unknown else self.users_folder

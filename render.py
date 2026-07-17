@@ -14,6 +14,7 @@ import pathlib
 import dotenv
 import bs4
 import natsort
+import PIL.Image
 
 import markup_relations
 import mojira
@@ -28,7 +29,7 @@ from display import (CachedFieldInfo, CachedGroupInfo, CachedIssue, CachedMetaIn
    CachedVersionInfo, DisplayCache, HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment,
    RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, forwards_revision_order_key, get_avatar_path,
    get_initial_data, get_link_dir, get_renderable_issue_comments, get_renderable_issue_mentions, get_renderable_user_comments,
-   get_renderable_user_mentions, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, project_detail_links,
+   get_renderable_user_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, project_detail_links,
    try_project, user_role
 )
 
@@ -83,7 +84,7 @@ class Website:
    def get_issue_key_path(self, issue_key: str) -> pathlib.PurePath:
       return self.issues_folder / (issue_key + '.html')
 
-   def get_user_path(self, user: User) -> pathlib.PurePath:
+   def get_user_path(self, user: User | UnknownUser) -> pathlib.PurePath:
       return self.get_user_name_path(user['name'])
 
    def get_user_name_path(self, username: str) -> pathlib.PurePath:
@@ -270,9 +271,9 @@ def main():
    if 'issues' in to_render:
       print('Issues...')
       for i, issue in enumerate(cache.issue_getter(x) for x in cache.all_issues):
-         print('\t' + issue.issue['key'])
          if i % 1000 == 0:
             print(f'\t== {i} ==')
+         print('\t' + issue.issue['key'])
          path = website.get_issue_path(issue.issue)
          full_title = f'[{issue.issue['key']}] {issue.issue['fields']['summary']}'
          file = make_jira_file(root, path, full_title)
@@ -322,9 +323,9 @@ def main():
       print('Users...')
       for i, user_key in enumerate(cache.all_users):
          user = cache.user_getter(user_key)
-         print('\t' + user.user['name'])
          if i % 1000 == 0:
             print(f'\t== {i} ==')
+         print('\t' + user.user['name'])
          path = website.get_user_path(user.user)
          file = make_jira_file(root, path, user.user['displayName'])
          make_user_page(website, file, user)
@@ -390,7 +391,7 @@ def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
       entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
 
 def embed_wiki(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup) -> bs4.Tag:
-   cloned = copy.deepcopy(parsed)
+   cloned = copy.deepcopy(parsed, {})
    fix_markup(website, file, cloned)
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'jira-wiki'}, content=[
       new_content_tag(file.page.soup, 'template', attrs={'shadowrootmode': 'open'}, content=[
@@ -689,18 +690,22 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    main.append(tabs)
    add_virtual_scripts(website, file, table_data, user_data)
 
-def user_details(website: Website, file: HtmlFile, user: User) -> typing.Generator[tuple[Tag, Tag]]:
+def user_details(website: Website, file: HtmlFile, user: User | UnknownUser) -> typing.Generator[tuple[Tag, Tag]]:
    yield ('Username:', user['name'])
    yield ('User Key:', user['key'])
    yield ('Time Zone:', user['timeZone'])
    yield ('Active:', 'Yes' if user['active'] else 'No')
-   yield ('Deleted:', 'Yes' if user['deleted'] else 'No')
-   group_list = new_content_tag(file.page.soup, 'ul', content=[
-      new_content_tag(file.page.soup, 'li', group_link(website, file, x['name'])) for x in user['groups']['items']
-   ])
-   yield ('Groups:', group_list)
-   if not website.perms.hidden_json_data:
+   if 'groups' in user:
+      yield ('Deleted:', 'Yes' if user['deleted'] else 'No')
+      group_list = new_content_tag(file.page.soup, 'ul', content=[
+         new_content_tag(file.page.soup, 'li', group_link(website, file, x['name'])) for x in user['groups']['items']
+      ])
+      yield ('Groups:', group_list)
       data_link = relative_path(website.root, file.path, website.archive.get_user_path(user['key']))
+   else:
+      yield ('Unknown User:', 'Yes')
+      data_link = relative_path(website.root, file.path, website.archive.get_user_path(user['key'], unknown=True))
+   if not website.perms.hidden_json_data:
       links = [('JSON', urllib.parse.quote(str(data_link)))]
       yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
@@ -1151,6 +1156,7 @@ UserSectionData = typing.TypedDict('UserSectionData', {
    'prevId': str,
    'pageId': str,
    'nextId': str,
+   'orderId': str,
    'pages': list[list[bs4.Tag]],
 })
 
@@ -1348,7 +1354,7 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
    }
    return build_virtual_table(soup, settings, data)
 
-def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: typing.Iterable[User]) -> VirtualTable:
+def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: typing.Iterable[User | UnknownUser]) -> VirtualTable:
    soup = file.page.soup
    displayname_id = f'{id_prefix}-table-search'
    # classes for style.css
@@ -1371,7 +1377,7 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
       # assign a without href to inner tag for mojira.css
       user_ref.inner.name = 'a'
       user_content = [soup.new_tag('a', attrs={'class': 'overlay', 'href': user_ref.link}), user_ref.outer]
-      role = user_role(user)
+      role = user_role(user) if 'groups' in user else None
       if role is None:
          role_tag = soup.new_tag('div', attrs={'class': 'user-table-role'})
          index = 9999
@@ -1513,6 +1519,7 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
          'prevId': f'{id_prefix}-section-prev-page',
          'pageId': f'{id_prefix}-section-page',
          'nextId': f'{id_prefix}-section-next-page',
+         'orderId': 'issue-tab-order',
          'pages': pages
       }
       controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls comment-controls'}, content=[
@@ -1534,7 +1541,8 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
    else:
       data = None
       controls = new_content_tag(soup, 'div', [])
-   return UserSection(section, controls, data)
+   wrapper = new_content_tag(soup, 'div', attrs={'class': 'comment-section-wrapper'}, content=section)
+   return UserSection(wrapper, controls, data)
 
 # history
 def historic_issue(website: Website, file: HtmlFile, info: CachedIssue, data: InitialData) -> bs4.Tag:
@@ -1977,11 +1985,7 @@ def user_reference(website: Website, file: HtmlFile, user: User | UnknownUser) -
    return UserReference(inner, outer, link_url, display_name)
 
 def user_reference_key(website: Website, file: HtmlFile, user_key: str) -> UserReference:
-   user_data = website.archive.get_user_data(user_key)
-   if user_data is not None:
-      return user_reference(website, file, user_data)
-   user_data = website.archive.get_unknown_user_data(user_key)
-   assert user_data is not None
+   user_data = get_user(website.archive, user_key)
    return user_reference(website, file, user_data)
 
 def user_link(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
@@ -2176,8 +2180,16 @@ def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment)
    mime = attachment['mimeType']
    # attachment-img for style.css
    if mime.startswith('image/'):
+      img_tag = file.page.soup.new_tag('img', attrs={'class': 'attachment-img', 'src': link, 'alt': 'Attached image file', 'loading': 'lazy'})
+      try:
+         with PIL.Image.open(attach_path) as img:
+            width, height = img.size
+            img_tag.attrs['width'] = str(width)
+            img_tag.attrs['height'] = str(height)
+      except PIL.UnidentifiedImageError:
+         pass
       return new_content_tag(file.page.soup, 'a', attrs={'href': link}, content=[
-         file.page.soup.new_tag('img', attrs={'class': 'attachment-img', 'src': link, 'alt': 'Attached image file', 'loading': 'lazy'})
+         img_tag
       ])
    if mime.startswith('video/'):
       return new_content_tag(file.page.soup, 'video', attrs={'class': 'attachment-img', 'alt': 'Attached video file', 'loading': 'lazy', 'controls': ''}, content=[file.page.soup.new_tag('source', attrs={'src': link})])
@@ -2203,7 +2215,7 @@ def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment)
       icon = 'file'
    # attachment-icon for style.css
    return new_content_tag(file.page.soup, 'a', attrs={'href': link}, content=[
-      file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'alt': f'Attached {icon} file', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach') / (icon + '.gif'))})
+      file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'width': '16', 'height': '16', 'alt': f'Attached {icon} file', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach') / (icon + '.gif'))})
    ])
 
 def historic_attachments(website: Website, file: HtmlFile, attachments: list[HistoricValue]) -> bs4.Tag:
@@ -2475,7 +2487,19 @@ def count_badge(soup: bs4.BeautifulSoup, amount: int) -> bs4.Tag:
    # count-badge for misode.css
    return new_content_tag(soup, 'span', attrs={'class': 'count-badge'}, content=format_number(amount))
 
+def preserve_spaces(value: str) -> str:
+   stripped = value.lstrip(' ')
+   value = '\u00a0' * (len(value) - len(stripped)) + stripped
+   stripped = value.rstrip(' ')
+   value = stripped + '\u00a0' * (len(value) - len(stripped))
+   return value
+
 def status_badge(soup: bs4.BeautifulSoup, content: Tag | list[Tag]) -> bs4.Tag:
+   if not isinstance(content, list):
+      content = [content]
+   for i, value in enumerate(content):
+      if isinstance(value, str):
+         content[i] = preserve_spaces(value)
    # status-badge for misode.css
    return new_content_tag(soup, 'span', attrs={'class': 'status-badge'}, content=content)
 

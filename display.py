@@ -12,7 +12,7 @@ import markup
 import markup_relations
 import mojira
 import relations
-from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, User, Version
+from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, UnknownUser, User, Version
 from web import append_class
 
 @dataclasses.dataclass
@@ -251,7 +251,7 @@ def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue:
                assert change['from'] is not None
                result['project'] = change['from']
             case 'Link':
-               insert_historic_list_field(result, 'attachments', change, check_both=True)
+               insert_historic_list_field(result, 'issuelinks', change, check_both=True)
             case 'Attachment':
                insert_historic_list_field(result, 'attachments', change)
             case 'Component':
@@ -327,15 +327,14 @@ def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue:
       if val is None:
          result['assignee'] = None
       else:
-         user_data = archive.get_user_data(val)
-         assert user_data is not None
+         user_data = get_user(archive, val)
          result['assignee'] = HistoricValue(val, user_data['displayName'])
    if 'reporter' not in result:
       val = fields['reporter']
       if val is None:
          result['reporter'] = None
       else:
-         user_data = archive.get_user_data(val)
+         user_data = get_user(archive, val)
          assert user_data is not None
          result['reporter'] = HistoricValue(val, user_data['displayName'])
    if 'key' not in result:
@@ -483,8 +482,10 @@ def get_issue(archive: mojira.Archive, issue_id: str) -> Issue:
    assert issue is not None
    return issue
 
-def get_user(archive: mojira.Archive, user_key: str) -> User:
+def get_user(archive: mojira.Archive, user_key: str) -> User | UnknownUser:
    user = archive.get_user_data(user_key)
+   if user is None:
+      user = archive.get_unknown_user_data(user_key)
    assert user is not None
    return user
 
@@ -954,7 +955,7 @@ class CachedComment:
 
 @dataclasses.dataclass
 class CachedUser:
-   user: User
+   user: User | UnknownUser
    reported: list[str]
    created: list[str]
    assigned: list[str]
@@ -1220,14 +1221,14 @@ def get_renderable_mentions(cache: DisplayCache, rels: markup_relations.MarkupRe
    for issue_id in rels['descriptions']:
       issue = cache.issue_getter(issue_id)
       if issue.description is not None:
-         cloned = copy.deepcopy(issue.description)
+         cloned = copy.deepcopy(issue.description, {})
          process(cloned)
          entry = RenderableMention(issue.issue, None, issue.created, cloned)
          bisect.insort_left(result, entry, key=lambda x: x.date)
    for issue_id in rels['environments']:
       issue = cache.issue_getter(issue_id)
       if issue.environment is not None:
-         cloned = copy.deepcopy(issue.environment)
+         cloned = copy.deepcopy(issue.environment, {})
          process(cloned)
          entry = RenderableMention(issue.issue, None, issue.created, cloned)
          bisect.insort_left(result, entry, key=lambda x: x.date)
@@ -1235,7 +1236,7 @@ def get_renderable_mentions(cache: DisplayCache, rels: markup_relations.MarkupRe
       issue = cache.issue_getter(issue_id)
       for comment_id in comment_ids:
          info = cache.comment_getter(issue_id, comment_id)
-         cloned = copy.deepcopy(info.body)
+         cloned = copy.deepcopy(info.body, {})
          process(cloned)
          entry = RenderableMention(issue.issue, info.comment, info.date, cloned)
          bisect.insort_left(result, entry, key=lambda x: x.date)

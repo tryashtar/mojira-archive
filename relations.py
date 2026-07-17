@@ -254,13 +254,16 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
          data = archive.get_attachment_data(attachment)
          assert data is not None
          append_user_action(user_rel.attachments, data.get('author'), issue_id, attachment)
-   user_keys = list(archive.user_keys())
-   for user_key in user_keys:
+   for user_key in archive.user_keys():
       user = archive.get_user_data(user_key)
       assert user is not None
       key_rel.user_keys[user['name'].casefold()] = user_key
       for group in user['groups']['items']:
          append_group_user(user_rel.groups, group['name'], user_key)
+   for user_key in archive.unknown_user_keys():
+      user = archive.get_unknown_user_data(user_key)
+      assert user is not None
+      key_rel.user_keys[user['name'].casefold()] = user_key
    return RelationsBundle(
       keys=key_rel,
       user=user_rel,
