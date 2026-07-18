@@ -621,7 +621,7 @@ def make_version_page(website: Website, file: HtmlFile, info: CachedVersionInfo)
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=False)
    main.append(tabs)
-   add_virtual_scripts(website, file, table_scripts, [])
+   add_table_scripts(website, file, table_scripts)
 
 def version_details(website: Website, file: HtmlFile, version: Version) -> typing.Generator[tuple[Tag, Tag]]:
    if 'startDate' in version:
@@ -688,7 +688,8 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
-   add_virtual_scripts(website, file, table_data, user_data)
+   add_table_scripts(website, file, table_data)
+   add_user_scripts(website, file, user_data)
 
 def user_details(website: Website, file: HtmlFile, user: User | UnknownUser) -> typing.Generator[tuple[Tag, Tag]]:
    yield ('Username:', user['name'])
@@ -789,7 +790,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
-   add_virtual_scripts(website, file, [], user_data)
+   add_user_scripts(website, file, user_data)
 
 def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Generator[tuple[Tag, Tag]]:
    soup = file.page.soup
@@ -982,7 +983,7 @@ def make_all_issues_page(website: Website, file: HtmlFile):
 
    list_main = build_list_main(soup, ['All Issues'], None, [table.filters, table.table])
    content.append(list_main)
-   add_virtual_scripts(website, file, [table.data], [])
+   add_table_scripts(website, file, [table.data])
 
 def make_meta_value_page(website: Website, file: HtmlFile, meta: CachedMetaInfo, value: CachedValueInfo):
    soup = file.page.soup
@@ -998,7 +999,7 @@ def make_meta_value_page(website: Website, file: HtmlFile, meta: CachedMetaInfo,
    h2: list[Tag] = [value_tag.outer, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
-   add_virtual_scripts(website, file, [table.data], [])
+   add_table_scripts(website, file, [table.data])
 
 def make_field_value_page(website: Website, file: HtmlFile, field: CachedFieldInfo, value: CachedValueInfo):
    soup = file.page.soup
@@ -1014,7 +1015,7 @@ def make_field_value_page(website: Website, file: HtmlFile, field: CachedFieldIn
    h2: list[Tag] = [value_tag.outer, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
-   add_virtual_scripts(website, file, [table.data], [])
+   add_table_scripts(website, file, [table.data])
 
 def make_project_issues_page(website: Website, file: HtmlFile, info: CachedProjectInfo):
    soup = file.page.soup
@@ -1027,7 +1028,7 @@ def make_project_issues_page(website: Website, file: HtmlFile, info: CachedProje
    h1: list[Tag] = [project_link(website, file, info.project, with_icon=True), ' issues']
    list_main = build_list_main(soup, h1, None, [table.filters, table.table])
    content.append(list_main)
-   add_virtual_scripts(website, file, [table.data], [])
+   add_table_scripts(website, file, [table.data])
 
 def make_project_versions_page(website: Website, file: HtmlFile, info: CachedProjectInfo):
    soup = file.page.soup
@@ -1052,7 +1053,7 @@ def make_all_users_page(website: Website, file: HtmlFile):
 
    list_main = build_list_main(soup, ['All Users'], None, [table.filters, table.table])
    content.append(list_main)
-   add_virtual_scripts(website, file, [table.data], [])
+   add_table_scripts(website, file, [table.data])
 
 def make_group_users_page(website: Website, file: HtmlFile, info: CachedGroupInfo):
    soup = file.page.soup
@@ -1064,7 +1065,7 @@ def make_group_users_page(website: Website, file: HtmlFile, info: CachedGroupInf
 
    list_main = build_list_main(soup, [group_name(website, file, info.id)], None, [table.filters, table.table])
    content.append(list_main)
-   add_virtual_scripts(website, file, [table.data], [])
+   add_table_scripts(website, file, [table.data])
 
 def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroupInfo):
    soup = file.page.soup
@@ -1081,7 +1082,7 @@ def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroup
    user_data: list[UserSectionData] = []
    if section.data is not None:
       user_data.append(section.data)
-   add_virtual_scripts(website, file, [], user_data)
+   add_user_scripts(website, file, user_data)
 
 def make_secret_comments_page(website: Website, file: HtmlFile):
    soup = file.page.soup
@@ -1105,7 +1106,7 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
    user_data: list[UserSectionData] = []
    if section.data is not None:
       user_data.append(section.data)
-   add_virtual_scripts(website, file, [], user_data)
+   add_user_scripts(website, file, user_data)
 
 def build_list_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typing.Iterable[Tag] | None, parts: typing.Iterable[Tag]) -> bs4.Tag:
    # list-main for style.css
@@ -1177,33 +1178,31 @@ UserSectionData = typing.TypedDict('UserSectionData', {
 })
 
 def add_virtual_scripts(website: Website, file: HtmlFile, tables: list[TableData], users: list[UserSectionData]):
+def js_dump(data: typing.Mapping[str, typing.Any]) -> str:
+   value_str = json.dumps(data, separators=(',', ':'))
+   escaped = '\'' + value_str.replace('\\', '\\\\').replace('\'', '\\\'') + '\''
+   return f'JSON.parse({escaped})'
+
+def add_table_scripts(website: Website, file: HtmlFile, tables: list[TableData]):
    if len(tables) > 0:
-      script = 'window.tableData = [];\n'
+      file.page.body.append(new_content_tag(file.page.soup, 'script', 'window.tableData = [];'))
       for i, entry in enumerate(tables):
          row_data = [x.decode(formatter='html5') for x in entry['rows']]
          entry['rows'] = []
-         main_str = json.dumps(entry, separators=(',', ':'))
-         main_str_escaped = main_str.replace('\\', '\\\\').replace('\'', '\\\'')
-         script += f'window.tableData.push(JSON.parse(\'{main_str_escaped}\'));\n'
+         file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.tableData.push({js_dump(entry)});'))
          for row_partial in itertools.batched(row_data, 10_000):
-            row_str = json.dumps(row_partial, separators=(',', ':'))
-            row_str_escaped = row_str.replace('\\', '\\\\').replace('\'', '\\\'')
-            script += f'window.tableData[{i}].rows = window.tableData[{i}].rows.concat(JSON.parse(\'{row_str_escaped}\'));\n'
-      file.page.body.append(new_content_tag(file.page.soup, 'script', script))
+            file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.tableData[{i}].rows = window.tableData[{i}].rows.concat({js_dump(row_partial)});'))
+      file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
+
+def add_user_scripts(website: Website, file: HtmlFile, users: list[UserSectionData]):
    if len(users) > 0:
-      script = 'window.userData = [];\n'
+      file.page.body.append(new_content_tag(file.page.soup, 'script', 'window.userData = [];'))
       for i, entry in enumerate(users):
          page_data = [[y.decode(formatter='html5') for y in x] for x in entry['pages']]
          entry['pages'] = []
-         main_str = json.dumps(entry, separators=(',', ':'))
-         main_str_escaped = main_str.replace('\\', '\\\\').replace('\'', '\\\'')
-         script += f'window.userData.push(JSON.parse(\'{main_str_escaped}\'));\n'
-         page_str = json.dumps(page_data, separators=(',', ':'))
-         page_str_escaped = page_str.replace('\\', '\\\\').replace('\'', '\\\'')
-         script += f'window.userData[{i}].pages = window.userData[{i}].pages.concat(JSON.parse(\'{page_str_escaped}\'));\n'
-      file.page.body.append(new_content_tag(file.page.soup, 'script', script))
-   if len(tables) > 0 or len(users) > 0:
-      file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/virtual.js'))))
+         file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.userData.push({js_dump(entry)});'))
+         file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.userData[{i}].pages = window.userData[{i}].pages.concat({js_dump(page_data)});'))
+      file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/pages.js'))))
 
 @dataclasses.dataclass
 class VirtualTable:
