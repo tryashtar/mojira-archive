@@ -962,6 +962,8 @@ class CachedUser:
    mentions: markup_relations.MarkupRelation
 
 class DisplayCache:
+   just_issue_getter: typing.Callable[[str], Issue]
+   just_issue_cache: dict[str, Issue]
    issue_getter: typing.Callable[[str], CachedIssue]
    issue_cache: dict[str, CachedIssue]
    comment_getter: typing.Callable[[str, str], CachedComment]
@@ -982,7 +984,7 @@ class DisplayCache:
    all_users: list[str]
 
    def get_issues(self, issues: list[str]) -> typing.Iterable[Issue]:
-      return (self.issue_getter(x).issue for x in issues)
+      return (self.just_issue_getter(x) for x in issues)
 
    def __init__(self, archive: mojira.Archive, metas: mojira.ArchiveMetas, rels: relations.RelationsBundle, source: markup.MarkupSource, markup_rels: markup_relations.MarkupRelations, secret_comments: mojira.SecretComments, perms: ViewPerms):
       self.valid_issues = set(x for x in rels.keys.issue_keys.values() if perms.issue_visible(rels.fields, x))
@@ -996,12 +998,22 @@ class DisplayCache:
       def filter_comments(comments: dict[str, list[str]]) -> dict[str, list[str]]:
          return {k: [x for x in v if perms.comment_visible(rels.user, k, x)] for k, v in comments.items() if k in self.valid_issues}
 
+      self.just_issue_cache = {}
+      def just_issue_get(issue_id: str) -> Issue:
+         assert issue_id in self.valid_issues
+         if issue_id in self.just_issue_cache:
+            return self.just_issue_cache[issue_id]
+         issue = get_issue(archive, issue_id)
+         self.just_issue_cache[issue_id] = issue
+         return issue
+      self.just_issue_getter = just_issue_get
+
       self.issue_cache = {}
       def issue_get(issue_id: str) -> CachedIssue:
          assert issue_id in self.valid_issues
          if issue_id in self.issue_cache:
             return self.issue_cache[issue_id]
-         issue = get_issue(archive, issue_id)
+         issue = just_issue_get(issue_id)
          date = datetime.datetime.fromisoformat(issue['fields']['created'])
          if issue['fields']['description'] is not None:
             body = source.get_issue_description(issue_id)

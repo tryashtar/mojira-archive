@@ -1179,6 +1179,7 @@ UserSectionData = typing.TypedDict('UserSectionData', {
 
 def add_virtual_scripts(website: Website, file: HtmlFile, tables: list[TableData], users: list[UserSectionData]):
 def js_dump(data: typing.Mapping[str, typing.Any]) -> str:
+def js_dump(data: typing.Mapping[str, typing.Any] | list) -> str:
    value_str = json.dumps(data, separators=(',', ':'))
    escaped = '\'' + value_str.replace('\\', '\\\\').replace('\'', '\\\'') + '\''
    return f'JSON.parse({escaped})'
@@ -2037,10 +2038,10 @@ def comment_author(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
    return ref.outer
 
 def comment_author_or_dict(website: Website, file: HtmlFile, author: str | NewAuthor) -> bs4.Tag:
-   if isinstance(author, dict):
-      # comment-author for misode.css
-      return new_content_tag(file.page.soup, 'span', attrs={'class': 'comment-author'}, content=author['displayName'])
-   return comment_author(website, file, author)
+   if isinstance(author, str):
+      return comment_author(website, file, author)
+   # comment-author for misode.css
+   return new_content_tag(file.page.soup, 'span', attrs={'class': 'comment-author'}, content=author['displayName'])
 
 def user_head_issue(website: Website, file: HtmlFile, issue: Issue) -> typing.Generator[Tag]:
    soup = file.page.soup
