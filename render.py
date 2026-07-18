@@ -10,6 +10,7 @@ import copy
 import urllib.parse
 import datetime
 import pathlib
+import zlib
 
 import dotenv
 import bs4
@@ -649,7 +650,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    created_not_reported = [x for x in info.created if x not in info.reported]
    issue_list = reported_and_created + created_not_reported + reported_not_created
    table_data: list[TableData] = []
-   user_data: list[UserSectionData] = []
+   user_data: list[PageSectionData] = []
    tab_data: list[InfoTabData] = []
    if len(issue_list) > 0:
       reported_table = create_issue_list(website, file, 'reported', website.cache.get_issues(issue_list))
@@ -689,7 +690,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
    add_table_scripts(website, file, table_data)
-   add_user_scripts(website, file, user_data)
+   add_page_scripts(website, file, user_data)
 
 def user_details(website: Website, file: HtmlFile, user: User | UnknownUser) -> typing.Generator[tuple[Tag, Tag]]:
    yield ('Username:', user['name'])
@@ -762,7 +763,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    all_mentions = get_renderable_issue_mentions(website.cache, issue.mentions, website.keys, issue.issue['id'])
    comment_section = issue_comments(website, file, all_comments)
    history_section = issue_history(website, file, issue, issue.issue['changelog']['histories'])
-   user_data: list[UserSectionData] = []
+   user_data: list[PageSectionData] = []
    if comment_section.data is not None:
       user_data.append(comment_section.data)
    if history_section.data is not None:
@@ -790,7 +791,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
-   add_user_scripts(website, file, user_data)
+   add_page_scripts(website, file, user_data)
 
 def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Generator[tuple[Tag, Tag]]:
    soup = file.page.soup
@@ -1079,10 +1080,10 @@ def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroup
 
    user_main = build_user_main(soup, [group_name(website, file, info.id)], ['Restricted comments'], [section.controls, section.section])
    content.append(user_main)
-   user_data: list[UserSectionData] = []
+   user_data: list[PageSectionData] = []
    if section.data is not None:
       user_data.append(section.data)
-   add_user_scripts(website, file, user_data)
+   add_page_scripts(website, file, user_data)
 
 def make_secret_comments_page(website: Website, file: HtmlFile):
    soup = file.page.soup
@@ -1103,10 +1104,10 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
 
    user_main = build_user_main(soup, ['Secret comments'], None, [section.controls, section.section])
    content.append(user_main)
-   user_data: list[UserSectionData] = []
+   user_data: list[PageSectionData] = []
    if section.data is not None:
       user_data.append(section.data)
-   add_user_scripts(website, file, user_data)
+   add_page_scripts(website, file, user_data)
 
 def build_list_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typing.Iterable[Tag] | None, parts: typing.Iterable[Tag]) -> bs4.Tag:
    # list-main for style.css
@@ -1167,7 +1168,7 @@ TableData = typing.TypedDict('TableData', {
    'rows': list[bs4.Tag]
 })
 
-UserSectionData = typing.TypedDict('UserSectionData', {
+PageSectionData = typing.TypedDict('PageSectionData', {
    'contentId': str,
    'visibleId': str,
    'prevId': str,
@@ -1177,33 +1178,88 @@ UserSectionData = typing.TypedDict('UserSectionData', {
    'pages': list[list[bs4.Tag]],
 })
 
-def add_virtual_scripts(website: Website, file: HtmlFile, tables: list[TableData], users: list[UserSectionData]):
-def js_dump(data: typing.Mapping[str, typing.Any]) -> str:
-def js_dump(data: typing.Mapping[str, typing.Any] | list) -> str:
+def js_compressed_string(value: str) -> tuple[str, int]:
+   compressed = zlib.compress(value.encode('utf-8'), level=9, wbits=-15)
+   length = len(compressed)
+   if length % 2 == 1:
+      compressed += b'\0'
+   chars: list[str] = []
+   for i in range(0, len(compressed), 2):
+      codepoint = compressed[i] | (compressed[i + 1] << 8)
+      chars.append(js_codepoint(codepoint))
+   return ('"' + ''.join(chars) + '"', length)
+
+def js_codepoint(codepoint: int) -> str:
+   escape_map = {0x5c: r'\\', 0x22: r'\"', 0x0a: r'\n', 0x0d: r'\r', 0x09: r'\t'}
+   if codepoint in escape_map:
+      return escape_map[codepoint]
+   if codepoint <= 0x20 or codepoint in (0x2028, 0x2029) or (0xd800 <= codepoint <= 0xdfff):
+      return f'\\u{codepoint:04x}'
+   return chr(codepoint)
+
+def set_promise_obj(file: HtmlFile, access: str, data: typing.Mapping[str, typing.Any] | list):
    value_str = json.dumps(data, separators=(',', ':'))
-   escaped = '\'' + value_str.replace('\\', '\\\\').replace('\'', '\\\'') + '\''
-   return f'JSON.parse({escaped})'
+   compressed, length = js_compressed_string(value_str)
+   file.page.body.append(new_content_tag(file.page.soup, 'script',
+      f'{access} = decompressString({compressed}, {length}).then(text => JSON.parse(text));\n'
+   ))
+
+def set_promise_str(file: HtmlFile, access: str, data: str):
+   compressed, length = js_compressed_string(data)
+   file.page.body.append(new_content_tag(file.page.soup, 'script',
+      f'{access} = decompressString({compressed}, {length});\n'
+   ))
 
 def add_table_scripts(website: Website, file: HtmlFile, tables: list[TableData]):
-   if len(tables) > 0:
-      file.page.body.append(new_content_tag(file.page.soup, 'script', 'window.tableData = [];'))
-      for i, entry in enumerate(tables):
-         row_data = [x.decode(formatter='html5') for x in entry['rows']]
-         entry['rows'] = []
-         file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.tableData.push({js_dump(entry)});'))
-         for row_partial in itertools.batched(row_data, 10_000):
-            file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.tableData[{i}].rows = window.tableData[{i}].rows.concat({js_dump(row_partial)});'))
-      file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
+   if len(tables) == 0:
+      return
+   @dataclasses.dataclass
+   class TableEntry:
+      data: dict[str, typing.Any]
+      row_batches: list[list[str]]
+      def to_empty(self) -> str:
+         rows = [f'{{length:{len(x)}}}' for x in self.row_batches]
+         return f'{{rowBatches:[{','.join(rows)}]}}'
+   table_entries: list[TableEntry] = []
+   for table in tables:
+      row_data = [x.decode(formatter='html5') for x in table['rows']]
+      row_batches = [list(x) for x in itertools.batched(row_data, 10_000)]
+      table_data = typing.cast(dict[str, typing.Any], table)
+      table_data['rows'] = len(table['rows'])
+      table_entries.append(TableEntry(table_data, row_batches))
+   file.page.body.append(new_content_tag(file.page.soup, 'script',
+      f'window.tablePromises = [{','.join(x.to_empty() for x in table_entries)}];\n'
+   ))
+   for i, entry in enumerate(table_entries):
+      set_promise_obj(file, f'window.tablePromises[{i}].data', entry.data)
+      for j, row_batch in enumerate(entry.row_batches):
+         set_promise_obj(file, f'window.tablePromises[{i}].rowBatches[{j}].data', row_batch)
+   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
 
-def add_user_scripts(website: Website, file: HtmlFile, users: list[UserSectionData]):
-   if len(users) > 0:
-      file.page.body.append(new_content_tag(file.page.soup, 'script', 'window.userData = [];'))
-      for i, entry in enumerate(users):
-         page_data = [[y.decode(formatter='html5') for y in x] for x in entry['pages']]
-         entry['pages'] = []
-         file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.userData.push({js_dump(entry)});'))
-         file.page.body.append(new_content_tag(file.page.soup, 'script', f'window.userData[{i}].pages = window.userData[{i}].pages.concat({js_dump(page_data)});'))
-      file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/pages.js'))))
+def add_page_scripts(website: Website, file: HtmlFile, sections: list[PageSectionData]):
+   if len(sections) == 0:
+      return
+   @dataclasses.dataclass
+   class PagesEntry:
+      data: dict[str, typing.Any]
+      pages: list[tuple[str, int]]
+      def to_empty(self) -> str:
+         pages = [f'{{length:{x[1]}}}' for x in self.pages]
+         return f'{{pages:[{','.join(pages)}]}}'
+   page_entries: list[PagesEntry] = []
+   for section in sections:
+      pages = [(''.join([y.decode(formatter='html5') for y in x]), len(x)) for x in section['pages']]
+      data = typing.cast(dict[str, typing.Any], section)
+      del data['pages']
+      page_entries.append(PagesEntry(data, pages))
+   file.page.body.append(new_content_tag(file.page.soup, 'script',
+      f'window.pagePromises = [{','.join(x.to_empty() for x in page_entries)}];\n'
+   ))
+   for i, entry in enumerate(page_entries):
+      set_promise_obj(file, f'window.pagePromises[{i}].data', entry.data)
+      for j, (page, _) in enumerate(entry.pages):
+         set_promise_str(file, f'window.pagePromises[{i}].pages[{j}].content', page)
+   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/pages.js'))))
 
 @dataclasses.dataclass
 class VirtualTable:
@@ -1520,7 +1576,7 @@ def mention_to_user(website: Website, file: HtmlFile, mention: RenderableMention
 class UserSection:
    section: bs4.Tag
    controls: bs4.Tag
-   data: UserSectionData | None
+   data: PageSectionData | None
 
 def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int, entries: typing.Iterable[RenderableUserEntry]) -> UserSection:
    pages: list[list[bs4.Tag]] = []
@@ -1538,7 +1594,7 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
    # comment-section for style.css
    section = new_content_tag(soup, 'div', attrs={'id': f'{id_prefix}-section-content', 'class': 'comment-section'}, content=pages[0] if len(pages) >= 1 else [])
    if len(pages) > 1:
-      data: UserSectionData | None = {
+      data: PageSectionData | None = {
          'contentId': f'{id_prefix}-section-content',
          'visibleId': f'{id_prefix}-section-visible',
          'prevId': f'{id_prefix}-section-prev-page',
