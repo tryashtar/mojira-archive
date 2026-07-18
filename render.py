@@ -961,12 +961,15 @@ def build_info_tabs(soup: bs4.BeautifulSoup, tabs: typing.Iterable[InfoTabData],
       result.append(radio)
       result.append(label)
    if orderable:
-      checkbox = soup.new_tag('input', attrs={'type': 'checkbox', 'name': 'issue-order', 'id': 'issue-tab-order'})
-      label = new_content_tag(soup, 'label', attrs={'for': 'issue-tab-order'}, content='')
-      result.append(checkbox)
-      result.append(label)
+      checkbox = order_checkbox(soup)
+      result.extend(checkbox)
    result.append(tabbed_content)
    return result
+
+def order_checkbox(soup: bs4.BeautifulSoup) -> list[bs4.Tag]:
+   checkbox = soup.new_tag('input', attrs={'type': 'checkbox', 'name': 'issue-order', 'id': 'issue-tab-order'})
+   label = new_content_tag(soup, 'label', attrs={'for': 'issue-tab-order'}, content='')
+   return [checkbox, label]
 
 # list pages
 def make_all_issues_page(website: Website, file: HtmlFile):
@@ -1071,9 +1074,10 @@ def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroup
 
    add_metadata(file, info.id, f'{format_number(len(all_comments))} comments', None)
 
-   section = build_user_section(soup, 'group', 500, [comment_to_user(website, file, x) for x in all_comments])
-   content.append(section.controls)
-   content.append(section.section)
+   section = build_user_section(soup, 'group', 200, [comment_to_user(website, file, x) for x in all_comments])
+
+   user_main = build_user_main(soup, [group_name(website, file, info.id)], ['Restricted comments'], [section.controls, section.section])
+   content.append(user_main)
    user_data: list[UserSectionData] = []
    if section.data is not None:
       user_data.append(section.data)
@@ -1094,9 +1098,10 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
 
    add_metadata(file, 'Secret Comments', f'{format_number(len(all_comments))} comments', None)
 
-   section = build_user_section(soup, 'secrets', 500, [comment_to_user(website, file, x) for x in all_comments])
-   content.append(section.controls)
-   content.append(section.section)
+   section = build_user_section(soup, 'secrets', 200, [comment_to_user(website, file, x) for x in all_comments])
+
+   user_main = build_user_main(soup, ['Secret comments'], None, [section.controls, section.section])
+   content.append(user_main)
    user_data: list[UserSectionData] = []
    if section.data is not None:
       user_data.append(section.data)
@@ -1110,6 +1115,17 @@ def build_list_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typin
       main.append(new_content_tag(soup, 'h2', h2))
    for part in parts:
       main.append(part)
+   return main
+
+def build_user_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typing.Iterable[Tag] | None, parts: typing.Iterable[Tag]) -> bs4.Tag:
+   # user-main for style.css
+   main = soup.new_tag('div', attrs={'class': 'user-main'})
+   main.append(new_content_tag(soup, 'h1', h1))
+   if h2 is not None:
+      main.append(new_content_tag(soup, 'h2', h2))
+   content = new_content_tag(soup, 'div', order_checkbox(soup))
+   content.append(new_content_tag(soup, 'div', attrs={'class': 'user-main-content'}, content=parts))
+   main.append(content)
    return main
 
 def create_versions_table(website: Website, file: HtmlFile, project: Project, versions: typing.Iterable[CachedVersionInfo]) -> bs4.Tag:
@@ -1767,6 +1783,8 @@ def revision_quoted(soup: bs4.BeautifulSoup, label: Tag | list[Tag], content: li
    ])
 
 def revision_html_diff(soup: bs4.BeautifulSoup, label: str, revision: markup.RevisionData, process: typing.Callable[[bs4.Tag], bs4.Tag], panel_class: str) -> bs4.Tag:
+   if revision.before is not None and revision.after is not None:
+      assert revision.diff is not None
    if revision.diff is not None:
       has_insertions = revision.diff.find(class_='diff-insert') is not None
       has_deletions = revision.diff.find(class_='diff-delete') is not None
@@ -2491,14 +2509,14 @@ def issue_body(soup: bs4.BeautifulSoup, desc: bs4.Tag | None, env: bs4.Tag | Non
       ])
 
 def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[RenderableComment]) -> UserSection:
-   return build_user_section(file.page.soup, 'comment', 250, (comment_to_user(website, file, x) for x in comments))
+   return build_user_section(file.page.soup, 'comment', 200, (comment_to_user(website, file, x) for x in comments))
 
 def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revisions: list[Revision]) -> UserSection:
    renderable = get_renderable_revisions(website, file, issue, revisions)
-   return build_user_section(file.page.soup, 'history', 250, (revision_to_user(website, file, x) for x in renderable))
+   return build_user_section(file.page.soup, 'history', 200, (revision_to_user(website, file, x) for x in renderable))
 
 def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> UserSection:
-   return build_user_section(file.page.soup, 'mention', 250, (mention_to_user(website, file, x) for x in mentions))
+   return build_user_section(file.page.soup, 'mention', 200, (mention_to_user(website, file, x) for x in mentions))
 
 def count_badge(soup: bs4.BeautifulSoup, amount: int) -> bs4.Tag:
    # count-badge for misode.css

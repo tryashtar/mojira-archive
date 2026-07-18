@@ -29,11 +29,14 @@ class RevisionData:
    diff: bs4.Tag | None
 
 def load_revision_data(paths: RevisionPaths) -> RevisionData:
-   return RevisionData(
+   data = RevisionData(
       load_if_exists(paths.before),
       load_if_exists(paths.after),
       load_if_exists(paths.diff)
    )
+   if data.before is not None and data.after is not None:
+      assert data.diff is not None
+   return data
 
 def load_if_exists(path: pathlib.Path) -> bs4.BeautifulSoup | None:
    if path.exists():
