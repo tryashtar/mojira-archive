@@ -1,4 +1,5 @@
 import dataclasses
+import math
 import os
 import sys
 import typing
@@ -98,7 +99,7 @@ def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> Ht
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/misode-style.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('data/assets/mojira.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/style.css'))))
-   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(root, file.path, pathlib.PurePath('web/js/main.js'))))
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(root, file.path, pathlib.PurePath('web/js/main.js'))))
    return file
 
 def save_file(website: Website, file: HtmlFile):
@@ -351,7 +352,7 @@ def make_generic_header(website: Website, file: HtmlFile) -> bs4.Tag:
          new_content_tag(file.page.soup, 'script', f'window.jumpStart = "{relative_path(website.root, file.path, website.root / website.web_export)}";')
       ])
    ])
-   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/jump.js'))))
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/jump.js'))))
    return header
 
 def make_generic_footer(website: Website, file: HtmlFile) -> bs4.Tag:
@@ -361,7 +362,7 @@ def make_generic_footer(website: Website, file: HtmlFile) -> bs4.Tag:
          new_content_tag(file.page.soup, 'a', attrs={'href': 'https://bugs.mojang.com'}, content='bugs.mojang.com'),
          ' by ',
          new_content_tag(file.page.soup, 'a', attrs={'href': 'https://github.com/tryashtar'}, content='tryashtar'),
-         '. For Mojira volunteer use only!'
+         '.'
       ])
    ])
    return footer
@@ -602,11 +603,11 @@ def make_version_page(website: Website, file: HtmlFile, info: CachedVersionInfo)
    main = build_info_main(soup, top, body, details, None, None)
    content.append(main)
 
-   table_scripts: list[TableData] = []
+   tables: list[VirtualTable] = []
    tab_data: list[InfoTabData] = []
    if len(info.affected) > 0:
       affected_table = create_issue_list(website, file, 'affected', website.cache.get_issues(info.affected))
-      table_scripts.append(affected_table.data)
+      tables.append(affected_table)
       tab_data.append(InfoTabData(
          'affected',
          ['Affected Issues', count_badge(soup, len(info.affected))],
@@ -614,7 +615,7 @@ def make_version_page(website: Website, file: HtmlFile, info: CachedVersionInfo)
       ))
    if len(info.fixed) > 0:
       fixed_table = create_issue_list(website, file, 'fixed', website.cache.get_issues(info.affected))
-      table_scripts.append(fixed_table.data)
+      tables.append(fixed_table)
       tab_data.append(InfoTabData(
          'fixed',
          ['Fixed Issues', count_badge(soup, len(info.fixed))],
@@ -622,7 +623,7 @@ def make_version_page(website: Website, file: HtmlFile, info: CachedVersionInfo)
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=False)
    main.append(tabs)
-   add_table_scripts(website, file, table_scripts)
+   add_table_scripts(website, file, [(x.data, x.rows) for x in tables])
 
 def version_details(website: Website, file: HtmlFile, version: Version) -> typing.Generator[tuple[Tag, Tag]]:
    if 'startDate' in version:
@@ -649,12 +650,12 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    reported_not_created = [x for x in info.reported if x not in info.created]
    created_not_reported = [x for x in info.created if x not in info.reported]
    issue_list = reported_and_created + created_not_reported + reported_not_created
-   table_data: list[TableData] = []
-   user_data: list[PageSectionData] = []
+   tables: list[VirtualTable] = []
+   pages: list[PageSection] = []
    tab_data: list[InfoTabData] = []
    if len(issue_list) > 0:
       reported_table = create_issue_list(website, file, 'reported', website.cache.get_issues(issue_list))
-      table_data.append(reported_table.data)
+      tables.append(reported_table)
       tab_data.append(InfoTabData(
          'reported',
          ['Reported Issues', count_badge(soup, len(issue_list))],
@@ -662,7 +663,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
       ))
    if len(info.assigned) > 0:
       assigned_table = create_issue_list(website, file, 'assigned', website.cache.get_issues(info.assigned))
-      table_data.append(assigned_table.data)
+      tables.append(assigned_table)
       tab_data.append(InfoTabData(
          'assigned',
          ['Assigned Issues', count_badge(soup, len(info.assigned))],
@@ -671,7 +672,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    all_comments = get_renderable_user_comments(website.cache, info.comments)
    comment_section = issue_comments(website, file, all_comments)
    if comment_section.data is not None:
-      user_data.append(comment_section.data)
+      pages.append(comment_section)
    tab_data.append(InfoTabData(
       'comments',
       ['Comments', count_badge(soup, len(all_comments))],
@@ -680,7 +681,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    all_mentions = get_renderable_user_mentions(website.cache, info.mentions, website.keys, info.user['key'])
    mention_section = issue_mentions(website, file, all_mentions)
    if mention_section.data is not None:
-      user_data.append(mention_section.data)
+      pages.append(mention_section)
    if len(all_mentions) > 0:
       tab_data.append(InfoTabData(
          'mentions',
@@ -689,8 +690,8 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
-   add_table_scripts(website, file, table_data)
-   add_page_scripts(website, file, user_data)
+   add_table_scripts(website, file, [(x.data, x.rows) for x in tables])
+   add_page_scripts(website, file, [(x.data, x.content) for x in pages if x.data is not None])
 
 def user_details(website: Website, file: HtmlFile, user: User | UnknownUser) -> typing.Generator[tuple[Tag, Tag]]:
    yield ('Username:', user['name'])
@@ -763,11 +764,11 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    all_mentions = get_renderable_issue_mentions(website.cache, issue.mentions, website.keys, issue.issue['id'])
    comment_section = issue_comments(website, file, all_comments)
    history_section = issue_history(website, file, issue, issue.issue['changelog']['histories'])
-   user_data: list[PageSectionData] = []
+   pages: list[PageSection] = []
    if comment_section.data is not None:
-      user_data.append(comment_section.data)
+      pages.append(comment_section)
    if history_section.data is not None:
-      user_data.append(history_section.data)
+      pages.append(history_section)
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
@@ -783,7 +784,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    if len(all_mentions) > 0:
       mention_section = issue_mentions(website, file, all_mentions)
       if mention_section.data is not None:
-         user_data.append(mention_section.data)
+         pages.append(mention_section)
       tab_data.append(InfoTabData(
          'mentions',
          ['Mentions', count_badge(soup, len(all_mentions))],
@@ -791,7 +792,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
    main.append(tabs)
-   add_page_scripts(website, file, user_data)
+   add_page_scripts(website, file, [(x.data, x.content) for x in pages if x.data is not None])
 
 def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Generator[tuple[Tag, Tag]]:
    soup = file.page.soup
@@ -984,7 +985,7 @@ def make_all_issues_page(website: Website, file: HtmlFile):
 
    list_main = build_list_main(soup, ['All Issues'], None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_table_scripts(website, file, [(table.data, table.rows)])
 
 def make_meta_value_page(website: Website, file: HtmlFile, meta: CachedMetaInfo, value: CachedValueInfo):
    soup = file.page.soup
@@ -995,12 +996,18 @@ def make_meta_value_page(website: Website, file: HtmlFile, meta: CachedMetaInfo,
    add_metadata(file, value.display.name, value.display.description, value.display.icon)
 
    flink = relative_link(website.root, file.path, website.meta_pages[meta.id].page.path)
-   value_tag = meta_badge_display(website, file, meta.id, value.display)
+   badge = meta_badge_display(website, file, meta.id, value.display)
+   if badge.resolved:
+      h2_tag = new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=badge.outer)
+   elif badge.progress:
+      h2_tag = new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-progress'}, content=badge.outer)
+   else:
+      h2_tag = badge.outer
    h1: list[Tag] = [new_content_tag(soup, 'a', attrs={'href': flink}, content=meta.name)]
-   h2: list[Tag] = [value_tag.outer, ' issues']
+   h2: list[Tag] = [h2_tag, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_table_scripts(website, file, [(table.data, table.rows)])
 
 def make_field_value_page(website: Website, file: HtmlFile, field: CachedFieldInfo, value: CachedValueInfo):
    soup = file.page.soup
@@ -1016,7 +1023,7 @@ def make_field_value_page(website: Website, file: HtmlFile, field: CachedFieldIn
    h2: list[Tag] = [value_tag.outer, ' issues']
    list_main = build_list_main(soup, h1, h2, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_table_scripts(website, file, [(table.data, table.rows)])
 
 def make_project_issues_page(website: Website, file: HtmlFile, info: CachedProjectInfo):
    soup = file.page.soup
@@ -1029,7 +1036,7 @@ def make_project_issues_page(website: Website, file: HtmlFile, info: CachedProje
    h1: list[Tag] = [project_link(website, file, info.project, with_icon=True), ' issues']
    list_main = build_list_main(soup, h1, None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_table_scripts(website, file, [(table.data, table.rows)])
 
 def make_project_versions_page(website: Website, file: HtmlFile, info: CachedProjectInfo):
    soup = file.page.soup
@@ -1054,7 +1061,7 @@ def make_all_users_page(website: Website, file: HtmlFile):
 
    list_main = build_list_main(soup, ['All Users'], None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_table_scripts(website, file, [(table.data, table.rows)])
 
 def make_group_users_page(website: Website, file: HtmlFile, info: CachedGroupInfo):
    soup = file.page.soup
@@ -1066,7 +1073,7 @@ def make_group_users_page(website: Website, file: HtmlFile, info: CachedGroupInf
 
    list_main = build_list_main(soup, [group_name(website, file, info.id)], None, [table.filters, table.table])
    content.append(list_main)
-   add_table_scripts(website, file, [table.data])
+   add_table_scripts(website, file, [(table.data, table.rows)])
 
 def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroupInfo):
    soup = file.page.soup
@@ -1080,10 +1087,8 @@ def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroup
 
    user_main = build_user_main(soup, [group_name(website, file, info.id)], ['Restricted comments'], [section.controls, section.section])
    content.append(user_main)
-   user_data: list[PageSectionData] = []
-   if section.data is not None:
-      user_data.append(section.data)
-   add_page_scripts(website, file, user_data)
+   pages: list[PageSection] = [section]
+   add_page_scripts(website, file, [(x.data, x.content) for x in pages if x.data is not None])
 
 def make_secret_comments_page(website: Website, file: HtmlFile):
    soup = file.page.soup
@@ -1105,9 +1110,8 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
    user_main = build_user_main(soup, ['Secret comments'], None, [section.controls, section.section])
    content.append(user_main)
    user_data: list[PageSectionData] = []
-   if section.data is not None:
-      user_data.append(section.data)
-   add_page_scripts(website, file, user_data)
+   pages: list[PageSection] = [section]
+   add_page_scripts(website, file, [(x.data, x.content) for x in pages if x.data is not None])
 
 def build_list_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typing.Iterable[Tag] | None, parts: typing.Iterable[Tag]) -> bs4.Tag:
    # list-main for style.css
@@ -1125,7 +1129,7 @@ def build_user_main(soup: bs4.BeautifulSoup, h1: typing.Iterable[Tag], h2: typin
    main.append(new_content_tag(soup, 'h1', h1))
    if h2 is not None:
       main.append(new_content_tag(soup, 'h2', h2))
-   content = new_content_tag(soup, 'div', order_checkbox(soup))
+   content = new_content_tag(soup, 'div', attrs={'class': 'user-main-content-wrapper'}, content=order_checkbox(soup))
    content.append(new_content_tag(soup, 'div', attrs={'class': 'user-main-content'}, content=parts))
    main.append(content)
    return main
@@ -1165,7 +1169,7 @@ TableData = typing.TypedDict('TableData', {
    'search': dict[str, list[str]], # map of input element ID -> issue values
    'filter': dict[str, list[str | None]], # map of select element ID -> issue values
    'sort': list[list[int]], # map of column indices -> row indices sorted by issue value
-   'rows': list[bs4.Tag]
+   'rows': int
 })
 
 PageSectionData = typing.TypedDict('PageSectionData', {
@@ -1175,7 +1179,9 @@ PageSectionData = typing.TypedDict('PageSectionData', {
    'pageId': str,
    'nextId': str,
    'orderId': str,
-   'pages': list[list[bs4.Tag]],
+   'pageSize': int,
+   'anchors': list[str | None] | None,
+   'count': int
 })
 
 def js_compressed_string(value: str) -> tuple[str, int]:
@@ -1210,23 +1216,27 @@ def set_promise_str(file: HtmlFile, access: str, data: str):
       f'{access} = decompressString({compressed}, {length});\n'
    ))
 
-def add_table_scripts(website: Website, file: HtmlFile, tables: list[TableData]):
+def append_decompressor(website: Website, file: HtmlFile):
+   src = relative_link(website.root, file.path, pathlib.PurePath('web/js/decompress.js'))
+   existing = file.page.head.find(name='script', attrs={'src': src})
+   if existing is None:
+      file.page.head.append(file.page.soup.new_tag('script', attrs={'src': src}))
+
+def add_table_scripts(website: Website, file: HtmlFile, tables: list[tuple[TableData, list[bs4.Tag]]]):
    if len(tables) == 0:
       return
    @dataclasses.dataclass
    class TableEntry:
-      data: dict[str, typing.Any]
+      data: TableData
       row_batches: list[list[str]]
       def to_empty(self) -> str:
-         rows = [f'{{length:{len(x)}}}' for x in self.row_batches]
-         return f'{{rowBatches:[{','.join(rows)}]}}'
+         batches = [f'{{length:{len(x)}}}' for x in self.row_batches]
+         return f'{{rowBatches:[{','.join(batches)}]}}'
    table_entries: list[TableEntry] = []
-   for table in tables:
-      row_data = [x.decode(formatter='html5') for x in table['rows']]
+   for table, rows in tables:
+      row_data = [x.decode(formatter='html5') for x in rows]
       row_batches = [list(x) for x in itertools.batched(row_data, 10_000)]
-      table_data = typing.cast(dict[str, typing.Any], table)
-      table_data['rows'] = len(table['rows'])
-      table_entries.append(TableEntry(table_data, row_batches))
+      table_entries.append(TableEntry(table, row_batches))
    file.page.body.append(new_content_tag(file.page.soup, 'script',
       f'window.tablePromises = [{','.join(x.to_empty() for x in table_entries)}];\n'
    ))
@@ -1234,38 +1244,40 @@ def add_table_scripts(website: Website, file: HtmlFile, tables: list[TableData])
       set_promise_obj(file, f'window.tablePromises[{i}].data', entry.data)
       for j, row_batch in enumerate(entry.row_batches):
          set_promise_obj(file, f'window.tablePromises[{i}].rowBatches[{j}].data', row_batch)
-   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
+   append_decompressor(website, file)
 
-def add_page_scripts(website: Website, file: HtmlFile, sections: list[PageSectionData]):
+def add_page_scripts(website: Website, file: HtmlFile, sections: list[tuple[PageSectionData, list[bs4.Tag]]]):
    if len(sections) == 0:
       return
    @dataclasses.dataclass
    class PagesEntry:
-      data: dict[str, typing.Any]
-      pages: list[tuple[str, int]]
+      data: PageSectionData
+      content_batches: list[list[str]]
       def to_empty(self) -> str:
-         pages = [f'{{length:{x[1]}}}' for x in self.pages]
-         return f'{{pages:[{','.join(pages)}]}}'
+         batches = [f'{{length:{len(x)}}}' for x in self.content_batches]
+         return f'{{contentBatches:[{','.join(batches)}]}}'
    page_entries: list[PagesEntry] = []
-   for section in sections:
-      pages = [(''.join([y.decode(formatter='html5') for y in x]), len(x)) for x in section['pages']]
-      data = typing.cast(dict[str, typing.Any], section)
-      del data['pages']
-      page_entries.append(PagesEntry(data, pages))
+   for section, content in sections:
+      content_data = [x.decode(formatter='html5') for x in content]
+      content_batches = [list(x) for x in itertools.batched(content_data, 1000)]
+      page_entries.append(PagesEntry(section, content_batches))
    file.page.body.append(new_content_tag(file.page.soup, 'script',
       f'window.pagePromises = [{','.join(x.to_empty() for x in page_entries)}];\n'
    ))
    for i, entry in enumerate(page_entries):
       set_promise_obj(file, f'window.pagePromises[{i}].data', entry.data)
-      for j, (page, _) in enumerate(entry.pages):
-         set_promise_str(file, f'window.pagePromises[{i}].pages[{j}].content', page)
-   file.page.head.append(file.page.soup.new_tag('script', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/pages.js'))))
+      for j, content_batch in enumerate(entry.content_batches):
+         set_promise_obj(file, f'window.pagePromises[{i}].contentBatches[{j}].content', content_batch)
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/pages.js'))))
+   append_decompressor(website, file)
 
 @dataclasses.dataclass
 class VirtualTable:
    table: bs4.Tag
    filters: bs4.Tag
    data: TableData
+   rows: list[bs4.Tag]
 
 @dataclasses.dataclass
 class VirtualTableSettings:
@@ -1273,14 +1285,14 @@ class VirtualTableSettings:
    search: dict[str, str]
    filter: dict[str, tuple[str, list[ValueDisplay]]]
 
-def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings, data: TableData) -> VirtualTable:
+def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings, data: TableData, rows: list[bs4.Tag]) -> VirtualTable:
    assert settings.search.keys() == data['search'].keys()
    assert settings.filter.keys() == data['filter'].keys()
    assert len(settings.columns) == len(data['sort'])
-   rows = len(data['rows'])
-   assert all(len(x) == rows for x in data['sort'])
-   assert all(len(x) == rows for x in data['search'].values())
-   assert all(len(x) == rows for x in data['filter'].values())
+   assert all(len(x) == len(rows) for x in data['sort'])
+   assert all(len(x) == len(rows) for x in data['search'].values())
+   assert all(len(x) == len(rows) for x in data['filter'].values())
+   assert data['rows'] == len(rows)
 
    # issue-table for misode.css
    # other classes for style.css
@@ -1291,7 +1303,7 @@ def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings,
       header.append(new_content_tag(soup, 'div', text, attrs={'class': cls}))
    issue_body = soup.new_tag('div', attrs={'id': data['tableBodyId'], 'class': 'issue-table-body'})
    issue_table.append(issue_body)
-   for i, row in enumerate(itertools.islice(data['rows'], 30)):
+   for i, row in enumerate(itertools.islice(rows, 30)):
       issue_body.append(new_content_tag(soup, 'div', attrs={'class': 'issue-table-virtual-row', 'style': f'top: {i * 32}px;'}, content=row))
    issue_body.insert(0, soup.new_tag('div', attrs={'id': data['scrollId'], 'class': 'issue-table-scroll'}))
    # filters for misode.css
@@ -1311,14 +1323,14 @@ def build_virtual_table(soup: bs4.BeautifulSoup, settings: VirtualTableSettings,
          del data['filter'][id]
    # issue-controls for misode.css
    controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls'}, content=[
-      new_content_tag(soup, 'div', attrs={'id': data['countId']}, content=[f'{format_number(len(data['rows']))} {data['labelText']}'])
+      new_content_tag(soup, 'div', attrs={'id': data['countId']}, content=[f'{format_number(len(rows))} {data['labelText']}'])
    ])
    # issue-list for misode.css
    result = new_content_tag(soup, 'div', attrs={'class': 'issue-list'}, content=[
       controls,
       new_content_tag(soup, 'div', attrs={'class': 'issue-table-container'}, content=issue_table)
    ])
-   return VirtualTable(result, filters, data)
+   return VirtualTable(result, filters, data, rows)
 
 def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: typing.Iterable[Issue]) -> VirtualTable:
    soup = file.page.soup
@@ -1424,9 +1436,9 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
       'search': search_data,
       'filter': filter_data,
       'sort': [[x[0] for x in y] for y in sort_data],
-      'rows':  rows,
+      'rows': len(rows)
    }
-   return build_virtual_table(soup, settings, data)
+   return build_virtual_table(soup, settings, data, rows)
 
 def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: typing.Iterable[CachedUser]) -> VirtualTable:
    soup = file.page.soup
@@ -1493,9 +1505,9 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
       'search': search_data,
       'filter': {},
       'sort': [[x[0] for x in y] for y in sort_data],
-      'rows':  rows,
+      'rows': len(rows)
    }
-   return build_virtual_table(soup, settings, data)
+   return build_virtual_table(soup, settings, data, rows)
 
 # comment-like sections
 @dataclasses.dataclass
@@ -1573,15 +1585,17 @@ def mention_to_user(website: Website, file: HtmlFile, mention: RenderableMention
       return RenderableUserEntry(None, list(head), [body])
 
 @dataclasses.dataclass
-class UserSection:
+class PageSection:
    section: bs4.Tag
    controls: bs4.Tag
    data: PageSectionData | None
+   content: list[bs4.Tag]
 
-def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int, entries: typing.Iterable[RenderableUserEntry]) -> UserSection:
-   pages: list[list[bs4.Tag]] = []
-   for batch in itertools.batched(entries, batch_size):
-      page: list[bs4.Tag] = []
+def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, page_size: int, entries: typing.Iterable[RenderableUserEntry]) -> PageSection:
+   content: list[bs4.Tag] = []
+   anchors: list[str | None] = []
+   first_page: list[bs4.Tag] = []
+   for batch in itertools.batched(entries, page_size):
       for entry in batch:
          # styles for misode.css
          comment = soup.new_tag('div', attrs={'class': 'comment'})
@@ -1589,11 +1603,13 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
             comment.append(soup.new_tag('div', attrs={'class': 'anchor', 'id': entry.anchor}))
          comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=entry.head))
          comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=entry.body))
-         page.append(comment)
-      pages.append(page)
+         content.append(comment)
+         anchors.append(entry.anchor)
+         if len(first_page) < page_size:
+            first_page.append(comment)
    # comment-section for style.css
-   section = new_content_tag(soup, 'div', attrs={'id': f'{id_prefix}-section-content', 'class': 'comment-section'}, content=pages[0] if len(pages) >= 1 else [])
-   if len(pages) > 1:
+   section = new_content_tag(soup, 'div', attrs={'id': f'{id_prefix}-section-content', 'class': 'comment-section'}, content=first_page)
+   if len(content) > page_size:
       data: PageSectionData | None = {
          'contentId': f'{id_prefix}-section-content',
          'visibleId': f'{id_prefix}-section-visible',
@@ -1601,7 +1617,9 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
          'pageId': f'{id_prefix}-section-page',
          'nextId': f'{id_prefix}-section-next-page',
          'orderId': 'issue-tab-order',
-         'pages': pages
+         'pageSize': page_size,
+         'anchors': anchors,
+         'count': len(content)
       }
       controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls comment-controls'}, content=[
          new_content_tag(soup, 'div', attrs={'class': 'issue-pagination'}, content=[
@@ -1610,20 +1628,20 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, batch_size: int,
                   soup.new_tag('path', attrs={'d': 'M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06Z'})
                ])
             ]),
-            soup.new_tag('input', attrs={'id': data['pageId'], 'class': 'issue-page', 'type': 'number', 'value': '1', 'min': '1', 'max': str(len(pages)), 'inputmode': 'numeric'}),
+            soup.new_tag('input', attrs={'id': data['pageId'], 'class': 'issue-page', 'type': 'number', 'value': '1', 'min': '1', 'max': str(int(math.ceil(len(content) / page_size))), 'inputmode': 'numeric'}),
             new_content_tag(soup, 'button', attrs={'id': data['nextId']}, content=[
                new_content_tag(soup, 'svg', attrs={'xmlns': 'http://www.w3.org/2000/svg', 'viewBox': '0 0 16 16', 'width': '16', 'height': '16'}, content=[
                   soup.new_tag('path', attrs={'d': 'M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z'})
                ])
             ])
          ]),
-         new_content_tag(soup, 'div', attrs={'id': data['visibleId'], 'class': 'issue-count'}, content=f'1 - {len(pages[0])}'),
+         new_content_tag(soup, 'div', attrs={'id': data['visibleId'], 'class': 'issue-count'}, content=f'1 - {format_number(len(first_page))}'),
       ])
    else:
       data = None
       controls = new_content_tag(soup, 'div', [])
    wrapper = new_content_tag(soup, 'div', attrs={'class': 'comment-section-wrapper'}, content=section)
-   return UserSection(wrapper, controls, data)
+   return PageSection(wrapper, controls, data, content)
 
 # history
 def historic_issue(website: Website, file: HtmlFile, info: CachedIssue, data: InitialData) -> bs4.Tag:
@@ -2564,14 +2582,14 @@ def issue_body(soup: bs4.BeautifulSoup, desc: bs4.Tag | None, env: bs4.Tag | Non
          new_content_tag(soup, 'p', content=impact)
       ])
 
-def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[RenderableComment]) -> UserSection:
+def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[RenderableComment]) -> PageSection:
    return build_user_section(file.page.soup, 'comment', 200, (comment_to_user(website, file, x) for x in comments))
 
-def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revisions: list[Revision]) -> UserSection:
+def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revisions: list[Revision]) -> PageSection:
    renderable = get_renderable_revisions(website, file, issue, revisions)
    return build_user_section(file.page.soup, 'history', 200, (revision_to_user(website, file, x) for x in renderable))
 
-def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> UserSection:
+def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> PageSection:
    return build_user_section(file.page.soup, 'mention', 200, (mention_to_user(website, file, x) for x in mentions))
 
 def count_badge(soup: bs4.BeautifulSoup, amount: int) -> bs4.Tag:

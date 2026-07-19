@@ -137,19 +137,23 @@ def html_find_replace(soup: bs4.Tag, mapping: dict[str, str]):
 
 def html_to_text(soup: bs4.Tag) -> str:
    text: list[str] = []
-   for element in soup.descendants:
-      if type(element) is bs4.element.NavigableString:
-         if is_hidden(element):
-            continue
-         content = element.string.split()
-         if len(content) == 0:
-            continue
-         string = ' '.join(content)
-         if element.parent is not None and element.parent.name == 'p':
-            string = '\n' + string
-         text.append(string)
-   doc = '\n'.join(text)
+   html_to_text_append(soup, text)
+   doc = ''.join(text)
    return doc
+
+def html_to_text_append(tag: bs4.Tag, text: list[str]):
+   for element in tag.children:
+      if is_hidden(element):
+         continue
+      if isinstance(element, bs4.element.NavigableString):
+         string = element.string.lstrip('\r').lstrip('\n').rstrip('\n').rstrip('\r')
+         text.append(string)
+      if isinstance(element, bs4.Tag):
+         html_to_text_append(element, text)
+         if element.name == 'br':
+            text.append('\n')
+         if element.name == 'p' and any(isinstance(x, bs4.element.NavigableString) for x in element.descendants):
+            text.append('\n')
 
 CONTROL_MAP = {chr(i): f'___SUB_CTRL_CHR_{i:04x}___' for i in list(range(32)) + [127, 57346, 57348, 57350] if i not in (9, 10, 13)}
 CONTROL_MAP_REV = {v: k for k, v in CONTROL_MAP.items()}
