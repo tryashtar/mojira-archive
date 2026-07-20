@@ -671,18 +671,24 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
       ))
    all_comments = get_renderable_user_comments(website.cache, info.comments)
    comment_section = issue_comments(website, file, all_comments)
-   if comment_section.data is not None:
-      pages.append(comment_section)
+   pages.append(comment_section)
    tab_data.append(InfoTabData(
       'comments',
       ['Comments', count_badge(soup, len(all_comments))],
       [comment_section.controls, comment_section.section]
    ))
+   if len(info.attachments) > 0:
+      attachment_section = user_attachments(website, file, info.attachments)
+      pages.append(attachment_section)
+      tab_data.append(InfoTabData(
+         'attachments',
+         ['Attachments', count_badge(soup, sum(len(x) for x in info.attachments.values()))],
+         [attachment_section.controls, attachment_section.section]
+      ))
    all_mentions = get_renderable_user_mentions(website.cache, info.mentions, website.keys, info.user['key'])
-   mention_section = issue_mentions(website, file, all_mentions)
-   if mention_section.data is not None:
-      pages.append(mention_section)
    if len(all_mentions) > 0:
+      mention_section = issue_mentions(website, file, all_mentions)
+      pages.append(mention_section)
       tab_data.append(InfoTabData(
          'mentions',
          ['Mentions', count_badge(soup, len(all_mentions))],
@@ -764,11 +770,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    all_mentions = get_renderable_issue_mentions(website.cache, issue.mentions, website.keys, issue.issue['id'])
    comment_section = issue_comments(website, file, all_comments)
    history_section = issue_history(website, file, issue, issue.issue['changelog']['histories'])
-   pages: list[PageSection] = []
-   if comment_section.data is not None:
-      pages.append(comment_section)
-   if history_section.data is not None:
-      pages.append(history_section)
+   pages: list[PageSection] = [comment_section, history_section]
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
@@ -783,8 +785,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    ]
    if len(all_mentions) > 0:
       mention_section = issue_mentions(website, file, all_mentions)
-      if mention_section.data is not None:
-         pages.append(mention_section)
+      pages.append(mention_section)
       tab_data.append(InfoTabData(
          'mentions',
          ['Mentions', count_badge(soup, len(all_mentions))],
@@ -1591,24 +1592,18 @@ class PageSection:
    data: PageSectionData | None
    content: list[bs4.Tag]
 
-def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, page_size: int, entries: typing.Iterable[RenderableUserEntry]) -> PageSection:
+def build_page_section(soup: bs4.BeautifulSoup, id_prefix: str, page_size: int, entries: typing.Iterable[tuple[bs4.Tag, str | None]]) -> PageSection:
    content: list[bs4.Tag] = []
    anchors: list[str | None] = []
    first_page: list[bs4.Tag] = []
    for batch in itertools.batched(entries, page_size):
-      for entry in batch:
-         # styles for misode.css
-         comment = soup.new_tag('div', attrs={'class': 'comment'})
-         if entry.anchor is not None:
-            comment.append(soup.new_tag('div', attrs={'class': 'anchor', 'id': entry.anchor}))
-         comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=entry.head))
-         comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=entry.body))
-         content.append(comment)
-         anchors.append(entry.anchor)
+      for entry, anchor in batch:
+         content.append(entry)
+         anchors.append(anchor)
          if len(first_page) < page_size:
-            first_page.append(comment)
+            first_page.append(entry)
    # comment-section for style.css
-   section = new_content_tag(soup, 'div', attrs={'id': f'{id_prefix}-section-content', 'class': 'comment-section'}, content=first_page)
+   section = new_content_tag(soup, 'div', attrs={'id': f'{id_prefix}-section-content'}, content=first_page)
    if len(content) > page_size:
       data: PageSectionData | None = {
          'contentId': f'{id_prefix}-section-content',
@@ -1618,7 +1613,7 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, page_size: int, 
          'nextId': f'{id_prefix}-section-next-page',
          'orderId': 'issue-tab-order',
          'pageSize': page_size,
-         'anchors': anchors,
+         'anchors': None if all(x is None for x in anchors) else anchors,
          'count': len(content)
       }
       controls = new_content_tag(soup, 'div', attrs={'class': 'issue-controls comment-controls'}, content=[
@@ -1640,8 +1635,21 @@ def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, page_size: int, 
    else:
       data = None
       controls = new_content_tag(soup, 'div', [])
-   wrapper = new_content_tag(soup, 'div', attrs={'class': 'comment-section-wrapper'}, content=section)
-   return PageSection(wrapper, controls, data, content)
+   return PageSection(section, controls, data, content)
+
+def build_user_section(soup: bs4.BeautifulSoup, id_prefix: str, page_size: int, entries: typing.Iterable[RenderableUserEntry]) -> PageSection:
+   comments: list[tuple[bs4.Tag, str | None]] = []
+   for entry in entries:
+      comment = soup.new_tag('div', attrs={'class': 'comment'})
+      if entry.anchor is not None:
+         comment.append(soup.new_tag('div', attrs={'class': 'anchor', 'id': entry.anchor}))
+      comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-head'}, content=entry.head))
+      comment.append(new_content_tag(soup, 'div', attrs={'class': 'comment-body'}, content=entry.body))
+      comments.append((comment, entry.anchor))
+   section = build_page_section(soup, id_prefix, page_size, comments)
+   append_class(section.section, 'comment-section')
+   wrapper = new_content_tag(soup, 'div', attrs={'class': 'comment-section-wrapper'}, content=section.section)
+   return PageSection(wrapper, section.controls, section.data, section.content)
 
 # history
 def historic_issue(website: Website, file: HtmlFile, info: CachedIssue, data: InitialData) -> bs4.Tag:
@@ -2248,27 +2256,32 @@ def issue_attachments(website: Website, file: HtmlFile, attachments: list[str]) 
    attach_list: list[bs4.Tag] = []
    for entry in attachments:
       attach_info = website.cache.attachment_getter(entry)
-      attach_div = render_attachment(website, file, attach_info, include_upload=True)
+      attach_div = render_attachment(website, file, attach_info, external_issue=None, include_author=True, include_time=True)
       attach_list.append(attach_div)
    return build_attachment_list(soup, attach_list)
 
-def render_attachment(website: Website, file: HtmlFile, attachment: Attachment, include_upload: bool) -> bs4.Tag:
+def render_attachment(website: Website, file: HtmlFile, attachment: Attachment, external_issue: Issue | None, include_author: bool, include_time: bool) -> bs4.Tag:
    soup = file.page.soup
    preview = attachment_preview(website, file, attachment)
    attach_path = website.archive.get_attachment_content_path(attachment['id'], attachment['filename'])
-   link = relative_link(website.root, file.path, attach_path)
    # attachment-details for style.css
    # attachment-block for style.css
    details_div = soup.new_tag('div', attrs={'class': 'attachment-details'})
    attach_div = soup.new_tag('div', attrs={'class': 'attachment-block'})
    attach_div.append(preview)
    attach_div.append(details_div)
+   if external_issue is not None:
+      issue_link = relative_link(website.root, file.path, website.get_issue_path(external_issue))
+      details_div.append(new_content_tag(soup, 'a', attrs={'href': issue_link}, content=[
+         issue_key_issue(website, file, external_issue, with_icon=True)
+      ]))
+   link = relative_link(website.root, file.path, attach_path)
    details_div.append(new_content_tag(soup, 'a', attrs={'href': link}, content=attachment['filename']))
-   if include_upload:
-      if 'author' in attachment:
+   if include_author and 'author' in attachment:
          details_div.append(
             new_content_tag(soup, 'p', content=comment_author(website, file, attachment['author']))
          )
+   if include_time:
       date_tag = render_datetime(soup, datetime.datetime.fromisoformat(attachment['created']))
       # comment-time for misode.css
       date_tag.attrs['class'] = 'comment-time'
@@ -2329,7 +2342,7 @@ def historic_attachments(website: Website, file: HtmlFile, attachments: list[His
 def historic_attachment(website: Website, file: HtmlFile, attach: HistoricValue) -> bs4.Tag:
    attachment = website.archive.get_attachment_data(attach.id)
    if attachment is not None:
-      return render_attachment(website, file, attachment, include_upload=False)
+      return render_attachment(website, file, attachment, external_issue=None, include_author=False, include_time=False)
    broken = file.page.soup.new_tag('img', attrs={'width': '32', 'height': '32', 'loading': 'lazy', 'alt': 'Unavailable attachment', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach/noimage.svg'))})
    # broken-attachment for style.css
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, attach.name])
@@ -2591,6 +2604,23 @@ def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revision
 
 def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> PageSection:
    return build_user_section(file.page.soup, 'mention', 200, (mention_to_user(website, file, x) for x in mentions))
+
+def user_attachments(website: Website, file: HtmlFile, attachments: dict[str, list[str]]) -> PageSection:
+   attach_data: list[tuple[Issue, Attachment]] = []
+   for issue_id, attach_ids in attachments.items():
+      issue = website.cache.just_issue_getter(issue_id)
+      for attach_id in attach_ids:
+         attachment = website.cache.attachment_getter(attach_id)
+         attach_data.append((issue, attachment))
+   attach_data.sort(key=lambda x: datetime.datetime.fromisoformat(x[1]['created']))
+   attach_tags: list[tuple[bs4.Tag, str | None]] = []
+   for issue, attachment in attach_data:
+      tag = render_attachment(website, file, attachment, external_issue=issue, include_author=False, include_time=True)
+      tag.attrs['style'] = f'--order: {len(attach_tags)}'
+      attach_tags.append((tag, None))
+   section = build_page_section(file.page.soup, 'attachment', 60, attach_tags)
+   append_class(section.section, 'attachments')
+   return section
 
 def count_badge(soup: bs4.BeautifulSoup, amount: int) -> bs4.Tag:
    # count-badge for misode.css

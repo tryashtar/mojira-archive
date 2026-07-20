@@ -959,6 +959,7 @@ class CachedUser:
    created: list[str]
    assigned: list[str]
    comments: dict[str, list[str]]
+   attachments: dict[str, list[str]]
    mentions: markup_relations.MarkupRelation
 
 class DisplayCache:
@@ -994,6 +995,9 @@ class DisplayCache:
 
       def filter_issues(issues: list[str]) -> list[str]:
          return [x for x in issues if x in self.valid_issues]
+
+      def filter_attachments(attachments: dict[str, list[str]]) -> dict[str, list[str]]:
+         return {k: v for k, v in attachments.items() if k in self.valid_issues}
 
       def filter_comments(comments: dict[str, list[str]]) -> dict[str, list[str]]:
          return {k: [x for x in v if perms.comment_visible(rels.user, k, x)] for k, v in comments.items() if k in self.valid_issues}
@@ -1091,6 +1095,7 @@ class DisplayCache:
          created = rels.fields.metas['creator'].get(user_key, [])
          assigned = rels.fields.metas['assignee'].get(user_key, [])
          comments = rels.user.comments.get(user_key, {})
+         attachments = rels.user.attachments.get(user_key, {})
          mentions = markup_rels.users.get(user_key, {
             'descriptions': [],
             'environments': [],
@@ -1102,6 +1107,7 @@ class DisplayCache:
             filter_issues(created),
             filter_issues(assigned),
             filter_comments(comments),
+            filter_attachments(attachments),
             mentions
          )
          self.user_cache[user_key] = cached
