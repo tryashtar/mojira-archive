@@ -228,7 +228,7 @@ def render_date_range(soup: bs4.BeautifulSoup, start: datetime.datetime, end: da
    else:
       first_part = new_content_tag(soup, 'time', start.strftime('%Y-%m-%d, %I:%M:%S %p'), attrs={'datetime': start.isoformat(timespec='milliseconds')})
       if same_day(start, end):
-         second_part = end.strftime('%I:%M:%S %p %Z')
+         second_part = render_time_tz(soup, end)
       else:
          second_part = render_datetime(soup, end)
       return new_content_tag(soup, 'span', [
@@ -247,6 +247,10 @@ def render_date(soup: bs4.BeautifulSoup, date: datetime.datetime) -> bs4.Tag:
 
 def render_time(soup: bs4.BeautifulSoup, time: datetime.datetime) -> bs4.Tag:
    formatted = time.astimezone(datetime.UTC).strftime('%I:%M:%S %p')
+   return new_content_tag(soup, 'time', formatted, attrs={'datetime': time.isoformat(timespec='milliseconds')})
+
+def render_time_tz(soup: bs4.BeautifulSoup, time: datetime.datetime) -> bs4.Tag:
+   formatted = time.astimezone(datetime.UTC).strftime('%I:%M:%S %p %Z')
    return new_content_tag(soup, 'time', formatted, attrs={'datetime': time.isoformat(timespec='milliseconds')})
 
 def inline_list(soup: bs4.BeautifulSoup, items: typing.Iterator[bs4.Tag], separator: str = ' ') -> bs4.Tag:

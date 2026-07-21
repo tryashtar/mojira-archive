@@ -944,6 +944,7 @@ class CachedProjectInfo:
 @dataclasses.dataclass
 class CachedIssue:
    issue: Issue
+   initial: InitialData
    created: datetime.datetime
    description: markup.ParsedMarkup | None
    environment: markup.ParsedMarkup | None
@@ -966,6 +967,7 @@ class CachedUser:
    assigned: list[str]
    comments: dict[str, list[str]]
    attachments: dict[str, list[str]]
+   changes: dict[str, list[str]]
    mentions: markup_relations.MarkupRelation
 
 class DisplayCache:
@@ -1002,8 +1004,8 @@ class DisplayCache:
       def filter_issues(issues: list[str]) -> list[str]:
          return [x for x in issues if x in self.valid_issues]
 
-      def filter_attachments(attachments: dict[str, list[str]]) -> dict[str, list[str]]:
-         return {k: v for k, v in attachments.items() if k in self.valid_issues}
+      def filter_issue_items(items: dict[str, list[str]]) -> dict[str, list[str]]:
+         return {k: v for k, v in items.items() if k in self.valid_issues}
 
       def filter_comments(comments: dict[str, list[str]]) -> dict[str, list[str]]:
          return {k: [x for x in v if perms.comment_visible(rels.user, k, x)] for k, v in comments.items() if k in self.valid_issues}
@@ -1024,6 +1026,7 @@ class DisplayCache:
          if issue_id in self.issue_cache:
             return self.issue_cache[issue_id]
          issue = just_issue_get(issue_id)
+         initial = get_initial_data(archive, metas, issue, try_project(self, issue['fields']['project']), issue['changelog']['histories'])
          date = datetime.datetime.fromisoformat(issue['fields']['created'])
          if issue['fields']['description'] is not None:
             body = source.get_issue_description(issue_id)
@@ -1053,7 +1056,7 @@ class DisplayCache:
             'environments': [],
             'comments': {}
          })
-         cached = CachedIssue(issue, date, desc, env, comments, linked, mentions)
+         cached = CachedIssue(issue, initial, date, desc, env, comments, linked, mentions)
          self.issue_cache[issue_id] = cached
          return cached
       self.issue_getter = issue_get
@@ -1102,6 +1105,7 @@ class DisplayCache:
          assigned = rels.fields.metas['assignee'].get(user_key, [])
          comments = rels.user.comments.get(user_key, {})
          attachments = rels.user.attachments.get(user_key, {})
+         changes = rels.user.changes.get(user_key, {})
          mentions = markup_rels.users.get(user_key, {
             'descriptions': [],
             'environments': [],
@@ -1113,7 +1117,8 @@ class DisplayCache:
             filter_issues(created),
             filter_issues(assigned),
             filter_comments(comments),
-            filter_attachments(attachments),
+            filter_issue_items(attachments),
+            filter_issue_items(changes),
             mentions
          )
          self.user_cache[user_key] = cached

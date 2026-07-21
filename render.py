@@ -30,7 +30,7 @@ from web import (HtmlFile, Tag, add_metadata, append_class, append_desc_item, ap
 from display import (CachedFieldInfo, CachedGroupInfo, CachedIssue, CachedMetaInfo, CachedProjectInfo, CachedUser, CachedValueInfo,
    CachedVersionInfo, DisplayCache, HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment,
    RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, revision_order_key, get_avatar_path,
-   get_initial_data, get_link_dir, get_renderable_issue_comments, get_renderable_issue_mentions, get_renderable_user_comments,
+   get_link_dir, get_renderable_issue_comments, get_renderable_issue_mentions, get_renderable_user_comments,
    get_renderable_user_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, project_detail_links,
    try_project, user_role
 )
@@ -181,7 +181,6 @@ def main():
           comments
       )
 
-
    print('Rendering...')
    to_render = sys.argv
    if 'all' in to_render:
@@ -273,7 +272,8 @@ def main():
       save_file(website, website.all_issues_list)
    if 'issues' in to_render:
       print('Issues...')
-      for i, issue in enumerate(cache.issue_getter(x) for x in cache.all_issues):
+      for i, issue_id in enumerate(cache.all_issues):
+         issue = cache.issue_getter(issue_id)
          if i % 1000 == 0:
             print(f'\t== {i} ==')
          print('\t' + issue.issue['key'])
@@ -638,6 +638,9 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    soup = file.page.soup
    content = main_content(website, file)
 
+   include_wiki_rendering(website, file)
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
+
    ref = user_reference(website, file, info.user)
    top = build_info_top(soup, None, ref.outer)
 
@@ -686,6 +689,13 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
          ['Attachments', count_badge(soup, sum(len(x) for x in info.attachments.values()))],
          [attachment_section.controls, attachment_section.section]
       ))
+   activity_section = user_activity(website, file, info.changes)
+   pages.append(activity_section)
+   tab_data.append(InfoTabData(
+      'activity',
+      ['Activity', count_badge(soup, sum(len(x) for x in info.changes.values()))],
+      [activity_section.controls, activity_section.section]
+   ))
    all_mentions = get_renderable_user_mentions(website.cache, info.mentions, website.keys, info.user['key'])
    if len(all_mentions) > 0:
       mention_section = issue_mentions(website, file, all_mentions)
@@ -1529,32 +1539,20 @@ class RenderableRevision:
    user_key: str | None
    start_time: datetime.datetime
    end_time: datetime.datetime | None
+   external_issue: Issue | None
    content: list[Tag]
 
-def get_renderable_revisions(website: Website, file: HtmlFile, info: CachedIssue, revisions: list[Revision]) -> list[RenderableRevision]:
-   issue = info.issue
-   data = get_initial_data(website.archive, website.metas, issue, try_project(website.cache, issue['fields']['project']), revisions)
-   content = historic_issue(website, file, info, data)
-   initial: list[Tag] = [
-      # classes for style.css
-      new_content_tag(file.page.soup, 'details', attrs={'open': ''}, content=[
-         new_content_tag(file.page.soup, 'summary', revision_label(file.page.soup, 'Created Issue:')),
-         new_content_tag(file.page.soup, 'div', attrs={'class': 'revision-change'}, content=[
-            new_content_tag(file.page.soup, 'blockquote', attrs={'class': 'history-quote'}, content=content)
-         ])
-      ])
-   ]
-   result: list[RenderableRevision] = [
-      RenderableRevision('initial', issue['fields'].get('creator'), datetime.datetime.fromisoformat(issue['fields']['created']), None, initial)
-   ]
+def get_renderable_revisions(website: Website, file: HtmlFile, issue_id: str, external_issue: Issue | None, initial_project: str, revisions: list[Revision]) -> list[RenderableRevision]:
    merged = merge_revisions(revisions, datetime.timedelta(minutes=10))
    labels = TrackedMultiValueRevision('Labels', 'labels', label_splitter, lambda x: historic_field_list(website, file, 'labels', x))
    categories = TrackedMultiValueRevision('Category', 'labels', category_splitter, lambda x: historic_field_list(website, file, 'customfield_11901', x))
-   issue_project = TrackedProjectRevision(data.fields['project'])
+   issue_project = TrackedProjectRevision(initial_project)
+   result: list[RenderableRevision] = []
    for revision in merged:
-      items = list(merged_revision_changes(website, file, issue, revision, issue_project, labels, categories))
+      items = list(merged_revision_changes(website, file, issue_id, revision, issue_project, labels, categories))
       if len(items) > 0:
-         result.append(RenderableRevision(revision.changes[0].id, revision.user_key, revision.start_time, revision.end_time, items))
+         render = RenderableRevision(revision.changes[0].id, revision.user_key, revision.start_time, revision.end_time, external_issue, items)
+         result.append(render)
    return result
 
 def revision_to_user(website: Website, file: HtmlFile, revision: RenderableRevision) -> RenderableUserEntry:
@@ -1562,14 +1560,28 @@ def revision_to_user(website: Website, file: HtmlFile, revision: RenderableRevis
    anchor = f'history-id-{revision.id}'
    time_part = render_datetime(soup, revision.start_time) if revision.end_time is None else render_date_range(soup, revision.start_time, revision.end_time)
    head: list[Tag] = []
+
+   if revision.external_issue is None:
+      link = f'#{anchor}'
+   else:
+      link = relative_link(website.root, file.path, website.get_issue_path(revision.external_issue)) + f'#{anchor}'
    if revision.user_key is not None:
       head.extend([
          comment_author(website, file, revision.user_key),
          ' ',
       ])
+   link_part = new_content_tag(soup, 'a', attrs={'href': link}, content=[])
+   if revision.external_issue is not None:
+      head.append(new_content_tag(soup, 'span', 'on', attrs={'class': 'comment-on'}))
+      head.append(' ')
+      # issue-key for misode.css
+      issue_key = new_content_tag(soup, 'span', attrs={'class': 'issue-key'}, content=revision.external_issue['key'])
+      link_part.append(issue_key)
+      link_part.append(' ')
+   link_part.append(new_content_tag(soup, 'span', attrs={'class': 'comment-time'}, content=time_part))
    head.append(
-      new_content_tag(soup, 'span', attrs={'class': 'comment-time'}, content=[
-         new_content_tag(soup, 'a', attrs={'class': 'comment-time', 'href': f'#{anchor}'}, content=time_part)
+      new_content_tag(soup, 'span', attrs={'class': 'comment-link'}, content=[
+         link_part
       ])
    )
    body = revision.content
@@ -1934,7 +1946,7 @@ class TrackedProjectRevision:
 
 UNKNOWN_COMMENT_RE = re.compile(r'A comment with security level \'[a-z]+\' was removed\.' + '\u00a0?$')
 
-def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revision: MergedRevision, project: TrackedProjectRevision, labels: TrackedMultiValueRevision, categories: TrackedMultiValueRevision) -> typing.Generator[Tag]:
+def merged_revision_changes(website: Website, file: HtmlFile, issue_id: str, revision: MergedRevision, project: TrackedProjectRevision, labels: TrackedMultiValueRevision, categories: TrackedMultiValueRevision) -> typing.Generator[Tag]:
    soup = file.page.soup
    def changed_attachments(attaches: typing.Iterable[HistoricValue]) -> bs4.Tag:
       # history-quote for style.css
@@ -2082,16 +2094,16 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             # diff-panel-top for style.css
             yield revision_html_diff(soup, 'Summary', markup.RevisionData(before, after, diff), lambda x: x, 'diff-panel-top')
          case 'description': # source always null, string either null or text
-            revision_markup = website.markup_source.get_issue_description_revision(issue['id'], rev_id)
+            revision_markup = website.markup_source.get_issue_description_revision(issue_id, rev_id)
             yield revision_large_diff(website, file, 'Description', revision_markup)
          case 'environment': # source always null, string either null or text
-            revision_markup = website.markup_source.get_issue_environment_revision(issue['id'], rev_id)
+            revision_markup = website.markup_source.get_issue_environment_revision(issue_id, rev_id)
             yield revision_large_diff(website, file, 'Environment', revision_markup)
          case 'Comment': # from always text, all the rest always null
             assert change['from'] is not None
             assert change['to'] is None
             if UNKNOWN_COMMENT_RE.match(change['from']) is None and not website.perms.hidden_deleted_comments:
-               comment = website.markup_source.get_deleted_comment_body(issue['id'], rev_id)
+               comment = website.markup_source.get_deleted_comment_body(issue_id, rev_id)
                yield revision_quoted(soup, 'Deleted Comment:', [embed_wiki(website, file, markup.parse_markup(comment))])
          case (
             'RemoteIssueLink' # unfortunately these were not preserved in the archive
@@ -2149,7 +2161,7 @@ def historic_user(website: Website, file: HtmlFile, value: HistoricValue) -> bs4
    if user_data is None:
       user_data = website.archive.get_unknown_user_data(value.id)
       if user_data is None:
-         return new_content_tag(file.page.soup, 'span', content=value.name)
+         return new_content_tag(file.page.soup, 'span', content=value.name, attrs={'class': 'missing-user'})
    return user_link(website, file, value.id)
 
 def comment_author(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
@@ -2436,7 +2448,7 @@ def historic_linked_issue(website: Website, file: HtmlFile, ticket: str) -> bs4.
          issue = website.cache.just_issue_getter(issue_id)
          # wrap in a div so misode.css includes the top border
          return new_content_tag(file.page.soup, 'div', linked_issue(website, file, issue))
-   return new_content_tag(file.page.soup, 'div', issue_key(website, file, None, ticket, with_icon=True))
+   return new_content_tag(file.page.soup, 'div', issue_key(website, file, None, ticket, with_icon=True), attrs={'class': 'missing-value'})
 
 def version_list(website: Website, file: HtmlFile, project: Project, versions: list[Version]) -> Tag:
    if len(versions) == 0:
@@ -2470,7 +2482,9 @@ def historic_version(website: Website, file: HtmlFile, version: HistoricProjectV
       project = website.cache.projects[version.project]
       if version.id in project.versions:
          return version_link(website, file, project.project, project.versions[version.id].version)
-   return status_badge(file.page.soup, version.name)
+   badge = status_badge(file.page.soup, version.name)
+   append_class(badge, 'missing-value')
+   return badge
 
 @dataclasses.dataclass
 class FieldBadge:
@@ -2544,12 +2558,18 @@ def historic_meta(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, s
       display = website.cache.metas[meta_id].values[source].display
       return meta_link_display(website, file, meta_id, display)
    assert string is not None
-   return status_badge(file.page.soup, string)
+   badge = status_badge(file.page.soup, string)
+   append_class(badge, 'missing-value')
+   return badge
 
 def historic_field(website: Website, file: HtmlFile, field_id: str, value: HistoricValue) -> bs4.Tag:
    if value.id in website.cache.fields[field_id].values:
       return field_link(website, file, field_id, value.id)
-   return status_badge(file.page.soup, value.name)
+   badge = status_badge(file.page.soup, value.name)
+   field_name_str = website.cache.fields[field_id].name.lower().replace(' ', '-').replace('/', '')
+   append_class(badge, f'field-value-{field_name_str}')
+   append_class(badge, 'missing-value')
+   return badge
 
 def historic_field_list(website: Website, file: HtmlFile, field_id: str, fields: typing.Iterable[HistoricValue]) -> bs4.Tag:
    return inline_list(file.page.soup, (historic_field(website, file, field_id, x) for x in fields))
@@ -2640,11 +2660,42 @@ def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[R
    return build_user_section(file.page.soup, 'comment', 200, (comment_to_user(website, file, x) for x in comments))
 
 def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revisions: list[Revision]) -> PageSection:
-   renderable = get_renderable_revisions(website, file, issue, revisions)
+   initial_content = historic_issue(website, file, issue, issue.initial)
+   initial_tag: list[Tag] = [
+      # classes for style.css
+      new_content_tag(file.page.soup, 'details', attrs={'open': ''}, content=[
+         new_content_tag(file.page.soup, 'summary', revision_label(file.page.soup, 'Created Issue:')),
+         new_content_tag(file.page.soup, 'div', attrs={'class': 'revision-change'}, content=[
+            new_content_tag(file.page.soup, 'blockquote', attrs={'class': 'history-quote'}, content=initial_content)
+         ])
+      ])
+   ]
+   initial_render = RenderableRevision('initial', issue.issue['fields'].get('creator'), issue.created, None, None, initial_tag)
+   renderable = get_renderable_revisions(website, file, issue.issue['id'], None, issue.initial.fields['project'], revisions)
+   renderable.insert(0, initial_render)
    return build_user_section(file.page.soup, 'history', 200, (revision_to_user(website, file, x) for x in renderable))
 
 def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> PageSection:
    return build_user_section(file.page.soup, 'mention', 200, (mention_to_user(website, file, x) for x in mentions))
+
+def user_activity(website: Website, file: HtmlFile, revisions: dict[str, list[str]]) -> PageSection:
+   revision_data: list[tuple[CachedIssue, list[Revision]]] = []
+   for issue_id, revision_ids in revisions.items():
+      issue = website.cache.issue_getter(issue_id)
+      issue_revs: dict[str, Revision] = {}
+      for entry in issue.issue['changelog']['histories']:
+         issue_revs[entry['id']] = entry
+      found_revs: list[Revision] = []
+      for revision_id in revision_ids:
+         revision = issue_revs[revision_id]
+         found_revs.append(revision)
+      revision_data.append((issue, found_revs))
+   revision_data.sort(key=lambda x: datetime.datetime.fromisoformat(x[1][0]['created']))
+   all_renderable: list[RenderableRevision] = []
+   for issue, revs in revision_data:
+      renderable = get_renderable_revisions(website, file, issue.issue['id'], issue.issue, issue.initial.fields['project'], revs)
+      all_renderable.extend(renderable)
+   return build_user_section(file.page.soup, 'history', 200, (revision_to_user(website, file, x) for x in all_renderable))
 
 def user_attachments(website: Website, file: HtmlFile, attachments: dict[str, list[str]]) -> PageSection:
    attach_data: list[tuple[Issue, Attachment]] = []
