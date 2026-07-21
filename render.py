@@ -29,7 +29,7 @@ from web import (HtmlFile, Tag, add_metadata, append_class, append_desc_item, ap
 )
 from display import (CachedFieldInfo, CachedGroupInfo, CachedIssue, CachedMetaInfo, CachedProjectInfo, CachedUser, CachedValueInfo,
    CachedVersionInfo, DisplayCache, HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment,
-   RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, forwards_revision_order_key, get_avatar_path,
+   RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, revision_order_key, get_avatar_path,
    get_initial_data, get_link_dir, get_renderable_issue_comments, get_renderable_issue_mentions, get_renderable_user_comments,
    get_renderable_user_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, project_detail_links,
    try_project, user_role
@@ -107,6 +107,7 @@ def save_file(website: Website, file: HtmlFile):
 
 def main():
    print('Loading...')
+   PIL.Image.MAX_IMAGE_PIXELS = 16384 * 16384
    dotenv.load_dotenv()
    root = pathlib.Path(os.environ['ARCHIVE_ROOT'])
    archive = mojira.Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
@@ -284,7 +285,7 @@ def main():
       print('Moved issues...')
       for issue_key, issue_id in rels.keys.issue_keys.items():
          if issue_id in cache.valid_issues:
-            issue = cache.issue_getter(issue_id).issue
+            issue = cache.just_issue_getter(issue_id)
             if issue['key'] != issue_key:
                print('\t' + issue_key)
                from_path = website.get_issue_key_path(issue_key)
@@ -1098,10 +1099,10 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
    all_comments: list[RenderableComment] = []
    for issue_id, comments in website.secret_comments.comments.items():
       if issue_id in website.cache.valid_issues:
-         issue = website.cache.issue_getter(issue_id)
+         issue = website.cache.just_issue_getter(issue_id)
          comments = website.cache.secret_comment_getter(issue_id)
          for comment in comments:
-            renderable = RenderableComment(comment.comment, issue.issue, comment.body, datetime.datetime.fromisoformat(comment.comment['created']), secret=True)
+            renderable = RenderableComment(comment.comment, issue, comment.body, datetime.datetime.fromisoformat(comment.comment['created']), secret=True)
             bisect.insort_left(all_comments, renderable, key=lambda x: x.date)
 
    add_metadata(file, 'Secret Comments', f'{format_number(len(all_comments))} comments', None)
@@ -1110,7 +1111,6 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
 
    user_main = build_user_main(soup, ['Secret comments'], None, [section.controls, section.section])
    content.append(user_main)
-   user_data: list[PageSectionData] = []
    pages: list[PageSection] = [section]
    add_page_scripts(website, file, [(x.data, x.content) for x in pages if x.data is not None])
 
@@ -1550,11 +1550,11 @@ def get_renderable_revisions(website: Website, file: HtmlFile, info: CachedIssue
    merged = merge_revisions(revisions, datetime.timedelta(minutes=10))
    labels = TrackedMultiValueRevision('Labels', 'labels', label_splitter, lambda x: historic_field_list(website, file, 'labels', x))
    categories = TrackedMultiValueRevision('Category', 'labels', category_splitter, lambda x: historic_field_list(website, file, 'customfield_11901', x))
-   issue_project = TrackedProjectRevision(issue['fields']['project'])
+   issue_project = TrackedProjectRevision(data.fields['project'])
    for revision in merged:
       items = list(merged_revision_changes(website, file, issue, revision, issue_project, labels, categories))
       if len(items) > 0:
-         result.append(RenderableRevision(revision.changes[0][0], revision.user_key, revision.start_time, revision.end_time, items))
+         result.append(RenderableRevision(revision.changes[0].id, revision.user_key, revision.start_time, revision.end_time, items))
    return result
 
 def revision_to_user(website: Website, file: HtmlFile, revision: RenderableRevision) -> RenderableUserEntry:
@@ -1740,6 +1740,38 @@ def historic_details(website: Website, file: HtmlFile, fields: HistoricFields) -
 
 # revisions
 class TrackedMultiSetRevision:
+   def __init__(self, name: str, field_id: str | None, creator: typing.Callable[[typing.Iterable[HistoricValue]], bs4.Tag]):
+      self.added: list[HistoricValue] = []
+      self.removed: list[HistoricValue] = []
+      self.name = name
+      self.field_id = field_id
+      self.creator = creator
+
+   def import_change(self, entry: RevisionChange):
+      if entry['to'] is not None:
+         assert entry['toString'] is not None
+         self.added.append(HistoricValue(entry['to'], entry['toString']))
+      if entry['from'] is not None:
+         assert entry['fromString'] is not None
+         self.removed.append(HistoricValue(entry['from'], entry['fromString']))
+
+   def handle(self, website: Website, file: HtmlFile) -> typing.Generator[bs4.Tag]:
+      soup = file.page.soup
+      # revision-change for style.css
+      if len(self.added) > 0:
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         yield new_content_tag(soup, 'div', attrs={'class': 'revision-change'}, content=[
+            revision_label(soup, ['Added ', link, ': ']),
+            self.creator(self.added)
+         ])
+      if len(self.removed) > 0:
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         yield new_content_tag(soup, 'div', attrs={'class': 'revision-change'}, content=[
+            revision_label(soup, ['Removed ', link, ': ']),
+            self.creator(self.removed)
+         ])
+
+class TrackedMultiSetProjectRevision:
    def __init__(self, name: str, field_id: str | None, creator: typing.Callable[[typing.Iterable[HistoricProjectValue]], bs4.Tag]):
       self.added: list[HistoricProjectValue] = []
       self.removed: list[HistoricProjectValue] = []
@@ -1747,13 +1779,13 @@ class TrackedMultiSetRevision:
       self.field_id = field_id
       self.creator = creator
 
-   def import_change(self, entry: RevisionChange, project_id: str):
+   def import_change(self, entry: RevisionChange, before_project: str, after_project: str):
       if entry['to'] is not None:
          assert entry['toString'] is not None
-         self.added.append(HistoricProjectValue(entry['to'], entry['toString'], project_id))
+         self.added.append(HistoricProjectValue(entry['to'], entry['toString'], after_project))
       if entry['from'] is not None:
          assert entry['fromString'] is not None
-         self.removed.append(HistoricProjectValue(entry['from'], entry['fromString'], project_id))
+         self.removed.append(HistoricProjectValue(entry['from'], entry['fromString'], before_project))
 
    def handle(self, website: Website, file: HtmlFile) -> typing.Generator[bs4.Tag]:
       soup = file.page.soup
@@ -1922,13 +1954,22 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
          result.append(new_content_tag(soup, 'p', dir))
          result.extend(tags)
       return result
-   affected_versions = TrackedMultiSetRevision('Affects Versions', None, lambda x: historic_version_list(website, file, x))
-   fixed_versions = TrackedMultiSetRevision('Fixed Versions', None, lambda x: historic_version_list(website, file, x))
-   attachments = TrackedMultiSetRevision('Attachments', None, lambda x: changed_attachments([HistoricValue(y.id, y.name) for y in x]))
-   links = TrackedMultiSetRevision('Linked Issues', None, lambda x: changed_linked([HistoricValue(y.id, y.name) for y in x]))
-   components = TrackedMultiSetRevision('Components', 'components', lambda x: historic_field_list(website, file, 'components', [HistoricValue(y.id, y.name) for y in x]))
-   sorted_changes = sorted(revision.changes, key=lambda x: forwards_revision_order_key(x[1]))
-   for rev_id, change in sorted_changes:
+   affected_versions = TrackedMultiSetProjectRevision('Affects Versions', None, lambda x: historic_version_list(website, file, x))
+   fixed_versions = TrackedMultiSetProjectRevision('Fixed Versions', None, lambda x: historic_version_list(website, file, x))
+   attachments = TrackedMultiSetRevision('Attachments', None, changed_attachments)
+   links = TrackedMultiSetRevision('Linked Issues', None, changed_linked)
+   components = TrackedMultiSetRevision('Components', 'components', lambda x: historic_field_list(website, file, 'components', x))
+   sorted_changes = sorted(revision.changes, key=lambda x: revision_order_key(x.change))
+   for entry in sorted_changes:
+      rev_id = entry.id
+      change = entry.change
+      if entry.project_move is not None:
+         before_proj = entry.project_move.before
+         after_proj = entry.project_move.after
+         project.id = after_proj
+      else:
+         before_proj = project.id
+         after_proj = project.id
       match change['field']:
          # tracked changes
          case 'labels': # source always null, string always 'id id'
@@ -1937,17 +1978,17 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             yield from categories.handle(website, file, change)
          # special batched changes
          case 'Link': # source/string are either null or 'key'/'This issue ...'
-            links.import_change(change, project.id)
+            links.import_change(change)
          case 'Attachment': # source/string are either null or 'id'/'filename'
-            attachments.import_change(change, project.id)
+            attachments.import_change(change)
          # other batched changes
          # source/string are either null or 'id'/'Name'
          case 'Component':
-            components.import_change(change, project.id)
+            components.import_change(change)
          case 'Version':
-            affected_versions.import_change(change, project.id)
+            affected_versions.import_change(change, before_proj, after_proj)
          case 'Fix Version':
-            fixed_versions.import_change(change, project.id)
+            fixed_versions.import_change(change, before_proj, after_proj)
          # custom enum field changes
          # source/string are either null/null, null/empty, or 'id'/'Name'
          case 'Confirmation Status':
@@ -2025,9 +2066,11 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
          case 'Key': # source always null, string always 'key'
             assert change['fromString'] is not None
             assert change['toString'] is not None
-            proj = try_project(website.cache, project.id)
-            old_tag = issue_key(website, file, proj, change['fromString'], with_icon=True)
-            new_tag = issue_key(website, file, proj, change['toString'], with_icon=True)
+            assert entry.project_move is not None
+            before_proj = try_project(website.cache, entry.project_move.before)
+            after_proj = try_project(website.cache, entry.project_move.after)
+            old_tag = issue_key(website, file, before_proj, change['fromString'], with_icon=True)
+            new_tag = issue_key(website, file, after_proj, change['toString'], with_icon=True)
             yield revision_from_to(soup, 'Moved Issue: ', old_tag, new_tag)
          # html or markup changes
          case 'summary': # source always null, string always text
@@ -2050,9 +2093,6 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             if UNKNOWN_COMMENT_RE.match(change['from']) is None and not website.perms.hidden_deleted_comments:
                comment = website.markup_source.get_deleted_comment_body(issue['id'], rev_id)
                yield revision_quoted(soup, 'Deleted Comment:', [embed_wiki(website, file, markup.parse_markup(comment))])
-         case 'project' | 'Project':
-            assert change['from'] is not None
-            project.id = change['from']
          case (
             'RemoteIssueLink' # unfortunately these were not preserved in the archive
             | 'CHK' | 'Linked' | 'Pinned' # pointless fields
@@ -2060,6 +2100,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue: Issue, revi
             | 'Console' | 'Description' | 'Flagged' | 'Original story points' | 'Approvers' # only used in one test ticket
             | 'issuetype' # only relevant to MCAPI which sadly was not preserved
             | 'Affected Platforms' # old field that was only ever removed from tickets
+            | 'project' | 'Project' # handled specially in advance
          ):
             pass
          case _:
@@ -2392,9 +2433,9 @@ def historic_linked_issue(website: Website, file: HtmlFile, ticket: str) -> bs4.
    if ticket in website.keys.issue_keys:
       issue_id = website.keys.issue_keys[ticket]
       if issue_id in website.cache.valid_issues:
-         issue = website.cache.issue_getter(issue_id)
+         issue = website.cache.just_issue_getter(issue_id)
          # wrap in a div so misode.css includes the top border
-         return new_content_tag(file.page.soup, 'div', linked_issue(website, file, issue.issue))
+         return new_content_tag(file.page.soup, 'div', linked_issue(website, file, issue))
    return new_content_tag(file.page.soup, 'div', issue_key(website, file, None, ticket, with_icon=True))
 
 def version_list(website: Website, file: HtmlFile, project: Project, versions: list[Version]) -> Tag:

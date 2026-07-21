@@ -244,11 +244,11 @@ def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue:
             case _:
                pass
    for revision in reversed(revisions):
-      for change in reversed(sorted(revision['items'], key=backwards_revision_order_key)):
+      project_move = get_project_move(revision)
+      if project_move is not None:
+         result['project'] = project_move.before
+      for change in reversed(sorted(revision['items'], key=revision_order_key)):
          match change['field']:
-            case 'project' | 'Project':
-               assert change['from'] is not None
-               result['project'] = change['from']
             case 'Link':
                insert_historic_list_field(result, 'issuelinks', change, check_both=True)
             case 'Attachment':
@@ -410,20 +410,7 @@ def insert_historic_versions_field(fields: HistoricFields, field_id: str, change
       assert change['fromString'] is not None
       fields[field_id].append(HistoricProjectValue(change['from'], change['fromString'], fields['project']))
 
-def backwards_revision_order_key(change: RevisionChange) -> int:
-   if change['field'] == 'Key':
-      return 0
-   if change['field'] == 'status':
-      return 1
-   if change['field'] == 'resolution':
-      return 2
-   if change['field'] in ('Version', 'Fix Version'):
-      return 3 if change['to'] is None else 5
-   if change['field'] in ('project', 'Project'):
-      return 4
-   return 6
-
-def forwards_revision_order_key(change: RevisionChange) -> int:
+def revision_order_key(change: RevisionChange) -> int:
    if change['field'] == 'Key':
       return 0
    if change['field'] == 'status':
@@ -432,33 +419,52 @@ def forwards_revision_order_key(change: RevisionChange) -> int:
       return 2
    if change['field'] in ('Version', 'Fix Version'):
       return 5 if change['to'] is None else 3
-   if change['field'] in ('project', 'Project'):
-      return 4
    return 6
+
+@dataclasses.dataclass
+class ProjectChange:
+   before: str
+   after: str
+
+@dataclasses.dataclass
+class TrackedChange:
+   id: str
+   change: RevisionChange
+   project_move: ProjectChange | None
 
 @dataclasses.dataclass
 class MergedRevision:
    user_key: str
    start_time: datetime.datetime
    end_time: datetime.datetime
-   changes: list[tuple[str, RevisionChange]]
+   changes: list[TrackedChange]
+
+def get_project_move(revision: Revision) -> ProjectChange | None:
+   for entry in revision['items']:
+      if entry['field'] in ('project', 'Project'):
+         assert entry['from'] is not None
+         assert entry['to'] is not None
+         return ProjectChange(entry['from'], entry['to'])
+   return None
 
 def merge_revisions(revisions: list[Revision], threshold: datetime.timedelta) -> list[MergedRevision]:
    merged_revisions: list[MergedRevision] = []
    current: MergedRevision | None = None
    for revision in revisions:
       time = datetime.datetime.fromisoformat(revision['created'])
+      project_move = get_project_move(revision)
+      changes = [TrackedChange(revision['id'], x, project_move) for x in revision['items']]
       merged = MergedRevision(
          user_key=revision['author'],
          start_time=time,
          end_time=time,
-         changes=[(revision['id'], x) for x in revision['items']]
+         changes=changes
       )
       if current is None:
          current = merged
       elif revision['author'] == current.user_key and time - current.end_time <= threshold:
          current.end_time = time
-         current.changes.extend((revision['id'], x) for x in revision['items'])
+         current.changes.extend(changes)
       else:
          merged_revisions.append(current)
          current = merged
@@ -1229,10 +1235,10 @@ def get_renderable_issue_comments(cache: DisplayCache, issue: Issue, include_sec
 def get_renderable_user_comments(cache: DisplayCache, comment_dict: dict[str, list[str]]) -> list[RenderableComment]:
    result: list[RenderableComment] = []
    for issue_id, comments in comment_dict.items():
-      issue = cache.issue_getter(issue_id)
+      issue = cache.just_issue_getter(issue_id)
       for comment_id in comments:
          info = cache.comment_getter(issue_id, comment_id)
-         entry = RenderableComment(info.comment, issue.issue, info.body, info.date, secret=False)
+         entry = RenderableComment(info.comment, issue, info.body, info.date, secret=False)
          bisect.insort_left(result, entry, key=lambda x: x.date)
    return result
 
