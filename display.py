@@ -906,6 +906,21 @@ def import_fake_missing_data(archive: mojira.Archive, metas: mojira.ArchiveMetas
    }
 
 @dataclasses.dataclass
+class RenderableComment:
+   comment: Comment | NewComment
+   external_issue: Issue | None
+   parsed: markup.ParsedMarkup
+   date: datetime.datetime
+   secret: bool
+
+@dataclasses.dataclass
+class RenderableMention:
+   issue: Issue
+   comment: Comment | NewComment | None
+   date: datetime.datetime
+   parsed: markup.ParsedMarkup
+
+@dataclasses.dataclass
 class CachedValueInfo:
    display: ValueDisplay
    issues: list[str]
@@ -926,7 +941,7 @@ class CachedFieldInfo:
 class CachedGroupInfo:
    id: str
    users: list[str]
-   comments: dict[str, list[str]]
+   comments: list[RenderableComment]
 
 @dataclasses.dataclass
 class CachedVersionInfo:
@@ -942,17 +957,6 @@ class CachedProjectInfo:
    versions: dict[str, CachedVersionInfo]
 
 @dataclasses.dataclass
-class CachedIssue:
-   issue: Issue
-   initial: InitialData
-   created: datetime.datetime
-   description: markup.ParsedMarkup | None
-   environment: markup.ParsedMarkup | None
-   comments: dict[str, Comment]
-   linked_issues: dict[str, list[str]]
-   mentions: markup_relations.MarkupRelation
-
-@dataclasses.dataclass
 class CachedComment:
    issue: Issue
    comment: Comment | NewComment
@@ -960,15 +964,26 @@ class CachedComment:
    body: markup.ParsedMarkup
 
 @dataclasses.dataclass
+class CachedIssue:
+   issue: Issue
+   initial: InitialData
+   created: datetime.datetime
+   description: markup.ParsedMarkup | None
+   environment: markup.ParsedMarkup | None
+   linked_issues: dict[str, list[str]]
+   comments: list[RenderableComment]
+   mentions: list[RenderableMention]
+
+@dataclasses.dataclass
 class CachedUser:
    user: User | UnknownUser
    reported: list[str]
    created: list[str]
    assigned: list[str]
-   comments: dict[str, list[str]]
    attachments: dict[str, list[str]]
    changes: dict[str, list[str]]
-   mentions: markup_relations.MarkupRelation
+   comments: list[RenderableComment]
+   mentions: list[RenderableMention]
 
 class DisplayCache:
    just_issue_getter: typing.Callable[[str], Issue]
@@ -1007,8 +1022,11 @@ class DisplayCache:
       def filter_issue_items(items: dict[str, list[str]]) -> dict[str, list[str]]:
          return {k: v for k, v in items.items() if k in self.valid_issues}
 
-      def filter_comments(comments: dict[str, list[str]]) -> dict[str, list[str]]:
-         return {k: [x for x in v if perms.comment_visible(rels.user, k, x)] for k, v in comments.items() if k in self.valid_issues}
+      def filter_comments(issue_id: str, comments: list[str]) -> list[str]:
+         return [x for x in comments if perms.comment_visible(rels.user, issue_id, x)]
+
+      def filter_issue_comments(comments: dict[str, list[str]]) -> dict[str, list[str]]:
+         return {k: filter_comments(k, v) for k, v in comments.items() if k in self.valid_issues}
 
       self.just_issue_cache = {}
       def just_issue_get(issue_id: str) -> Issue:
@@ -1019,6 +1037,65 @@ class DisplayCache:
          self.just_issue_cache[issue_id] = issue
          return issue
       self.just_issue_getter = just_issue_get
+
+      self.secret_comment_cache = {}
+      def secret_comment_get(issue_id: str) -> list[CachedComment]:
+         assert issue_id in self.valid_issues
+         if issue_id in self.secret_comment_cache:
+            return self.secret_comment_cache[issue_id]
+         issue = just_issue_get(issue_id)
+         comments = secret_comments.get(issue_id)
+         cached: list[CachedComment] = []
+         for comment in comments:
+            body = source.get_secret_comment_body(issue_id, comment['id'])
+            parsed = markup.parse_markup(body)
+            date = datetime.datetime.fromisoformat(comment['created'])
+            cached.append(CachedComment(issue, comment, date, parsed))
+         self.secret_comment_cache[issue_id] = cached
+         return cached
+      self.secret_comment_getter = secret_comment_get
+
+      self.comment_cache = {}
+      def comment_get(issue_id: str, comment_id: str) -> CachedComment:
+         assert issue_id in self.valid_issues
+         key = (issue_id, comment_id)
+         if key in self.comment_cache:
+            return self.comment_cache[key]
+         issue = just_issue_get(issue_id)
+         comment = next(x for x in issue['fields']['comment']['comments'] if x['id'] == comment_id)
+         body = source.get_comment_body(issue_id, comment_id)
+         parsed = markup.parse_markup(body)
+         date = datetime.datetime.fromisoformat(comment['created'])
+         cached = CachedComment(issue, comment, date, parsed)
+         self.comment_cache[key] = cached
+         return cached
+      self.comment_getter = comment_get
+
+      def get_renderable_mentions(rels: markup_relations.MarkupRelation, process: typing.Callable[[markup.ParsedMarkup]]) -> list[RenderableMention]:
+         result: list[RenderableMention] = []
+         for issue_id in rels['descriptions']:
+            issue = self.issue_getter(issue_id)
+            if issue.description is not None:
+               cloned = issue.description.clone()
+               process(cloned)
+               entry = RenderableMention(issue.issue, None, issue.created, cloned)
+               bisect.insort_left(result, entry, key=lambda x: x.date)
+         for issue_id in rels['environments']:
+            issue = self.issue_getter(issue_id)
+            if issue.environment is not None:
+               cloned = issue.environment.clone()
+               process(cloned)
+               entry = RenderableMention(issue.issue, None, issue.created, cloned)
+               bisect.insort_left(result, entry, key=lambda x: x.date)
+         for issue_id, comment_ids in rels['comments'].items():
+            issue = self.issue_getter(issue_id)
+            for comment_id in comment_ids:
+               info = self.comment_getter(issue_id, comment_id)
+               cloned = info.body.clone()
+               process(cloned)
+               entry = RenderableMention(issue.issue, info.comment, info.date, cloned)
+               bisect.insort_left(result, entry, key=lambda x: x.date)
+         return result
 
       self.issue_cache = {}
       def issue_get(issue_id: str) -> CachedIssue:
@@ -1038,7 +1115,6 @@ class DisplayCache:
             env = markup.parse_markup(body)
          else:
             env = None
-         comments = {x['id']: x for x in issue['fields']['comment']['comments']}
          linked: dict[str, list[str]] = {}
          for link in issue['fields']['issuelinks']:
             if 'inwardIssue' in link:
@@ -1051,48 +1127,43 @@ class DisplayCache:
                if identity not in linked:
                   linked[identity] = []
                linked[identity].append(linked_id)
-         mentions = markup_rels.issues.get(issue['id'], {
+         filtered_comments = filter_comments(issue_id, [x['id'] for x in issue['fields']['comment']['comments']])
+         rendered_comments: list[RenderableComment] = []
+         for comment_id in filtered_comments:
+            cached = comment_get(issue_id, comment_id)
+            entry = RenderableComment(cached.comment, None, cached.body, cached.date, secret=False)
+            rendered_comments.append(entry)
+         if not perms.hidden_secret_comments:
+            for info in secret_comment_get(issue_id):
+               entry = RenderableComment(info.comment, None, info.body, info.date, secret=True)
+               bisect.insort_left(rendered_comments, entry, key=lambda x: x.date)
+         cached = CachedIssue(
+            issue,
+            initial,
+            date,
+            desc,
+            env,
+            linked,
+            rendered_comments,
+            []
+         )
+         # some icky recursion requires us to cache it early, then find mentions
+         self.issue_cache[issue_id] = cached
+         mentions = markup_rels.issues.get(issue_id, {
             'descriptions': [],
             'environments': [],
             'comments': {}
          })
-         cached = CachedIssue(issue, initial, date, desc, env, comments, linked, mentions)
-         self.issue_cache[issue_id] = cached
+         filtered_mentions: markup_relations.MarkupRelation = {
+            'descriptions': filter_issues(mentions['descriptions']),
+            'environments': filter_issues(mentions['environments']),
+            'comments': filter_issue_comments(mentions['comments'])
+         }
+         def process(tag: markup.ParsedMarkup):
+            highlight_issue_mentions(tag, issue_id, rels.keys)
+         cached.mentions.extend(get_renderable_mentions(filtered_mentions, process))
          return cached
       self.issue_getter = issue_get
-
-      self.comment_cache = {}
-      def comment_get(issue_id: str, comment_id: str) -> CachedComment:
-         assert issue_id in self.valid_issues
-         key = (issue_id, comment_id)
-         if key in self.comment_cache:
-            return self.comment_cache[key]
-         issue = issue_get(issue_id)
-         comment = issue.comments[comment_id]
-         body = source.get_comment_body(issue_id, comment_id)
-         parsed = markup.parse_markup(body)
-         date = datetime.datetime.fromisoformat(comment['created'])
-         cached = CachedComment(issue.issue, comment, date, parsed)
-         self.comment_cache[key] = cached
-         return cached
-      self.comment_getter = comment_get
-
-      self.secret_comment_cache = {}
-      def secret_comment_get(issue_id: str) -> list[CachedComment]:
-         assert issue_id in self.valid_issues
-         if issue_id in self.secret_comment_cache:
-            return self.secret_comment_cache[issue_id]
-         issue = issue_get(issue_id)
-         comments = secret_comments.get(issue_id)
-         cached: list[CachedComment] = []
-         for comment in comments:
-            body = source.get_secret_comment_body(issue_id, comment['id'])
-            parsed = markup.parse_markup(body)
-            date = datetime.datetime.fromisoformat(comment['created'])
-            cached.append(CachedComment(issue.issue, comment, date, parsed))
-         self.secret_comment_cache[issue_id] = cached
-         return cached
-      self.secret_comment_getter = secret_comment_get
 
       self.user_cache = {}
       def user_get(user_key: str) -> CachedUser:
@@ -1106,20 +1177,35 @@ class DisplayCache:
          comments = rels.user.comments.get(user_key, {})
          attachments = rels.user.attachments.get(user_key, {})
          changes = rels.user.changes.get(user_key, {})
+         filtered = filter_issue_comments(comments)
+         rendered_comments: list[RenderableComment] = []
+         for issue_id, comments in filtered.items():
+            for comment_id in comments:
+               cached = comment_get(issue_id, comment_id)
+               entry = RenderableComment(cached.comment, cached.issue, cached.body, cached.date, secret=False)
+               bisect.insort_left(rendered_comments, entry, key=lambda x: x.date)
          mentions = markup_rels.users.get(user_key, {
             'descriptions': [],
             'environments': [],
             'comments': {}
          })
+         filtered_mentions: markup_relations.MarkupRelation = {
+            'descriptions': filter_issues(mentions['descriptions']),
+            'environments': filter_issues(mentions['environments']),
+            'comments': filter_issue_comments(mentions['comments'])
+         }
+         def process(tag: markup.ParsedMarkup):
+            highlight_user_mentions(tag, user_key, rels.keys)
+         rendered_mentions = get_renderable_mentions(filtered_mentions, process)
          cached = CachedUser(
             user,
             filter_issues(reported),
             filter_issues(created),
             filter_issues(assigned),
-            filter_comments(comments),
             filter_issue_items(attachments),
             filter_issue_items(changes),
-            mentions
+            rendered_comments,
+            rendered_mentions
          )
          self.user_cache[user_key] = cached
          return cached
@@ -1206,7 +1292,14 @@ class DisplayCache:
       self.groups = {}
       for group, info in rels.user.groups.items():
          comments = info['comments'] if perms.group_comments_visible(group) else {}
-         self.groups[group] = CachedGroupInfo(group, info['users'], filter_comments(comments))
+         filtered = filter_issue_comments(comments)
+         rendered_comments: list[RenderableComment] = []
+         for issue_id, comments in filtered.items():
+            for comment_id in comments:
+               cached = comment_get(issue_id, comment_id)
+               entry = RenderableComment(cached.comment, cached.issue, cached.body, cached.date, secret=False)
+               bisect.insort_left(rendered_comments, entry, key=lambda x: x.date)
+         self.groups[group] = CachedGroupInfo(group, info['users'], rendered_comments)
       sort_dict(self.groups, lambda x: group_order(x[1]))
 
 K = typing.TypeVar('K')
@@ -1217,69 +1310,6 @@ def sort_dict(dictionary: dict[K, V], key: typing.Callable[[tuple[K, V]], typing
    for k, v in sorted(pairs, key=key):
       dictionary[k] = v
 
-@dataclasses.dataclass
-class RenderableComment:
-   comment: Comment | NewComment
-   external_issue: Issue | None
-   parsed: markup.ParsedMarkup
-   date: datetime.datetime
-   secret: bool
-
-def get_renderable_issue_comments(cache: DisplayCache, issue: Issue, include_secrets: bool) -> list[RenderableComment]:
-   result: list[RenderableComment] = []
-   for comment in issue['fields']['comment']['comments']:
-      info = cache.comment_getter(issue['id'], comment['id'])
-      entry = RenderableComment(comment, None, info.body, info.date, secret=False)
-      result.append(entry)
-   if include_secrets:
-      for info in cache.secret_comment_getter(issue['id']):
-         entry = RenderableComment(info.comment, None, info.body, info.date, secret=True)
-         bisect.insort_left(result, entry, key=lambda x: x.date)
-   return result
-
-def get_renderable_user_comments(cache: DisplayCache, comment_dict: dict[str, list[str]]) -> list[RenderableComment]:
-   result: list[RenderableComment] = []
-   for issue_id, comments in comment_dict.items():
-      issue = cache.just_issue_getter(issue_id)
-      for comment_id in comments:
-         info = cache.comment_getter(issue_id, comment_id)
-         entry = RenderableComment(info.comment, issue, info.body, info.date, secret=False)
-         bisect.insort_left(result, entry, key=lambda x: x.date)
-   return result
-
-@dataclasses.dataclass
-class RenderableMention:
-   issue: Issue
-   comment: Comment | NewComment | None
-   date: datetime.datetime
-   parsed: markup.ParsedMarkup
-
-def get_renderable_mentions(cache: DisplayCache, rels: markup_relations.MarkupRelation, process: typing.Callable[[markup.ParsedMarkup]]) -> list[RenderableMention]:
-   result: list[RenderableMention] = []
-   for issue_id in rels['descriptions']:
-      issue = cache.issue_getter(issue_id)
-      if issue.description is not None:
-         cloned = issue.description.clone()
-         process(cloned)
-         entry = RenderableMention(issue.issue, None, issue.created, cloned)
-         bisect.insort_left(result, entry, key=lambda x: x.date)
-   for issue_id in rels['environments']:
-      issue = cache.issue_getter(issue_id)
-      if issue.environment is not None:
-         cloned = issue.environment.clone()
-         process(cloned)
-         entry = RenderableMention(issue.issue, None, issue.created, cloned)
-         bisect.insort_left(result, entry, key=lambda x: x.date)
-   for issue_id, comment_ids in rels['comments'].items():
-      issue = cache.issue_getter(issue_id)
-      for comment_id in comment_ids:
-         info = cache.comment_getter(issue_id, comment_id)
-         cloned = info.body.clone()
-         process(cloned)
-         entry = RenderableMention(issue.issue, info.comment, info.date, cloned)
-         bisect.insort_left(result, entry, key=lambda x: x.date)
-   return result
-
 def highlight_issue_mentions(parsed: markup.ParsedMarkup, issue_id: str, keys: relations.KeyLookups):
    for entry in parsed.issues:
       if keys.try_get_issue_key(entry.key) == issue_id:
@@ -1289,16 +1319,6 @@ def highlight_user_mentions(parsed: markup.ParsedMarkup, user_key: str, keys: re
    for entry in parsed.users:
       if keys.try_get_user_key(entry.username) == user_key:
          append_class(entry.tag, 'mention')
-
-def get_renderable_issue_mentions(cache: DisplayCache, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, issue_id: str) -> list[RenderableMention]:
-   def process(tag: markup.ParsedMarkup):
-      highlight_issue_mentions(tag, issue_id, keys)
-   return get_renderable_mentions(cache, rels, process)
-
-def get_renderable_user_mentions(cache: DisplayCache, rels: markup_relations.MarkupRelation, keys: relations.KeyLookups, user_key: str) -> list[RenderableMention]:
-   def process(tag: markup.ParsedMarkup):
-      highlight_user_mentions(tag, user_key, keys)
-   return get_renderable_mentions(cache, rels, process)
 
 def try_project(cache: DisplayCache, project_id: str) -> Project | None:
    if project_id in cache.projects:

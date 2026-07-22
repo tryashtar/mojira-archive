@@ -30,9 +30,8 @@ from web import (HtmlFile, Tag, add_metadata, append_class, append_desc_item, ap
 from display import (CachedFieldInfo, CachedGroupInfo, CachedIssue, CachedMetaInfo, CachedProjectInfo, CachedUser, CachedValueInfo,
    CachedVersionInfo, DisplayCache, HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment,
    RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, revision_order_key, get_avatar_path,
-   get_link_dir, get_renderable_issue_comments, get_renderable_issue_mentions, get_renderable_user_comments,
-   get_renderable_user_mentions, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, project_detail_links,
-   try_project, user_role
+   get_link_dir, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions,
+   project_detail_links, try_project, user_role
 )
 
 @dataclasses.dataclass
@@ -673,12 +672,11 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
          ['Assigned Issues', count_badge(soup, len(info.assigned))],
          [assigned_table.filters, assigned_table.table]
       ))
-   all_comments = get_renderable_user_comments(website.cache, info.comments)
-   comment_section = issue_comments(website, file, all_comments)
+   comment_section = issue_comments(website, file, info.comments)
    pages.append(comment_section)
    tab_data.append(InfoTabData(
       'comments',
-      ['Comments', count_badge(soup, len(all_comments))],
+      ['Comments', count_badge(soup, len(info.comments))],
       [comment_section.controls, comment_section.section]
    ))
    if len(info.attachments) > 0:
@@ -696,13 +694,12 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
       ['Activity', count_badge(soup, sum(len(x) for x in info.changes.values()))],
       [activity_section.controls, activity_section.section]
    ))
-   all_mentions = get_renderable_user_mentions(website.cache, info.mentions, website.keys, info.user['key'])
-   if len(all_mentions) > 0:
-      mention_section = issue_mentions(website, file, all_mentions)
+   if len(info.mentions) > 0:
+      mention_section = issue_mentions(website, file, info.mentions)
       pages.append(mention_section)
       tab_data.append(InfoTabData(
          'mentions',
-         ['Mentions', count_badge(soup, len(all_mentions))],
+         ['Mentions', count_badge(soup, len(info.mentions))],
          [mention_section.controls, mention_section.section]
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
@@ -777,15 +774,13 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
 
    add_metadata(file, full_title, desc_text, image_url)
 
-   all_comments = get_renderable_issue_comments(website.cache, issue.issue, include_secrets=not website.perms.hidden_secret_comments)
-   all_mentions = get_renderable_issue_mentions(website.cache, issue.mentions, website.keys, issue.issue['id'])
-   comment_section = issue_comments(website, file, all_comments)
+   comment_section = issue_comments(website, file, issue.comments)
    history_section = issue_history(website, file, issue, issue.issue['changelog']['histories'])
    pages: list[PageSection] = [comment_section, history_section]
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
-         ['Comments', count_badge(soup, len(all_comments))],
+         ['Comments', count_badge(soup, len(issue.comments))],
          [comment_section.controls, comment_section.section]
       ),
       InfoTabData(
@@ -794,12 +789,12 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
          [history_section.controls, history_section.section]
       )
    ]
-   if len(all_mentions) > 0:
-      mention_section = issue_mentions(website, file, all_mentions)
+   if len(issue.mentions) > 0:
+      mention_section = issue_mentions(website, file, issue.mentions)
       pages.append(mention_section)
       tab_data.append(InfoTabData(
          'mentions',
-         ['Mentions', count_badge(soup, len(all_mentions))],
+         ['Mentions', count_badge(soup, len(issue.mentions))],
          [mention_section.controls, mention_section.section]
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
@@ -1091,11 +1086,11 @@ def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroup
    soup = file.page.soup
    content = main_content(website, file)
 
-   all_comments = get_renderable_user_comments(website.cache, info.comments)
+   include_wiki_rendering(website, file)
 
-   add_metadata(file, info.id, f'{format_number(len(all_comments))} comments', None)
+   add_metadata(file, info.id, f'{format_number(len(info.comments))} comments', None)
 
-   section = build_user_section(soup, 'group', 200, [comment_to_user(website, file, x) for x in all_comments])
+   section = build_user_section(soup, 'group', 200, [comment_to_user(website, file, x) for x in info.comments])
 
    user_main = build_user_main(soup, [group_name(website, file, info.id)], ['Restricted comments'], [section.controls, section.section])
    content.append(user_main)
@@ -1105,6 +1100,8 @@ def make_group_comments_page(website: Website, file: HtmlFile, info: CachedGroup
 def make_secret_comments_page(website: Website, file: HtmlFile):
    soup = file.page.soup
    content = main_content(website, file)
+
+   include_wiki_rendering(website, file)
 
    all_comments: list[RenderableComment] = []
    for issue_id, comments in website.secret_comments.comments.items():
