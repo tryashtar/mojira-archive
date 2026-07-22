@@ -968,10 +968,16 @@ class CachedIssue:
    issue: Issue
    initial: InitialData
    created: datetime.datetime
+   linked_issues: dict[str, list[str]]
+
+@dataclasses.dataclass
+class CachedIssueMarkup:
    description: markup.ParsedMarkup | None
    environment: markup.ParsedMarkup | None
-   linked_issues: dict[str, list[str]]
    comments: list[RenderableComment]
+
+@dataclasses.dataclass
+class CachedIssueMentions:
    mentions: list[RenderableMention]
 
 @dataclasses.dataclass
@@ -982,22 +988,40 @@ class CachedUser:
    assigned: list[str]
    attachments: dict[str, list[str]]
    changes: dict[str, list[str]]
+
+@dataclasses.dataclass
+class CachedUserMarkup:
    comments: list[RenderableComment]
    mentions: list[RenderableMention]
 
+TKey = typing.TypeVar('TKey')
+TVal = typing.TypeVar('TVal')
+class CacheLookup[TKey, TVal]:
+   getter: typing.Callable[[TKey], TVal]
+   cache: dict[TKey, TVal]
+
+   def __init__(self, getter: typing.Callable[[TKey], TVal]):
+      self.getter = getter
+      self.cache = {}
+
+   def get(self, key: TKey) -> TVal:
+      if key in self.cache:
+         return self.cache[key]
+      val = self.getter(key)
+      self.cache[key] = val
+      return val
+
 class DisplayCache:
-   just_issue_getter: typing.Callable[[str], Issue]
-   just_issue_cache: dict[str, Issue]
-   issue_getter: typing.Callable[[str], CachedIssue]
-   issue_cache: dict[str, CachedIssue]
-   comment_getter: typing.Callable[[str, str], CachedComment]
-   comment_cache: dict[tuple[str, str], CachedComment]
-   secret_comment_getter: typing.Callable[[str], list[CachedComment]]
-   secret_comment_cache: dict[str, list[CachedComment]]
-   user_getter: typing.Callable[[str], CachedUser]
-   user_cache: dict[str, CachedUser]
-   attachment_getter: typing.Callable[[str], Attachment]
-   attachment_cache: dict[str, Attachment]
+   just_issue: CacheLookup[str, Issue]
+   issue_info: CacheLookup[str, CachedIssue]
+   issue_markup: CacheLookup[str, CachedIssueMarkup]
+   issue_mentions: CacheLookup[str, CachedIssueMentions]
+   comment: CacheLookup[tuple[str, str], CachedComment]
+   secret_comment: CacheLookup[str, list[CachedComment]]
+   just_user: CacheLookup[str, User | UnknownUser]
+   user_info: CacheLookup[str, CachedUser]
+   user_markup: CacheLookup[str, CachedUserMarkup]
+   attachment: CacheLookup[str, Attachment]
    metas: dict[mojira.META_TYPE, CachedMetaInfo]
    fields: dict[str, CachedFieldInfo]
    groups: dict[str, CachedGroupInfo]
@@ -1008,7 +1032,7 @@ class DisplayCache:
    all_users: list[str]
 
    def get_issues(self, issues: list[str]) -> typing.Iterable[Issue]:
-      return (self.just_issue_getter(x) for x in issues)
+      return (self.just_issue.get(x) for x in issues)
 
    def __init__(self, archive: mojira.Archive, metas: mojira.ArchiveMetas, rels: relations.RelationsBundle, source: markup.MarkupSource, markup_rels: markup_relations.MarkupRelations, secret_comments: mojira.SecretComments, perms: ViewPerms):
       self.valid_issues = set(x for x in rels.keys.issue_keys.values() if perms.issue_visible(rels.fields, x))
@@ -1028,21 +1052,18 @@ class DisplayCache:
       def filter_issue_comments(comments: dict[str, list[str]]) -> dict[str, list[str]]:
          return {k: filter_comments(k, v) for k, v in comments.items() if k in self.valid_issues}
 
-      self.just_issue_cache = {}
       def just_issue_get(issue_id: str) -> Issue:
          assert issue_id in self.valid_issues
-         if issue_id in self.just_issue_cache:
-            return self.just_issue_cache[issue_id]
-         issue = get_issue(archive, issue_id)
-         self.just_issue_cache[issue_id] = issue
-         return issue
-      self.just_issue_getter = just_issue_get
+         return get_issue(archive, issue_id)
+      self.just_issue = CacheLookup(just_issue_get)
 
-      self.secret_comment_cache = {}
+      def just_user_get(user_key: str) -> User | UnknownUser:
+         assert user_key in self.valid_users
+         return get_user(archive, user_key)
+      self.just_user = CacheLookup(just_user_get)
+
       def secret_comment_get(issue_id: str) -> list[CachedComment]:
          assert issue_id in self.valid_issues
-         if issue_id in self.secret_comment_cache:
-            return self.secret_comment_cache[issue_id]
          issue = just_issue_get(issue_id)
          comments = secret_comments.get(issue_id)
          cached: list[CachedComment] = []
@@ -1051,60 +1072,50 @@ class DisplayCache:
             parsed = markup.parse_markup(body)
             date = datetime.datetime.fromisoformat(comment['created'])
             cached.append(CachedComment(issue, comment, date, parsed))
-         self.secret_comment_cache[issue_id] = cached
          return cached
-      self.secret_comment_getter = secret_comment_get
+      self.secret_comment = CacheLookup(secret_comment_get)
 
-      self.comment_cache = {}
       def comment_get(issue_id: str, comment_id: str) -> CachedComment:
          assert issue_id in self.valid_issues
-         key = (issue_id, comment_id)
-         if key in self.comment_cache:
-            return self.comment_cache[key]
          issue = just_issue_get(issue_id)
          comment = next(x for x in issue['fields']['comment']['comments'] if x['id'] == comment_id)
          body = source.get_comment_body(issue_id, comment_id)
          parsed = markup.parse_markup(body)
          date = datetime.datetime.fromisoformat(comment['created'])
          cached = CachedComment(issue, comment, date, parsed)
-         self.comment_cache[key] = cached
          return cached
-      self.comment_getter = comment_get
+      self.comment = CacheLookup(lambda x: comment_get(x[0], x[1]))
 
       def get_renderable_mentions(rels: markup_relations.MarkupRelation, process: typing.Callable[[markup.ParsedMarkup]]) -> list[RenderableMention]:
          result: list[RenderableMention] = []
          for issue_id in rels['descriptions']:
-            issue = self.issue_getter(issue_id)
-            if issue.description is not None:
-               cloned = issue.description.clone()
+            issue = issue_get(issue_id)
+            markup = self.issue_markup.get(issue_id)
+            if markup.description is not None:
+               cloned = markup.description.clone()
                process(cloned)
                entry = RenderableMention(issue.issue, None, issue.created, cloned)
                bisect.insort_left(result, entry, key=lambda x: x.date)
          for issue_id in rels['environments']:
-            issue = self.issue_getter(issue_id)
-            if issue.environment is not None:
-               cloned = issue.environment.clone()
+            issue = issue_get(issue_id)
+            markup = self.issue_markup.get(issue_id)
+            if markup.environment is not None:
+               cloned = markup.environment.clone()
                process(cloned)
                entry = RenderableMention(issue.issue, None, issue.created, cloned)
                bisect.insort_left(result, entry, key=lambda x: x.date)
          for issue_id, comment_ids in rels['comments'].items():
-            issue = self.issue_getter(issue_id)
+            issue = just_issue_get(issue_id)
             for comment_id in comment_ids:
-               info = self.comment_getter(issue_id, comment_id)
+               info = self.comment.get((issue_id, comment_id))
                cloned = info.body.clone()
                process(cloned)
-               entry = RenderableMention(issue.issue, info.comment, info.date, cloned)
+               entry = RenderableMention(issue, info.comment, info.date, cloned)
                bisect.insort_left(result, entry, key=lambda x: x.date)
          return result
 
-      self.issue_cache = {}
-      def issue_get(issue_id: str) -> CachedIssue:
-         assert issue_id in self.valid_issues
-         if issue_id in self.issue_cache:
-            return self.issue_cache[issue_id]
+      def issue_markup_get(issue_id: str) -> CachedIssueMarkup:
          issue = just_issue_get(issue_id)
-         initial = get_initial_data(archive, metas, issue, try_project(self, issue['fields']['project']), issue['changelog']['histories'])
-         date = datetime.datetime.fromisoformat(issue['fields']['created'])
          if issue['fields']['description'] is not None:
             body = source.get_issue_description(issue_id)
             desc = markup.parse_markup(body)
@@ -1115,18 +1126,6 @@ class DisplayCache:
             env = markup.parse_markup(body)
          else:
             env = None
-         linked: dict[str, list[str]] = {}
-         for link in issue['fields']['issuelinks']:
-            if 'inwardIssue' in link:
-               identity = metas.link_types[link['type']]['inward']
-               linked_id = link['inwardIssue']
-            else:
-               identity = metas.link_types[link['type']]['outward']
-               linked_id = link['outwardIssue']
-            if linked_id in self.valid_issues:
-               if identity not in linked:
-                  linked[identity] = []
-               linked[identity].append(linked_id)
          filtered_comments = filter_comments(issue_id, [x['id'] for x in issue['fields']['comment']['comments']])
          rendered_comments: list[RenderableComment] = []
          for comment_id in filtered_comments:
@@ -1137,18 +1136,11 @@ class DisplayCache:
             for info in secret_comment_get(issue_id):
                entry = RenderableComment(info.comment, None, info.body, info.date, secret=True)
                bisect.insort_left(rendered_comments, entry, key=lambda x: x.date)
-         cached = CachedIssue(
-            issue,
-            initial,
-            date,
-            desc,
-            env,
-            linked,
-            rendered_comments,
-            []
-         )
-         # some icky recursion requires us to cache it early, then find mentions
-         self.issue_cache[issue_id] = cached
+         return CachedIssueMarkup(desc, env, rendered_comments)
+      self.issue_markup = CacheLookup(issue_markup_get)
+
+      def issue_mentions_get(issue_id: str) -> CachedIssueMentions:
+         assert issue_id in self.valid_issues
          mentions = markup_rels.issues.get(issue_id, {
             'descriptions': [],
             'environments': [],
@@ -1161,22 +1153,51 @@ class DisplayCache:
          }
          def process(tag: markup.ParsedMarkup):
             highlight_issue_mentions(tag, issue_id, rels.keys)
-         cached.mentions.extend(get_renderable_mentions(filtered_mentions, process))
-         return cached
-      self.issue_getter = issue_get
+         rendered_mentions = get_renderable_mentions(filtered_mentions, process)
+         return CachedIssueMentions(rendered_mentions)
+      self.issue_mentions = CacheLookup(issue_mentions_get)
 
-      self.user_cache = {}
+      def issue_get(issue_id: str) -> CachedIssue:
+         issue = just_issue_get(issue_id)
+         initial = get_initial_data(archive, metas, issue, try_project(self, issue['fields']['project']), issue['changelog']['histories'])
+         date = datetime.datetime.fromisoformat(issue['fields']['created'])
+         linked: dict[str, list[str]] = {}
+         for link in issue['fields']['issuelinks']:
+            if 'inwardIssue' in link:
+               identity = metas.link_types[link['type']]['inward']
+               linked_id = link['inwardIssue']
+            else:
+               identity = metas.link_types[link['type']]['outward']
+               linked_id = link['outwardIssue']
+            if linked_id in self.valid_issues:
+               if identity not in linked:
+                  linked[identity] = []
+               linked[identity].append(linked_id)
+         cached = CachedIssue(issue, initial, date, linked)
+         return cached
+      self.issue_info = CacheLookup(issue_get)
+
       def user_get(user_key: str) -> CachedUser:
-         assert user_key in self.valid_users
-         if user_key in self.user_cache:
-            return self.user_cache[user_key]
-         user = get_user(archive, user_key)
+         user = just_user_get(user_key)
          reported = rels.fields.metas['reporter'].get(user_key, [])
          created = rels.fields.metas['creator'].get(user_key, [])
          assigned = rels.fields.metas['assignee'].get(user_key, [])
-         comments = rels.user.comments.get(user_key, {})
          attachments = rels.user.attachments.get(user_key, {})
          changes = rels.user.changes.get(user_key, {})
+         cached = CachedUser(
+            user,
+            filter_issues(reported),
+            filter_issues(created),
+            filter_issues(assigned),
+            filter_issue_items(attachments),
+            filter_issue_items(changes),
+         )
+         return cached
+      self.user_info = CacheLookup(user_get)
+
+      def user_markup_get(user_key: str) -> CachedUserMarkup:
+         assert user_key in self.valid_users
+         comments = rels.user.comments.get(user_key, {})
          filtered = filter_issue_comments(comments)
          rendered_comments: list[RenderableComment] = []
          for issue_id, comments in filtered.items():
@@ -1197,29 +1218,15 @@ class DisplayCache:
          def process(tag: markup.ParsedMarkup):
             highlight_user_mentions(tag, user_key, rels.keys)
          rendered_mentions = get_renderable_mentions(filtered_mentions, process)
-         cached = CachedUser(
-            user,
-            filter_issues(reported),
-            filter_issues(created),
-            filter_issues(assigned),
-            filter_issue_items(attachments),
-            filter_issue_items(changes),
-            rendered_comments,
-            rendered_mentions
-         )
-         self.user_cache[user_key] = cached
+         cached = CachedUserMarkup(rendered_comments, rendered_mentions)
          return cached
-      self.user_getter = user_get
+      self.user_markup = CacheLookup(user_markup_get)
 
-      self.attachment_cache = {}
       def attachment_get(attachment_id: str) -> Attachment:
-         if attachment_id in self.attachment_cache:
-            return self.attachment_cache[attachment_id]
          attachment = archive.get_attachment_data(attachment_id)
          assert attachment is not None
-         self.attachment_cache[attachment_id] = attachment
          return attachment
-      self.attachment_getter = attachment_get
+      self.attachment = CacheLookup(attachment_get)
 
       def project_order(info: CachedProjectInfo):
          return -len(info.issues)

@@ -29,9 +29,8 @@ from web import (HtmlFile, Tag, add_metadata, append_class, append_desc_item, ap
 )
 from display import (CachedFieldInfo, CachedGroupInfo, CachedIssue, CachedMetaInfo, CachedProjectInfo, CachedUser, CachedValueInfo,
    CachedVersionInfo, DisplayCache, HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment,
-   RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, revision_order_key, get_avatar_path,
-   get_link_dir, get_user, import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions,
-   project_detail_links, try_project, user_role
+   RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, revision_order_key, get_avatar_path, get_link_dir,
+   import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, project_detail_links, try_project, user_role
 )
 
 @dataclasses.dataclass
@@ -272,19 +271,20 @@ def main():
    if 'issues' in to_render:
       print('Issues...')
       for i, issue_id in enumerate(cache.all_issues):
-         issue = cache.issue_getter(issue_id)
+         issue = cache.just_issue.get(issue_id)
          if i % 1000 == 0:
             print(f'\t== {i} ==')
-         print('\t' + issue.issue['key'])
-         path = website.get_issue_path(issue.issue)
-         full_title = f'[{issue.issue['key']}] {issue.issue['fields']['summary']}'
+         print('\t' + issue['key'])
+         path = website.get_issue_path(issue)
+         full_title = f'[{issue['key']}] {issue['fields']['summary']}'
          file = make_jira_file(root, path, full_title)
-         make_issue_page(website, file, issue)
+         info = cache.issue_info.get(issue_id)
+         make_issue_page(website, file, info)
          save_file(website, file)
       print('Moved issues...')
       for issue_key, issue_id in rels.keys.issue_keys.items():
          if issue_id in cache.valid_issues:
-            issue = cache.just_issue_getter(issue_id)
+            issue = cache.just_issue.get(issue_id)
             if issue['key'] != issue_key:
                print('\t' + issue_key)
                from_path = website.get_issue_key_path(issue_key)
@@ -324,7 +324,7 @@ def main():
    if 'users' in to_render:
       print('Users...')
       for i, user_key in enumerate(cache.all_users):
-         user = cache.user_getter(user_key)
+         user = cache.user_info.get(user_key)
          if i % 1000 == 0:
             print(f'\t== {i} ==')
          print('\t' + user.user['name'])
@@ -383,7 +383,7 @@ def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
       _user_key = website.keys.get_user_key(entry.username)
       entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_user_name_path(entry.username))
    for entry in parsed.attachments + parsed.thumbnails:
-      data = website.cache.attachment_getter(entry.id)
+      data = website.cache.attachment.get(entry.id)
       path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(entry.id, data['filename']))
       entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
    for entry in parsed.thumbnails:
@@ -527,8 +527,7 @@ def group_grid_entry(website: Website, file: HtmlFile, group: CachedGroupInfo) -
    ]
    group_page = website.group_pages[group.id]
    if group_page.comments is not None:
-      comment_count = sum(len(x) for x in group.comments.values())
-      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(comment_count)} restricted comments', attrs={'href': relative_link(website.root, file.path, group_page.comments.path)}))
+      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(len(group.comments))} restricted comments', attrs={'href': relative_link(website.root, file.path, group_page.comments.path)}))
    return content
 
 def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: CachedValueInfo) -> list[Tag]:
@@ -672,11 +671,12 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
          ['Assigned Issues', count_badge(soup, len(info.assigned))],
          [assigned_table.filters, assigned_table.table]
       ))
-   comment_section = issue_comments(website, file, info.comments)
+   markup = website.cache.user_markup.get(info.user['key'])
+   comment_section = issue_comments(website, file, markup.comments)
    pages.append(comment_section)
    tab_data.append(InfoTabData(
       'comments',
-      ['Comments', count_badge(soup, len(info.comments))],
+      ['Comments', count_badge(soup, len(markup.comments))],
       [comment_section.controls, comment_section.section]
    ))
    if len(info.attachments) > 0:
@@ -694,12 +694,12 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
       ['Activity', count_badge(soup, sum(len(x) for x in info.changes.values()))],
       [activity_section.controls, activity_section.section]
    ))
-   if len(info.mentions) > 0:
-      mention_section = issue_mentions(website, file, info.mentions)
+   if len(markup.mentions) > 0:
+      mention_section = issue_mentions(website, file, markup.mentions)
       pages.append(mention_section)
       tab_data.append(InfoTabData(
          'mentions',
-         ['Mentions', count_badge(soup, len(info.mentions))],
+         ['Mentions', count_badge(soup, len(markup.mentions))],
          [mention_section.controls, mention_section.section]
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
@@ -742,14 +742,15 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
 
    top = issue_top(website, file, project, key, summary)
 
-   if issue.description is not None:
-      desc = embed_wiki(website, file, issue.description)
+   markup_info = website.cache.issue_markup.get(issue.issue['id'])
+   if markup_info.description is not None:
+      desc = embed_wiki(website, file, markup_info.description)
       desc_text = html_to_text(desc)
    else:
       desc = None
       desc_text = None
-   if issue.environment is not None:
-      env = embed_wiki(website, file, issue.environment)
+   if markup_info.environment is not None:
+      env = embed_wiki(website, file, markup_info.environment)
    else:
       env = None
    impact = fields.get('customfield_11801')
@@ -761,7 +762,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    if len(fields['attachment']) > 0:
       attaches = issue_attachments(website, file, fields['attachment'])
       for entry in fields['attachment']:
-         attach = website.cache.attachment_getter(entry)
+         attach = website.cache.attachment.get(entry)
          if attach['mimeType'].startswith('image/'):
             image_url = attach['content']
             break
@@ -774,13 +775,13 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
 
    add_metadata(file, full_title, desc_text, image_url)
 
-   comment_section = issue_comments(website, file, issue.comments)
+   comment_section = issue_comments(website, file, markup_info.comments)
    history_section = issue_history(website, file, issue, issue.issue['changelog']['histories'])
    pages: list[PageSection] = [comment_section, history_section]
    tab_data: list[InfoTabData] = [
       InfoTabData(
          'comments',
-         ['Comments', count_badge(soup, len(issue.comments))],
+         ['Comments', count_badge(soup, len(markup_info.comments))],
          [comment_section.controls, comment_section.section]
       ),
       InfoTabData(
@@ -789,12 +790,13 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
          [history_section.controls, history_section.section]
       )
    ]
-   if len(issue.mentions) > 0:
-      mention_section = issue_mentions(website, file, issue.mentions)
+   mentions = website.cache.issue_mentions.get(issue.issue['id'])
+   if len(mentions.mentions) > 0:
+      mention_section = issue_mentions(website, file, mentions.mentions)
       pages.append(mention_section)
       tab_data.append(InfoTabData(
          'mentions',
-         ['Mentions', count_badge(soup, len(issue.mentions))],
+         ['Mentions', count_badge(soup, len(mentions.mentions))],
          [mention_section.controls, mention_section.section]
       ))
    tabs = build_info_tabs(soup, tab_data, orderable=True)
@@ -1062,7 +1064,7 @@ def make_all_users_page(website: Website, file: HtmlFile):
    soup = file.page.soup
    content = main_content(website, file)
 
-   table = create_user_list(website, file, 'user', (website.cache.user_getter(x) for x in website.cache.all_users))
+   table = create_user_list(website, file, 'user', (website.cache.user_info.get(x) for x in website.cache.all_users))
 
    add_metadata(file, 'All Users', f'{format_number(len(website.cache.all_users))} all_users', None)
 
@@ -1074,7 +1076,7 @@ def make_group_users_page(website: Website, file: HtmlFile, info: CachedGroupInf
    soup = file.page.soup
    content = main_content(website, file)
 
-   table = create_user_list(website, file, 'user', (website.cache.user_getter(x) for x in info.users))
+   table = create_user_list(website, file, 'user', (website.cache.user_info.get(x) for x in info.users))
 
    add_metadata(file, info.id, f'{format_number(len(info.users))} users', None)
 
@@ -1106,8 +1108,8 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
    all_comments: list[RenderableComment] = []
    for issue_id, comments in website.secret_comments.comments.items():
       if issue_id in website.cache.valid_issues:
-         issue = website.cache.just_issue_getter(issue_id)
-         comments = website.cache.secret_comment_getter(issue_id)
+         issue = website.cache.just_issue.get(issue_id)
+         comments = website.cache.secret_comment.get(issue_id)
          for comment in comments:
             renderable = RenderableComment(comment.comment, issue, comment.body, datetime.datetime.fromisoformat(comment.comment['created']), secret=True)
             bisect.insort_left(all_comments, renderable, key=lambda x: x.date)
@@ -1673,14 +1675,16 @@ def historic_issue(website: Website, file: HtmlFile, info: CachedIssue, data: In
       desc_soup = website.markup_source.get_issue_description_revision(issue['id'], data.description_revision_id).before
       desc = markup.parse_markup(desc_soup) if desc_soup is not None else None
    else:
-      desc = info.description
+      markup_info = website.cache.issue_markup.get(info.issue['id'])
+      desc = markup_info.description
    if desc is not None:
       desc = embed_wiki(website, file, desc)
    if data.environment_revision_id is not None:
       env_soup = website.markup_source.get_issue_environment_revision(issue['id'], data.environment_revision_id).before
       env = markup.parse_markup(env_soup) if env_soup is not None else None
    else:
-      env = info.environment
+      markup_info = website.cache.issue_markup.get(info.issue['id'])
+      env = markup_info.environment
    if env is not None:
       env = embed_wiki(website, file, env)
    impact = fields.get('customfield_11801')
@@ -2144,7 +2148,7 @@ def user_reference(website: Website, file: HtmlFile, user: User | UnknownUser) -
    return UserReference(inner, outer, link_url, display_name)
 
 def user_reference_key(website: Website, file: HtmlFile, user_key: str) -> UserReference:
-   user_data = get_user(website.archive, user_key)
+   user_data = website.cache.just_user.get(user_key)
    return user_reference(website, file, user_data)
 
 def user_link(website: Website, file: HtmlFile, user_key: str) -> bs4.Tag:
@@ -2305,7 +2309,7 @@ def issue_attachments(website: Website, file: HtmlFile, attachments: list[str]) 
    soup = file.page.soup
    attach_list: list[bs4.Tag] = []
    for entry in attachments:
-      attach_info = website.cache.attachment_getter(entry)
+      attach_info = website.cache.attachment.get(entry)
       attach_div = render_attachment(website, file, attach_info, external_issue=None, include_author=True, include_time=True)
       attach_list.append(attach_div)
    return build_attachment_list(soup, attach_list)
@@ -2442,7 +2446,7 @@ def historic_linked_issue(website: Website, file: HtmlFile, ticket: str) -> bs4.
    if ticket in website.keys.issue_keys:
       issue_id = website.keys.issue_keys[ticket]
       if issue_id in website.cache.valid_issues:
-         issue = website.cache.just_issue_getter(issue_id)
+         issue = website.cache.just_issue.get(issue_id)
          # wrap in a div so misode.css includes the top border
          return new_content_tag(file.page.soup, 'div', linked_issue(website, file, issue))
    return new_content_tag(file.page.soup, 'div', issue_key(website, file, None, ticket, with_icon=True), attrs={'class': 'missing-value'})
@@ -2678,28 +2682,28 @@ def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[R
 def user_activity(website: Website, file: HtmlFile, revisions: dict[str, list[str]]) -> PageSection:
    revision_data: list[tuple[CachedIssue, list[Revision]]] = []
    for issue_id, revision_ids in revisions.items():
-      issue = website.cache.issue_getter(issue_id)
+      info = website.cache.issue_info.get(issue_id)
       issue_revs: dict[str, Revision] = {}
-      for entry in issue.issue['changelog']['histories']:
+      for entry in info.issue['changelog']['histories']:
          issue_revs[entry['id']] = entry
       found_revs: list[Revision] = []
       for revision_id in revision_ids:
          revision = issue_revs[revision_id]
          found_revs.append(revision)
-      revision_data.append((issue, found_revs))
+      revision_data.append((info, found_revs))
    revision_data.sort(key=lambda x: datetime.datetime.fromisoformat(x[1][0]['created']))
    all_renderable: list[RenderableRevision] = []
-   for issue, revs in revision_data:
-      renderable = get_renderable_revisions(website, file, issue.issue['id'], issue.issue, issue.initial.fields['project'], revs)
+   for info, revs in revision_data:
+      renderable = get_renderable_revisions(website, file, info.issue['id'], info.issue, info.initial.fields['project'], revs)
       all_renderable.extend(renderable)
    return build_user_section(file.page.soup, 'history', 200, (revision_to_user(website, file, x) for x in all_renderable))
 
 def user_attachments(website: Website, file: HtmlFile, attachments: dict[str, list[str]]) -> PageSection:
    attach_data: list[tuple[Issue, Attachment]] = []
    for issue_id, attach_ids in attachments.items():
-      issue = website.cache.just_issue_getter(issue_id)
+      issue = website.cache.just_issue.get(issue_id)
       for attach_id in attach_ids:
-         attachment = website.cache.attachment_getter(attach_id)
+         attachment = website.cache.attachment.get(attach_id)
          attach_data.append((issue, attachment))
    attach_data.sort(key=lambda x: datetime.datetime.fromisoformat(x[1]['created']))
    attach_tags: list[tuple[bs4.Tag, str | None]] = []
