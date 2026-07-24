@@ -1,10 +1,22 @@
-import pathlib
 import json
+import pathlib
 import re
-import urllib.parse
 import typing
+import urllib.parse
 
-from jiratypes import Attachment, Field, Issue, IssueType, LinkType, NewComment, Project, Resolution, Status, UnknownUser, User
+from jiratypes import (
+   Attachment,
+   Field,
+   Issue,
+   IssueType,
+   LinkType,
+   NewComment,
+   Project,
+   Resolution,
+   Status,
+   UnknownUser,
+   User,
+)
 
 META_TYPE = typing.Literal['issuetype', 'resolution', 'status', 'project']
 

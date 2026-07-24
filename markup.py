@@ -1,20 +1,20 @@
 import copy
+import dataclasses
+import json
 import os
 import pathlib
 import re
-import urllib.parse
 import subprocess
-import json
-import dataclasses
+import urllib.parse
 
 import bs4
 import dotenv
 
 import mojira
 import relations
-
 from jiratypes import Issue, RevisionChange
 from web import html_diff
+
 
 @dataclasses.dataclass
 class RevisionPaths:
@@ -201,7 +201,7 @@ def convert(process: subprocess.Popen, markup: str, issue_id: int | None) -> str
       'markup': markup,
       'issue': issue_id
    }
-   process.stdin.write((json.dumps(command) + '\n'))
+   process.stdin.write(json.dumps(command) + '\n')
    process.stdin.flush()
    assert process.stdout is not None
    output_text = process.stdout.readline()

@@ -1,37 +1,95 @@
+import bisect
+import copy
 import dataclasses
+import datetime
+import itertools
+import json
 import math
 import os
+import pathlib
+import re
 import sys
 import typing
-import json
-import itertools
-import bisect
-import re
-import copy
 import urllib.parse
-import datetime
-import pathlib
 import zlib
 
-import dotenv
 import bs4
+import dotenv
 import natsort
 import PIL.Image
 
+import markup
 import markup_relations
 import mojira
 import relations
-import markup
+from display import (
+   CachedFieldInfo,
+   CachedGroupInfo,
+   CachedIssue,
+   CachedMetaInfo,
+   CachedProjectInfo,
+   CachedUser,
+   CachedValueInfo,
+   CachedVersionInfo,
+   DisplayCache,
+   HistoricFields,
+   HistoricProjectValue,
+   HistoricValue,
+   InitialData,
+   MergedRevision,
+   RenderableComment,
+   RenderableMention,
+   ValueDisplay,
+   ViewPerms,
+   category_splitter,
+   format_number,
+   get_avatar_path,
+   get_link_dir,
+   import_fake_missing_data,
+   issue_detail_links,
+   label_splitter,
+   merge_revisions,
+   project_detail_links,
+   revision_order_key,
+   try_project,
+   user_role,
+)
+from jiratypes import (
+   Attachment,
+   Comment,
+   Issue,
+   NewAuthor,
+   NewComment,
+   Project,
+   Revision,
+   RevisionChange,
+   UnknownUser,
+   User,
+   Version,
+)
+from web import (
+   HtmlFile,
+   Tag,
+   add_metadata,
+   append_class,
+   append_desc_item,
+   append_row,
+   html_diff,
+   html_to_text,
+   inline_list,
+   make_file,
+   make_table,
+   new_content_tag,
+   relative_link,
+   relative_path,
+   render_date,
+   render_date_range,
+   render_datetime,
+   render_time,
+   same_day,
+   write_html,
+)
 
-from jiratypes import Attachment, Comment, Issue, NewAuthor, NewComment, Project, Revision, RevisionChange, UnknownUser, User, Version
-from web import (HtmlFile, Tag, add_metadata, append_class, append_desc_item, append_row, html_diff, html_to_text, inline_list, make_file,
-   make_table, new_content_tag, relative_link, relative_path, render_date, render_date_range, render_datetime, render_time, same_day, write_html
-)
-from display import (CachedFieldInfo, CachedGroupInfo, CachedIssue, CachedMetaInfo, CachedProjectInfo, CachedUser, CachedValueInfo,
-   CachedVersionInfo, DisplayCache, HistoricFields, HistoricProjectValue, HistoricValue, InitialData, MergedRevision, RenderableComment,
-   RenderableMention, ValueDisplay, ViewPerms, category_splitter, format_number, revision_order_key, get_avatar_path, get_link_dir,
-   import_fake_missing_data, issue_detail_links, label_splitter, merge_revisions, project_detail_links, try_project, user_role
-)
 
 @dataclasses.dataclass
 class ProjectPage:
@@ -435,7 +493,7 @@ def make_home_page(website: Website, file: HtmlFile):
       ('Full Lists', build_tile_grid(soup, full_list_grid)),
       ('Projects', build_tile_grid(soup, (project_grid_entry(website, file, x) for x in website.cache.projects.values()))),
       ('Fields', build_tile_grid(soup,
-         [meta_grid_entry(website, file, website.cache.metas[x]) for x in website.meta_pages.keys()]
+         [meta_grid_entry(website, file, website.cache.metas[x]) for x in website.meta_pages]
          + [field_grid_entry(website, file, x) for x in website.cache.fields.values()]
       )),
       ('User Groups', build_tile_grid(soup, (group_grid_entry(website, file, x) for x in website.cache.groups.values())))
@@ -841,10 +899,10 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
    if (area := fields.get('customfield_12800')) is not None:
       yield issue_detail_field(website, file, 'customfield_12800', area['id'])
    if (category := fields.get('customfield_11901')) is not None:
-      category_list = inline_list(soup, map(lambda x: field_link(website, file, 'customfield_11901', x['id']), category))
+      category_list = inline_list(soup, (field_link(website, file, 'customfield_11901', x['id']) for x in category))
       yield (issue_detail_field_label(website, file, 'customfield_11901'), category_list)
    if (components := fields.get('components')) is not None and len(components) > 0:
-      component_list = inline_list(soup, map(lambda x: field_link(website, file, 'components', x['id']), components))
+      component_list = inline_list(soup, (field_link(website, file, 'components', x['id']) for x in components))
       yield (issue_detail_field_label(website, file, 'components'), component_list)
    if (game_mode := fields.get('customfield_10501')) is not None:
       yield issue_detail_field(website, file, 'customfield_10501', game_mode['id'])
@@ -858,7 +916,7 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
       yield issue_detail_field(website, file, 'customfield_12900', lplatform['id'])
    if (os := fields.get('customfield_11300')) is not None:
       yield ('OS Version:', os)
-   label_list = inline_list(soup, map(lambda x: field_link(website, file, 'labels', x), fields['labels']))
+   label_list = inline_list(soup, (field_link(website, file, 'labels', x) for x in fields['labels']))
    yield (issue_detail_field_label(website, file, 'labels'), label_list)
    project = try_project(website.cache, fields['project'])
    if 'versions' in fields and project is not None:
@@ -930,9 +988,6 @@ def build_attachment_list(soup: bs4.BeautifulSoup, attachments: list[bs4.Tag]) -
 def build_link_section(soup: bs4.BeautifulSoup, link_types: dict[str, list[bs4.Tag]]) -> bs4.Tag:
    link_lists: list[bs4.Tag] = []
    for link_desc, issues in link_types.items():
-      link_list: list[bs4.Tag] = []
-      for linked_issue in issues:
-         link_list.append(linked_issue)
       link_block = new_content_tag(soup, 'details', attrs={'open': ''}, content=[
          # issue-link-type for misode.css
          new_content_tag(soup, 'summary', attrs={'class': 'issue-link-type'}, content=[
@@ -941,7 +996,7 @@ def build_link_section(soup: bs4.BeautifulSoup, link_types: dict[str, list[bs4.T
                count_badge(soup, len(issues))
             ]),
          ]),
-         new_content_tag(soup, 'div', content=link_list)
+         new_content_tag(soup, 'div', content=issues)
       ])
       link_lists.append(link_block)
    # issue-link-section for style.css
@@ -1161,7 +1216,7 @@ def create_versions_table(website: Website, file: HtmlFile, project: Project, ve
       append_row(soup, table, [
          # classes for style.css
          new_content_tag(soup, 'td', attrs={'class': 'version-table-name'}, content=new_content_tag(soup, 'a', attrs={'href': link}, content=new_content_tag(soup, 'div', badge))),
-         new_content_tag(soup, 'td', attrs={'class': 'version-table-desc'}, content=new_content_tag(soup, 'div', info.version['description'] if 'description' in info.version else [])),
+         new_content_tag(soup, 'td', attrs={'class': 'version-table-desc'}, content=new_content_tag(soup, 'div', info.version.get('description', []))),
          new_content_tag(soup, 'td', attrs={'class': 'version-table-date'}, content=new_content_tag(soup, 'div', render_date(soup, datetime.datetime.fromisoformat(info.version['releaseDate'])) if 'releaseDate' in info.version else [])),
          new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{format_number(len(info.affected))} issues' if len(info.affected) > 0 else [])),
          new_content_tag(soup, 'td', attrs={'class': 'version-table-issues'}, content=new_content_tag(soup, 'div', f'{format_number(len(info.fixed))} issues' if len(info.fixed) > 0 else [])),
@@ -1634,7 +1689,7 @@ def build_page_section(soup: bs4.BeautifulSoup, id_prefix: str, page_size: int, 
                   soup.new_tag('path', attrs={'d': 'M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06Z'})
                ])
             ]),
-            soup.new_tag('input', attrs={'id': data['pageId'], 'class': 'issue-page', 'type': 'number', 'value': '1', 'min': '1', 'max': str(int(math.ceil(len(content) / page_size))), 'inputmode': 'numeric'}),
+            soup.new_tag('input', attrs={'id': data['pageId'], 'class': 'issue-page', 'type': 'number', 'value': '1', 'min': '1', 'max': str(math.ceil(len(content) / page_size)), 'inputmode': 'numeric'}),
             new_content_tag(soup, 'button', attrs={'id': data['nextId']}, content=[
                new_content_tag(soup, 'svg', attrs={'xmlns': 'http://www.w3.org/2000/svg', 'viewBox': '0 0 16 16', 'width': '16', 'height': '16'}, content=[
                   soup.new_tag('path', attrs={'d': 'M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z'})
@@ -1704,8 +1759,9 @@ def historic_details(website: Website, file: HtmlFile, fields: HistoricFields) -
    is_resolved = resolution is not None
    resolved_statuses = ('5',)
    unresolved_statuses = ('1', '4')
-   if (status := fields.get('status')) is not None:
-      if (is_resolved and status not in resolved_statuses) or (not is_resolved and status not in unresolved_statuses):
+   if (status := fields.get('status')) is not None and (
+      (is_resolved and status not in resolved_statuses) or (not is_resolved and status not in unresolved_statuses)
+   ):
          yield historic_detail_meta(website, file, 'status', status)
    if (security := fields.get('security')) is not None:
       yield historic_detail_field(website, file, 'security', security)
@@ -2456,7 +2512,7 @@ def version_list(website: Website, file: HtmlFile, project: Project, versions: l
       return ''
    if len(versions) == 1:
       return version_link(website, file, project, versions[0])
-   span = inline_list(file.page.soup, map(lambda x: version_link(website, file, project, x), versions))
+   span = inline_list(file.page.soup, (version_link(website, file, project, x) for x in versions))
    if len(versions) <= 4:
       return span
    return new_content_tag(file.page.soup, 'details', [

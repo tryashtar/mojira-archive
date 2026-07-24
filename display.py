@@ -11,8 +11,22 @@ import markup
 import markup_relations
 import mojira
 import relations
-from jiratypes import Attachment, Comment, InwardIssueLink, Issue, NewComment, OutwardIssueLink, Project, Revision, RevisionChange, UnknownUser, User, Version
+from jiratypes import (
+   Attachment,
+   Comment,
+   InwardIssueLink,
+   Issue,
+   NewComment,
+   OutwardIssueLink,
+   Project,
+   Revision,
+   RevisionChange,
+   UnknownUser,
+   User,
+   Version,
+)
 from web import append_class
+
 
 @dataclasses.dataclass
 class ViewPerms:
@@ -247,7 +261,7 @@ def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue:
       project_move = get_project_move(revision)
       if project_move is not None:
          result['project'] = project_move.before
-      for change in reversed(sorted(revision['items'], key=revision_order_key)):
+      for change in sorted(revision['items'], key=revision_order_key, reverse=True):
          match change['field']:
             case 'Link':
                insert_historic_list_field(result, 'issuelinks', change, check_both=True)
@@ -376,7 +390,7 @@ def category_splitter(source: str | None, string: str | None) -> list[HistoricVa
    source_list = source.split(', ')
    string_list = string.split(',')
    assert len(source_list) == len(string_list)
-   return list(map(lambda x: HistoricValue(x[0], x[1]), zip(source_list, string_list)))
+   return [HistoricValue(x[0], x[1]) for x in zip(source_list, string_list)]
 
 def insert_historic_field(fields: HistoricFields, field_id: str, change: RevisionChange):
    if field_id not in fields:
@@ -1035,7 +1049,7 @@ class DisplayCache:
       return (self.just_issue.get(x) for x in issues)
 
    def __init__(self, archive: mojira.Archive, metas: mojira.ArchiveMetas, rels: relations.RelationsBundle, source: markup.MarkupSource, markup_rels: markup_relations.MarkupRelations, secret_comments: mojira.SecretComments, perms: ViewPerms):
-      self.valid_issues = set(x for x in rels.keys.issue_keys.values() if perms.issue_visible(rels.fields, x))
+      self.valid_issues = {x for x in rels.keys.issue_keys.values() if perms.issue_visible(rels.fields, x)}
       self.all_issues = sorted(self.valid_issues, key=lambda x: int(x))
       self.valid_users = set(rels.keys.user_keys.values())
       self.all_users = sorted(self.valid_users)
@@ -1281,14 +1295,14 @@ class DisplayCache:
             assert display is not None
             issues = rels.fields.metas[meta_id].get('' if value_key is None else value_key, [])
             self.metas[meta_id].values[value_key] = CachedValueInfo(display, filter_issues(issues))
-         sort_dict(self.metas[meta_id].values, lambda x: meta_value_order(typing.cast(mojira.META_TYPE, meta_id), x[1]))
+         sort_dict(self.metas[meta_id].values, lambda x, y=meta_id: meta_value_order(y, x[1]))
       sort_dict(self.metas, lambda x: meta_order(x[0]))
 
       self.fields = {}
       for field_id, field in rels.fields.fields.items():
          fname = field_name(metas, field_id)
          self.fields[field_id] = CachedFieldInfo(field_id, fname, {})
-         for value_key in field.keys():
+         for value_key in field:
             display = field_display(rels.fields, field_id, value_key)
             assert display is not None
             issues = rels.fields.fields[field_id][value_key]['issues']
@@ -1311,7 +1325,7 @@ class DisplayCache:
 
 K = typing.TypeVar('K')
 V = typing.TypeVar('V')
-def sort_dict(dictionary: dict[K, V], key: typing.Callable[[tuple[K, V]], typing.Any]):
+def sort_dict[K, V](dictionary: dict[K, V], key: typing.Callable[[tuple[K, V]], typing.Any]):
    pairs = list(dictionary.items())
    dictionary.clear()
    for k, v in sorted(pairs, key=key):

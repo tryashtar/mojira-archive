@@ -1,17 +1,27 @@
+import json
+import os
 import pathlib
 import typing
-import json
-import urllib.request
 import urllib.parse
-import os
+import urllib.request
 
 import dotenv
 import jira
 import jira.exceptions
 
 import mojira
+from jiratypes import (
+   Field,
+   Issue,
+   IssueType,
+   LinkType,
+   Project,
+   Resolution,
+   Status,
+   UnknownUser,
+   User,
+)
 
-from jiratypes import Field, Issue, IssueType, LinkType, Project, Resolution, Status, UnknownUser, User
 
 def main():
    dotenv.load_dotenv()
@@ -105,8 +115,7 @@ def update_issue(archive: mojira.Archive, users: FetchedUsers, issue: jira.Issue
          if not dry:
             attach_content = archive.get_attachment_content_path(attachment.id, attachment.filename)
             with open(attach_content, 'wb') as file:
-               for content in attachment.iter_content():
-                  file.write(content)
+               file.writelines(attachment.iter_content())
             with open(attach_path, 'w', encoding='utf-8') as file:
                attachment_data = attachment.raw
                json.dump(attachment_data, file, indent=3)
@@ -131,7 +140,7 @@ def save_avatar(archive: mojira.Archive, client: jira.JIRA, folder: pathlib.Path
    assert client._session is not None
    response = client._session.get(url)
    data = response.content
-   if data.startswith(b'<svg') or data.startswith(b'<?xml'):
+   if data.startswith((b'<svg', b'<?xml')):
       filepath = svgpath
    elif data.startswith(b'\x89PNG\x0d\x0a\x1a\x0a'):
       filepath = pngpath
