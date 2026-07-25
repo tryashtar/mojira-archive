@@ -272,12 +272,10 @@ def create_relations(archive: mojira.Archive) -> RelationsBundle:
 
 def main():
    dotenv.load_dotenv()
-   archive = mojira.Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
-   metas = mojira.ArchiveMetas()
-   metas.load(archive.folder)
+   archive = mojira.archive_from_env()
    relations = create_relations(archive)
    print('Writing...')
-   relations.save(pathlib.Path(os.environ['ARCHIVE_RELATIONS']))
+   relations.save(pathlib.Path(os.environ['CACHE_RELATIONS']))
 
 if __name__ == '__main__':
    main()

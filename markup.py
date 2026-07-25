@@ -12,8 +12,8 @@ import dotenv
 
 import mojira
 import relations
+from diff import html_diff
 from jiratypes import Issue, RevisionChange
-from web import html_diff
 
 
 @dataclasses.dataclass
@@ -147,11 +147,11 @@ class MarkupSource:
 def main():
    print('Loading...')
    dotenv.load_dotenv()
-   archive = mojira.Archive(folder=pathlib.Path(os.environ['ARCHIVE_DATA']))
+   archive = mojira.archive_from_env()
    keys = relations.KeyLookups()
-   keys.load(pathlib.Path(os.environ['ARCHIVE_RELATIONS']) / 'keys')
-   secret_comments = mojira.SecretComments(pathlib.Path(os.environ['ARCHIVE_SECRET_COMMENTS']))
-   markup_out = pathlib.Path(os.environ['ARCHIVE_MARKUP'])
+   keys.load(pathlib.Path(os.environ['CACHE_RELATIONS']) / 'keys')
+   secret_comments = mojira.secrets_from_env()
+   markup_out = pathlib.Path(os.environ['CACHE_MARKUP'])
    process = get_process(archive, keys, '.')
    source = MarkupSource(markup_out)
    print('Converting...')
@@ -159,12 +159,13 @@ def main():
       if i % 10000 == 0:
          print(i)
       source.render_issue(issue, process)
-   print('Secrets...')
-   for issue_id, comments in secret_comments.comments.items():
-      print(issue_id)
-      for comment in comments:
-         path = source.get_secret_comment_body_path(issue_id, comment['id'])
-         render_to_file(process, int(issue_id), comment['body'], path)
+   if secret_comments is not None:
+      print('Secrets...')
+      for issue_id, comments in secret_comments.comments.items():
+         print(issue_id)
+         for comment in comments:
+            path = source.get_secret_comment_body_path(issue_id, comment['id'])
+            render_to_file(process, int(issue_id), comment['body'], path)
 
 def get_process(archive: mojira.Archive, keys: relations.KeyLookups, root: str) -> subprocess.Popen:
    print('Configuring...')

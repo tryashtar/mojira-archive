@@ -94,12 +94,12 @@ def create_relations(source: markup.MarkupSource, keys: relations.KeyLookups) ->
 
 def main():
    dotenv.load_dotenv()
-   source = markup.MarkupSource(pathlib.Path(os.environ['ARCHIVE_MARKUP']))
+   source = markup.MarkupSource(pathlib.Path(os.environ['CACHE_MARKUP']))
    keys = relations.KeyLookups()
-   keys.load(pathlib.Path(os.environ['ARCHIVE_RELATIONS']) / 'keys')
+   keys.load(pathlib.Path(os.environ['CACHE_RELATIONS']) / 'keys')
    result = create_relations(source, keys)
    print('Writing...')
-   result.save(pathlib.Path(os.environ['ARCHIVE_MARKUP_RELATIONS']))
+   result.save(pathlib.Path(os.environ['CACHE_MARKUP_RELATIONS']))
 
 if __name__ == '__main__':
    main()

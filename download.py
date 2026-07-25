@@ -25,7 +25,7 @@ from jiratypes import (
 
 def main():
    dotenv.load_dotenv()
-   archive = mojira.Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
+   archive = mojira.archive_from_env()
    metas = mojira.ArchiveMetas()
    users = FetchedUsers()
    key = os.environ['JIRA_KEY']

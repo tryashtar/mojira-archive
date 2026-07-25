@@ -3,7 +3,6 @@ import dataclasses
 import datetime
 import pathlib
 import typing
-import urllib.parse
 
 import bs4
 
@@ -11,6 +10,7 @@ import markup
 import markup_relations
 import mojira
 import relations
+from diff import append_class
 from jiratypes import (
    Attachment,
    Comment,
@@ -25,46 +25,7 @@ from jiratypes import (
    User,
    Version,
 )
-from web import append_class
 
-
-@dataclasses.dataclass
-class ViewPerms:
-   hidden_projects: list[str]
-   hidden_group_comments: list[str]
-   hidden_security_levels: list[str]
-   hidden_secret_comments: bool
-   hidden_deleted_comments: bool
-   hidden_json_data: bool
-
-   def __init__(self, data: dict[str, typing.Any]):
-      self.hidden_projects = data['hidden_projects']
-      self.hidden_group_comments = data['hidden_group_comments']
-      self.hidden_security_levels = data['hidden_security_levels']
-      self.hidden_secret_comments = data['hidden_secret_comments']
-      self.hidden_deleted_comments = data['hidden_deleted_comments']
-      self.hidden_json_data = data['hidden_json_data']
-
-   def project_visible(self, project_id: str) -> bool:
-      return project_id not  in self.hidden_projects
-
-   def group_comments_visible(self, group: str) -> bool:
-      return group not in self.hidden_group_comments
-
-   def comment_visible(self, rels: relations.UserRelations, issue_id: str, comment_id: str) -> bool:
-      for group in self.hidden_group_comments:
-         if comment_id in rels.groups[group]['comments'].get(issue_id, []):
-            return False
-      return True
-
-   def issue_visible(self, rels: relations.FieldRelations, issue_id: str) -> bool:
-      for project in self.hidden_projects:
-         if issue_id in rels.metas['project'][project]:
-            return False
-      for security in self.hidden_security_levels:
-         if issue_id in rels.fields['security'][security]['issues']:
-            return False
-      return True
 
 @dataclasses.dataclass
 class ValueDisplay:
@@ -98,20 +59,20 @@ def field_display(rels: relations.FieldRelations, field_id: str, value_id: str) 
       name = full_value['value']
    return ValueDisplay(value_id, name, desc, icon)
 
-def project_detail_links(project: Project, json: pathlib.PurePath | None) -> typing.Generator[tuple[str, str]]:
+def project_detail_links(project: Project, json: str | None) -> typing.Generator[tuple[str, str]]:
    portal_num = portal_number(project['key'])
    if json is not None:
-      yield ('JSON', urllib.parse.quote(str(json)))
+      yield ('JSON', str(json))
    yield ('bugs.mojang.com', f'https://bugs.mojang.com/browse/{project['key']}')
    if portal_num is not None:
       yield ('report.bugs.mojang.com', f'https://report.bugs.mojang.com/servicedesk/customer/portal/{portal_num}')
    yield ('mojira.atlassian.net', f'https://mojira.atlassian.net/browse/{project['key']}')
 
-def issue_detail_links(issue: Issue, project: Project | None, json: pathlib.PurePath | None) -> typing.Generator[tuple[str, str]]:
+def issue_detail_links(issue: Issue, project: Project | None, json: str | None) -> typing.Generator[tuple[str, str]]:
    key = issue['key']
    portal_num = portal_number(project['key']) if project is not None else None
    if json is not None:
-      yield ('JSON', urllib.parse.quote(str(json)))
+      yield ('JSON', json)
    yield ('mojira.dev', f'https://mojira.dev/{key}')
    yield ('bugs.mojang.com', f'https://bugs.mojang.com/browse/{key}')
    if portal_num is not None:
@@ -533,7 +494,26 @@ def get_link_dir(full_str: str, issue_key: str) -> str:
 def format_number(number: int) -> str:
    return format(number, ',')
 
-def import_fake_missing_data(archive: mojira.Archive, metas: mojira.ArchiveMetas):
+def import_fake_missing_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, rels: relations.FieldRelations):
+   if 'security' not in rels.fields:
+      rels.fields['security'] = {
+         '10318': {
+            'issues': [],
+            'value': {
+               'id': '10318',
+               'name': 'Minecraft - Private',
+               'description': 'Private, viewable only by volunteers and up.'
+            }
+         },
+         '10502': {
+            'issues': [],
+            'value': {
+               'id': '10502',
+               'name': 'Minecraft Launcher - Private',
+               'description': 'Private, viewable only by volunteers and up.'
+            }
+         }
+      }
    metas.fields['customfield_12400'] = {
       'id': 'customfield_12400',
       'custom': True,
@@ -1048,23 +1028,11 @@ class DisplayCache:
    def get_issues(self, issues: list[str]) -> typing.Iterable[Issue]:
       return (self.just_issue.get(x) for x in issues)
 
-   def __init__(self, archive: mojira.Archive, metas: mojira.ArchiveMetas, rels: relations.RelationsBundle, source: markup.MarkupSource, markup_rels: markup_relations.MarkupRelations, secret_comments: mojira.SecretComments, perms: ViewPerms):
-      self.valid_issues = {x for x in rels.keys.issue_keys.values() if perms.issue_visible(rels.fields, x)}
+   def __init__(self, archive: mojira.Archive, metas: mojira.ArchiveMetas, rels: relations.RelationsBundle, source: markup.MarkupSource, markup_rels: markup_relations.MarkupRelations, secret_comments: mojira.SecretComments | None):
+      self.valid_issues = set(rels.keys.issue_keys.values())
       self.all_issues = sorted(self.valid_issues, key=lambda x: int(x))
       self.valid_users = set(rels.keys.user_keys.values())
       self.all_users = sorted(self.valid_users)
-
-      def filter_issues(issues: list[str]) -> list[str]:
-         return [x for x in issues if x in self.valid_issues]
-
-      def filter_issue_items(items: dict[str, list[str]]) -> dict[str, list[str]]:
-         return {k: v for k, v in items.items() if k in self.valid_issues}
-
-      def filter_comments(issue_id: str, comments: list[str]) -> list[str]:
-         return [x for x in comments if perms.comment_visible(rels.user, issue_id, x)]
-
-      def filter_issue_comments(comments: dict[str, list[str]]) -> dict[str, list[str]]:
-         return {k: filter_comments(k, v) for k, v in comments.items() if k in self.valid_issues}
 
       def just_issue_get(issue_id: str) -> Issue:
          assert issue_id in self.valid_issues
@@ -1078,6 +1046,7 @@ class DisplayCache:
 
       def secret_comment_get(issue_id: str) -> list[CachedComment]:
          assert issue_id in self.valid_issues
+         assert secret_comments is not None
          issue = just_issue_get(issue_id)
          comments = secret_comments.get(issue_id)
          cached: list[CachedComment] = []
@@ -1140,13 +1109,13 @@ class DisplayCache:
             env = markup.parse_markup(body)
          else:
             env = None
-         filtered_comments = filter_comments(issue_id, [x['id'] for x in issue['fields']['comment']['comments']])
+         filtered_comments = [x['id'] for x in issue['fields']['comment']['comments']]
          rendered_comments: list[RenderableComment] = []
          for comment_id in filtered_comments:
             cached = comment_get(issue_id, comment_id)
             entry = RenderableComment(cached.comment, None, cached.body, cached.date, secret=False)
             rendered_comments.append(entry)
-         if not perms.hidden_secret_comments:
+         if secret_comments is not None:
             for info in secret_comment_get(issue_id):
                entry = RenderableComment(info.comment, None, info.body, info.date, secret=True)
                bisect.insort_left(rendered_comments, entry, key=lambda x: x.date)
@@ -1160,14 +1129,9 @@ class DisplayCache:
             'environments': [],
             'comments': {}
          })
-         filtered_mentions: markup_relations.MarkupRelation = {
-            'descriptions': filter_issues(mentions['descriptions']),
-            'environments': filter_issues(mentions['environments']),
-            'comments': filter_issue_comments(mentions['comments'])
-         }
          def process(tag: markup.ParsedMarkup):
             highlight_issue_mentions(tag, issue_id, rels.keys)
-         rendered_mentions = get_renderable_mentions(filtered_mentions, process)
+         rendered_mentions = get_renderable_mentions(mentions, process)
          return CachedIssueMentions(rendered_mentions)
       self.issue_mentions = CacheLookup(issue_mentions_get)
 
@@ -1200,11 +1164,11 @@ class DisplayCache:
          changes = rels.user.changes.get(user_key, {})
          cached = CachedUser(
             user,
-            filter_issues(reported),
-            filter_issues(created),
-            filter_issues(assigned),
-            filter_issue_items(attachments),
-            filter_issue_items(changes),
+            reported,
+            created,
+            assigned,
+            attachments,
+            changes,
          )
          return cached
       self.user_info = CacheLookup(user_get)
@@ -1212,10 +1176,9 @@ class DisplayCache:
       def user_markup_get(user_key: str) -> CachedUserMarkup:
          assert user_key in self.valid_users
          comments = rels.user.comments.get(user_key, {})
-         filtered = filter_issue_comments(comments)
          rendered_comments: list[RenderableComment] = []
-         for issue_id, comments in filtered.items():
-            for comment_id in comments:
+         for issue_id, comment_ids in comments.items():
+            for comment_id in comment_ids:
                cached = comment_get(issue_id, comment_id)
                entry = RenderableComment(cached.comment, cached.issue, cached.body, cached.date, secret=False)
                bisect.insort_left(rendered_comments, entry, key=lambda x: x.date)
@@ -1224,14 +1187,9 @@ class DisplayCache:
             'environments': [],
             'comments': {}
          })
-         filtered_mentions: markup_relations.MarkupRelation = {
-            'descriptions': filter_issues(mentions['descriptions']),
-            'environments': filter_issues(mentions['environments']),
-            'comments': filter_issue_comments(mentions['comments'])
-         }
          def process(tag: markup.ParsedMarkup):
             highlight_user_mentions(tag, user_key, rels.keys)
-         rendered_mentions = get_renderable_mentions(filtered_mentions, process)
+         rendered_mentions = get_renderable_mentions(mentions, process)
          cached = CachedUserMarkup(rendered_comments, rendered_mentions)
          return cached
       self.user_markup = CacheLookup(user_markup_get)
@@ -1270,17 +1228,16 @@ class DisplayCache:
       self.projects = {}
       for project_id, project in metas.projects.items():
          issues = rels.fields.metas['project'].get(project_id, [])
-         if perms.project_visible(project_id):
-            if len(project['description']) > 0:
-               desc = bs4.BeautifulSoup(project['description'], 'html.parser')
-            else:
-               desc = None
-            versions: dict[str, CachedVersionInfo] = {}
-            for version in project['versions']:
-               affected = rels.fields.metas['versions'].get(version['id'], [])
-               fixed = rels.fields.metas['fixVersions'].get(version['id'], [])
-               versions[version['id']] = CachedVersionInfo(version, filter_issues(affected), filter_issues(fixed))
-            self.projects[project_id] = CachedProjectInfo(project, desc, filter_issues(issues), versions)
+         if len(project['description']) > 0:
+            desc = bs4.BeautifulSoup(project['description'], 'html.parser')
+         else:
+            desc = None
+         versions: dict[str, CachedVersionInfo] = {}
+         for version in project['versions']:
+            affected = rels.fields.metas['versions'].get(version['id'], [])
+            fixed = rels.fields.metas['fixVersions'].get(version['id'], [])
+            versions[version['id']] = CachedVersionInfo(version, affected, fixed)
+         self.projects[project_id] = CachedProjectInfo(project, desc, issues, versions)
       sort_dict(self.projects, lambda x: project_order(x[1]))
 
       self.metas = {}
@@ -1294,7 +1251,7 @@ class DisplayCache:
             display = meta_display(metas, meta_id, value_key)
             assert display is not None
             issues = rels.fields.metas[meta_id].get('' if value_key is None else value_key, [])
-            self.metas[meta_id].values[value_key] = CachedValueInfo(display, filter_issues(issues))
+            self.metas[meta_id].values[value_key] = CachedValueInfo(display, issues)
          sort_dict(self.metas[meta_id].values, lambda x, y=meta_id: meta_value_order(y, x[1]))
       sort_dict(self.metas, lambda x: meta_order(x[0]))
 
@@ -1306,17 +1263,16 @@ class DisplayCache:
             display = field_display(rels.fields, field_id, value_key)
             assert display is not None
             issues = rels.fields.fields[field_id][value_key]['issues']
-            self.fields[field_id].values[value_key] = CachedValueInfo(display, filter_issues(issues))
+            self.fields[field_id].values[value_key] = CachedValueInfo(display, issues)
          sort_dict(self.fields[field_id].values, lambda x: field_value_order(x[1]))
       sort_dict(self.fields, lambda x: field_order(x[1]))
 
       self.groups = {}
       for group, info in rels.user.groups.items():
-         comments = info['comments'] if perms.group_comments_visible(group) else {}
-         filtered = filter_issue_comments(comments)
+         comments = info['comments']
          rendered_comments: list[RenderableComment] = []
-         for issue_id, comments in filtered.items():
-            for comment_id in comments:
+         for issue_id, comment_ids in comments.items():
+            for comment_id in comment_ids:
                cached = comment_get(issue_id, comment_id)
                entry = RenderableComment(cached.comment, cached.issue, cached.body, cached.date, secret=False)
                bisect.insort_left(rendered_comments, entry, key=lambda x: x.date)

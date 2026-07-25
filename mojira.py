@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import re
 import typing
@@ -171,6 +172,15 @@ class Archive:
       with open(path, 'w', encoding='utf-8') as file:
          json.dump(issue, file, indent=3)
 
+def archive_from_env() -> Archive:
+   archive = Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
+   return archive
+
+def metas_from_env() -> ArchiveMetas:
+   metas = ArchiveMetas()
+   metas.load(pathlib.Path(os.environ['ARCHIVE_METAS']))
+   return metas
+
 def encode_user_string(user: str) -> str:
    return user.replace('/', '⁄')
 
@@ -212,3 +222,8 @@ class SecretComments:
    def remove_uuid_comments(self):
       for comments in self.comments.values():
          comments[:] = [x for x in comments if UUID_RE.match(x['body']) is None]
+
+def secrets_from_env() -> SecretComments | None:
+   if 'SECRET_COMMENTS' in os.environ:
+      return SecretComments(pathlib.Path(os.environ['SECRET_COMMENTS']))
+   return None

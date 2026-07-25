@@ -22,6 +22,7 @@ import markup
 import markup_relations
 import mojira
 import relations
+from diff import append_class, html_diff
 from display import (
    CachedFieldInfo,
    CachedGroupInfo,
@@ -40,7 +41,6 @@ from display import (
    RenderableComment,
    RenderableMention,
    ValueDisplay,
-   ViewPerms,
    category_splitter,
    format_number,
    get_avatar_path,
@@ -71,10 +71,8 @@ from web import (
    HtmlFile,
    Tag,
    add_metadata,
-   append_class,
    append_desc_item,
    append_row,
-   html_diff,
    html_to_text,
    inline_list,
    make_file,
@@ -130,10 +128,9 @@ class Website:
    meta_pages: dict[mojira.META_TYPE, FieldPage]
    archive: mojira.Archive
    metas: mojira.ArchiveMetas
-   secret_comments: mojira.SecretComments
+   secret_comments: mojira.SecretComments | None
    keys: relations.KeyLookups
    markup_source: markup.MarkupSource
-   perms: ViewPerms
    cache: DisplayCache
 
    def get_issue_path(self, issue: Issue) -> pathlib.PurePath:
@@ -148,53 +145,122 @@ class Website:
    def get_user_name_path(self, username: str) -> pathlib.PurePath:
       return self.users_folder / (mojira.encode_user_string(username.lower())[:100] + '.html')
 
-def make_jira_file(root: pathlib.Path, path: pathlib.PurePath, title: str) -> HtmlFile:
-   file = make_file(path, title)
+   def link_to_data(self, file: HtmlFile, path: pathlib.Path) -> str:
+      link = relative_path(self.root, file.path, path)
+      return urllib.parse.quote(str(link))
+
+   def link_to_asset(self, file: HtmlFile, path: pathlib.PurePath) -> str:
+      return relative_link(self.root, file.path, path)
+
+   def link_to_web(self, from_file: HtmlFile, to_file: pathlib.PurePath) -> str:
+      return relative_link(self.root, from_file.path, self.web_export / to_file)
+
+   def link_to_file(self, from_file: HtmlFile, to_file: HtmlFile) -> str:
+      return relative_link(self.root, from_file.path, to_file.path)
+
+def make_jira_file(root: pathlib.Path, web: pathlib.PurePath, path: pathlib.PurePath, title: str) -> HtmlFile:
+   file = make_file(web / path, title)
    file.page.head.append(file.page.soup.new_tag('link', rel='icon', type='image/x-icon', href=relative_link(root, file.path, pathlib.PurePath('data/assets/favicon.ico'))))
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/misode-reset.css'))))
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/misode-style.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, web / pathlib.PurePath('css/misode-reset.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, web / pathlib.PurePath('css/misode-style.css'))))
    file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('data/assets/mojira.css'))))
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, pathlib.PurePath('web/css/style.css'))))
-   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(root, file.path, pathlib.PurePath('web/js/main.js'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(root, file.path, web / pathlib.PurePath('css/style.css'))))
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(root, file.path, web / pathlib.PurePath('js/main.js'))))
    return file
 
 def save_file(website: Website, file: HtmlFile):
    write_html(website.root / file.path, file.page)
 
+RenderArgsInclude = typing.TypedDict('RenderArgsInclude', {
+   'kind': typing.NotRequired[typing.Literal['id', 'name']],
+   'include': typing.NotRequired[list[str]],
+   'exclude': typing.NotRequired[list[str]],
+   'after': typing.NotRequired[str]
+})
+
+def render_filter(items: typing.Iterable[tuple[str, str]], filter: RenderArgsInclude | None) -> typing.Iterator[str]:
+   if filter is None:
+      yield from (x[0] for x in items)
+      return
+   found_after = False
+   for id, name in items:
+      relevant = name if 'kind' not in filter or filter['kind'] == 'name' else id
+      if 'after' in filter and relevant == filter['after']:
+         found_after = True
+      if 'include' in filter and relevant in filter['include']:
+         yield id
+      if 'exclude' in filter and relevant in filter['exclude']:
+         continue
+      if 'after' in filter and found_after:
+         yield id
+
+RenderArgsProjects = typing.TypedDict('RenderArgsProjects', {
+   'main': typing.NotRequired[bool],
+   'versions': typing.NotRequired[bool],
+   'issues': typing.NotRequired[bool],
+   'version_issues': typing.NotRequired[bool],
+   'render': typing.NotRequired[RenderArgsInclude]
+})
+
+RenderArgsFields = typing.TypedDict('RenderArgsFields', {
+   'values': typing.NotRequired[bool],
+   'issues': typing.NotRequired[bool],
+   'render': typing.NotRequired[RenderArgsInclude]
+})
+
+RenderArgsMany = typing.TypedDict('RenderArgsMany', {
+   'all': typing.NotRequired[bool],
+   'render': typing.NotRequired[RenderArgsInclude]
+})
+
+RenderArgsGroups = typing.TypedDict('RenderArgsGroups', {
+   'users': typing.NotRequired[bool],
+   'comments': typing.NotRequired[bool],
+   'render': typing.NotRequired[RenderArgsInclude]
+})
+
+RenderArgs = typing.TypedDict('RenderArgs', {
+   'home': typing.NotRequired[bool],
+   'secret_comments': typing.NotRequired[bool],
+   'projects': typing.NotRequired[RenderArgsProjects],
+   'fields': typing.NotRequired[RenderArgsFields],
+   'issues': typing.NotRequired[RenderArgsMany],
+   'users': typing.NotRequired[RenderArgsMany],
+   'groups': typing.NotRequired[RenderArgsGroups]
+})
+
 def main():
    print('Loading...')
    PIL.Image.MAX_IMAGE_PIXELS = 16384 * 16384
    dotenv.load_dotenv()
-   root = pathlib.Path(os.environ['ARCHIVE_ROOT'])
-   archive = mojira.Archive(pathlib.Path(os.environ['ARCHIVE_DATA']))
-   metas = mojira.ArchiveMetas()
-   metas.load(archive.folder)
-   import_fake_missing_data(archive, metas)
+   root = pathlib.Path(os.environ['WEB_ROOT'])
+   archive = mojira.archive_from_env()
+   metas = mojira.metas_from_env()
    rels = relations.RelationsBundle(
       keys=relations.KeyLookups(),
       user=relations.UserRelations(),
       fields=relations.FieldRelations()
    )
-   rels.load(pathlib.Path(os.environ['ARCHIVE_RELATIONS']))
-   markup_source = markup.MarkupSource(pathlib.Path(os.environ['ARCHIVE_MARKUP']))
+   rels.load(pathlib.Path(os.environ['CACHE_RELATIONS']))
+   import_fake_missing_data(archive, metas, rels.fields)
+   markup_source = markup.MarkupSource(pathlib.Path(os.environ['CACHE_MARKUP']))
    markup_rels = markup_relations.MarkupRelations()
-   markup_rels.load(pathlib.Path(os.environ['ARCHIVE_MARKUP_RELATIONS']))
-   secret_comments = mojira.SecretComments(pathlib.Path(os.environ['ARCHIVE_SECRET_COMMENTS']))
-   secret_comments.remove_uuid_comments()
+   markup_rels.load(pathlib.Path(os.environ['CACHE_MARKUP_RELATIONS']))
+   secret_comments = mojira.secrets_from_env()
+   if secret_comments is not None:
+      secret_comments.remove_uuid_comments()
    meta_list: list[mojira.META_TYPE] = ['resolution', 'status']
    web_export = pathlib.PurePath(os.environ['WEB_EXPORT'])
-   perms_data = json.loads(os.environ['WEB_PERMS'])
-   perms = ViewPerms(perms_data)
-   cache = DisplayCache(archive, metas, rels, markup_source, markup_rels, secret_comments, perms)
+   cache = DisplayCache(archive, metas, rels, markup_source, markup_rels, secret_comments)
    website = Website(
       root=root,
       web_export=web_export,
-      home=make_jira_file(root, web_export / 'home.html', 'Mojira Archive'),
-      all_issues_list=make_jira_file(root, web_export / 'issues.html', 'All Issues'),
-      all_users_list=make_jira_file(root, web_export / 'users.html', 'All Users'),
-      all_secret_comments_list=make_jira_file(root, web_export / 'secret_comments.html', 'Secret Comments') if not perms.hidden_secret_comments else None,
-      issues_folder=web_export / 'issues',
-      users_folder=web_export / 'users',
+      home=make_jira_file(root, web_export, pathlib.PurePath('home.html'), 'Mojira Archive'),
+      all_issues_list=make_jira_file(root, web_export, pathlib.PurePath('issues.html'), 'All Issues'),
+      all_users_list=make_jira_file(root, web_export, pathlib.PurePath('users.html'), 'All Users'),
+      all_secret_comments_list=make_jira_file(root, web_export, pathlib.PurePath('secret_comments.html'), 'Secret Comments') if secret_comments is not None else None,
+      issues_folder=pathlib.PurePath('issues'),
+      users_folder=pathlib.PurePath('users'),
       project_pages={},
       field_pages={},
       meta_pages={},
@@ -204,150 +270,182 @@ def main():
       secret_comments=secret_comments,
       keys=rels.keys,
       markup_source=markup_source,
-      perms=perms,
       cache=cache
    )
    for value in cache.projects.values():
       key = value.project['key']
       full_title = f'[{key}] {value.project['name']}'
       website.project_pages[value.project['id']] = ProjectPage(
-         make_jira_file(root, web_export / 'projects' / (key + '.html'), full_title),
-         make_jira_file(root, web_export / 'projects' / key / 'versions.html', full_title) if len(value.versions) > 0 else None,
-         make_jira_file(root, web_export / 'projects' / key / 'issues.html', full_title),
-         web_export / 'projects' / key / 'versions'
+         make_jira_file(root, web_export, pathlib.PurePath('projects') / (key + '.html'), full_title),
+         make_jira_file(root, web_export, pathlib.PurePath('projects') / key / 'versions.html', full_title) if len(value.versions) > 0 else None,
+         make_jira_file(root, web_export, pathlib.PurePath('projects') / key / 'issues.html', full_title),
+         pathlib.PurePath('projects') / key / 'versions'
       )
    for field in cache.fields.values():
       website.field_pages[field.id] = FieldPage(
-         make_jira_file(root, web_export / 'fields' / (field.name + '.html'), field.name),
-         web_export / 'fields' / field.name
+         make_jira_file(root, web_export, pathlib.PurePath('fields') / (field.name + '.html'), field.name),
+         pathlib.PurePath('fields') / field.name
       )
    for meta_id in meta_list:
       meta = cache.metas[meta_id]
       website.meta_pages[meta_id] = FieldPage(
-         make_jira_file(root, web_export / 'fields' / (meta.name + '.html'), meta.name),
-         web_export / 'fields' / meta.name
+         make_jira_file(root, web_export, pathlib.PurePath('fields') / (meta.name + '.html'), meta.name),
+         pathlib.PurePath('fields') / meta.name
       )
    for group in cache.groups.values():
       if len(group.comments) > 0:
-         comments = make_jira_file(root, web_export / 'groups' / group.id / 'comments.html', group.id)
+         comments = make_jira_file(root, web_export, pathlib.PurePath('groups') / group.id / 'comments.html', group.id)
       else:
          comments = None
       website.group_pages[group.id] = GroupPage(
-         make_jira_file(root, web_export / 'groups' / group.id / 'users.html', group.id),
+         make_jira_file(root, web_export, pathlib.PurePath('groups') / group.id / 'users.html', group.id),
           comments
       )
 
-   print('Rendering...')
    to_render = sys.argv
-   if 'all' in to_render:
-      to_render.extend(['home', 'fields', 'metas', 'project_main', 'project_versions', 'project_issues', 'project_version_issues', 'field_issues', 'meta_issues', 'issues_list', 'issues', 'users', 'group_users', 'group_comments', 'users_list', 'secret_comments'])
-   if 'issue_lists' in to_render:
-      to_render.extend(['project_issues', 'project_version_issues', 'field_issues', 'meta_issues', 'issues_list'])
-   if 'user_lists' in to_render:
-      to_render.extend(['group_users', 'users_list'])
-   if 'groups' in to_render:
-      to_render.extend(['group_users', 'group_comments'])
-   if 'home' in to_render:
+   if len(to_render) < 2:
+      args: RenderArgs = {
+         'home': True,
+         'secret_comments': True,
+         'fields': {
+            'issues': True,
+            'values': True
+         },
+         'projects': {
+            'main': True,
+            'versions': True,
+            'issues': True,
+            'version_issues': True
+         },
+         'groups': {
+            'users': True,
+            'comments': True
+         },
+         'issues': {
+            'all': True
+         },
+         'users': {
+            'all': True
+         }
+      }
+   else:
+      args = json.loads(to_render[1])
+   do_render(website, args)
+
+def do_render(website: Website, args: RenderArgs):
+   cache = website.cache
+   root = website.root
+   print('Rendering...')
+   if args.get('home', False):
       print('Home...')
       make_home_page(website, website.home)
       save_file(website, website.home)
-   if 'metas' in to_render:
+   if (fields := args.get('fields')) is not None and fields.get('values', False):
       print('Metas...')
-      for meta_id in meta_list:
+      for meta_id in render_filter(((x, x) for x in website.meta_pages), fields.get('render')):
+         meta_id = typing.cast(mojira.META_TYPE, meta_id)
          print('\t' + meta_id)
          field_page = website.meta_pages[meta_id]
          make_meta_page(website, field_page.page, cache.metas[meta_id])
          save_file(website, field_page.page)
-   if 'fields' in to_render:
       print('Fields...')
-      for field in reversed(cache.fields.values()):
-         print('\t' + field.id)
-         field_page = website.field_pages[field.id]
-         make_field_page(website, field_page.page, field)
+      for field_id in render_filter(((x, x) for x in reversed(cache.fields.keys())), fields.get('render')):
+         print('\t' + field_id)
+         field_page = website.field_pages[field_id]
+         make_field_page(website, field_page.page, cache.fields[field_id])
          save_file(website, field_page.page)
-   project_order = list(reversed(cache.projects.values()))
-   if 'project_main' in to_render:
-      print('Project main...')
-      for info in project_order:
-         print('\t' + info.project['key'])
-         project_page = website.project_pages[info.project['id']]
-         make_project_main_page(website, project_page.main, info)
-         save_file(website, project_page.main)
-   if 'project_versions' in to_render:
-      print('Project versions...')
-      for info in project_order:
-         print('\t' + info.project['key'])
-         project_page = website.project_pages[info.project['id']]
-         if project_page.versions is not None:
-            make_project_versions_page(website, project_page.versions, info)
-            save_file(website, project_page.versions)
-   if 'project_issues' in to_render:
-      print('Project issues...')
-      for info in project_order:
-         print('\t' + info.project['key'])
-         project_page = website.project_pages[info.project['id']]
-         make_project_issues_page(website, project_page.issues, info)
-         save_file(website, project_page.issues)
-   if 'project_version_issues' in to_render:
-      print('Project versions issues...')
-      for info in project_order:
-         print('\t' + info.project['key'])
-         project_page = website.project_pages[info.project['id']]
-         for vinfo in info.versions.values():
-            print('\t\t' + vinfo.version['name'])
-            full_title = f'[{info.project['key']}] {vinfo.version['name']}'
-            file = make_jira_file(root, project_page.get_version_path(vinfo.version), full_title)
-            make_version_page(website, file, vinfo)
-            save_file(website, file)
-   if 'meta_issues' in to_render:
+   project_order = list(reversed(cache.projects.keys()))
+   if (projects := args.get('projects')) is not None:
+      filtered = list(render_filter(((x, cache.projects[x].project['key']) for x in project_order), projects.get('render')))
+      if projects.get('main', True):
+         print('Project main...')
+         for project_id in filtered:
+            info = cache.projects[project_id]
+            print('\t' + info.project['key'])
+            project_page = website.project_pages[info.project['id']]
+            make_project_main_page(website, project_page.main, info)
+            save_file(website, project_page.main)
+      if projects.get('versions', True):
+         print('Project versions...')
+         for project_id in filtered:
+            info = cache.projects[project_id]
+            print('\t' + info.project['key'])
+            project_page = website.project_pages[info.project['id']]
+            if project_page.versions is not None:
+               make_project_versions_page(website, project_page.versions, info)
+               save_file(website, project_page.versions)
+      if projects.get('issues', True):
+         print('Project issues...')
+         for project_id in filtered:
+            info = cache.projects[project_id]
+            print('\t' + info.project['key'])
+            project_page = website.project_pages[info.project['id']]
+            make_project_issues_page(website, project_page.issues, info)
+            save_file(website, project_page.issues)
+      if projects.get('version_issues', True):
+         print('Project versions issues...')
+         for project_id in filtered:
+            info = cache.projects[project_id]
+            print('\t' + info.project['key'])
+            project_page = website.project_pages[info.project['id']]
+            for vinfo in info.versions.values():
+               print('\t\t' + vinfo.version['name'])
+               full_title = f'[{info.project['key']}] {vinfo.version['name']}'
+               file = make_jira_file(root, website.web_export, project_page.get_version_path(vinfo.version), full_title)
+               make_version_page(website, file, vinfo)
+               save_file(website, file)
+   if (fields := args.get('fields')) is not None and fields.get('issues', False):
       print('Meta issues...')
-      for meta_id in meta_list:
+      for meta_id in render_filter(((x, x) for x in website.meta_pages), fields.get('render')):
+         meta_id = typing.cast(mojira.META_TYPE, meta_id)
          print('\t' + meta_id)
          field_page = website.meta_pages[meta_id]
          field_info = cache.metas[meta_id]
          for value_info in reversed(field_info.values.values()):
             print('\t\t' + value_info.display.name)
             full_title = f'[{field_info.name}] {value_info.display.name}'
-            file = make_jira_file(root, field_page.get_value_path(value_info.display.name), full_title)
+            file = make_jira_file(root, website.web_export, field_page.get_value_path(value_info.display.name), full_title)
             make_meta_value_page(website, file, field_info, value_info)
             save_file(website, file)
-   if 'field_issues' in to_render:
       print('Field issues...')
-      for field_info in reversed(cache.fields.values()):
-         print('\t' + field_info.id)
+      for field_id in render_filter(((x, x) for x in reversed(cache.fields.keys())), fields.get('render')):
+         print('\t' + field_id)
+         field_info = cache.fields[field_id]
          field_page = website.field_pages[field_info.id]
          for value_info in reversed(field_info.values.values()):
             print('\t\t' + value_info.display.name)
             full_title = f'[{field_info.name}] {value_info.display.name}'
-            file = make_jira_file(root, field_page.get_value_path(value_info.display.name), full_title)
+            file = make_jira_file(root, website.web_export, field_page.get_value_path(value_info.display.name), full_title)
             make_field_value_page(website, file, field_info, value_info)
             save_file(website, file)
-   if 'issues_list' in to_render:
-      print('All issues...')
-      make_all_issues_page(website, website.all_issues_list)
-      save_file(website, website.all_issues_list)
-   if 'issues' in to_render:
+   if (issues := args.get('issues')) is not None:
+      if issues.get('all', False):
+         print('All issues...')
+         make_all_issues_page(website, website.all_issues_list)
+         save_file(website, website.all_issues_list)
       print('Issues...')
-      for i, issue_id in enumerate(cache.all_issues):
+      reversed_ids = {v: k for k, v in website.keys.issue_keys.items()}
+      filtered = render_filter(((x, reversed_ids[x]) for x in cache.all_issues), issues.get('render'))
+      for i, issue_id in enumerate(filtered):
          issue = cache.just_issue.get(issue_id)
          if i % 1000 == 0:
             print(f'\t== {i} ==')
          print('\t' + issue['key'])
          path = website.get_issue_path(issue)
          full_title = f'[{issue['key']}] {issue['fields']['summary']}'
-         file = make_jira_file(root, path, full_title)
+         file = make_jira_file(root, website.web_export, path, full_title)
          info = cache.issue_info.get(issue_id)
          make_issue_page(website, file, info)
          save_file(website, file)
       print('Moved issues...')
-      for issue_key, issue_id in rels.keys.issue_keys.items():
+      for issue_key, issue_id in website.keys.issue_keys.items():
          if issue_id in cache.valid_issues:
             issue = cache.just_issue.get(issue_id)
             if issue['key'] != issue_key:
                print('\t' + issue_key)
                from_path = website.get_issue_key_path(issue_key)
                to_path = website.get_issue_path(issue)
-               relative = relative_path(root, from_path, root / to_path)
+               relative = relative_path(root, website.web_export / from_path, root / to_path)
                from_full = root / from_path
                if from_full.is_symlink():
                   if from_full.readlink() != relative:
@@ -355,39 +453,44 @@ def main():
                      from_full.symlink_to(relative)
                else:
                   from_full.symlink_to(relative)
-   if 'group_users' in to_render:
-      print('Group users...')
-      for group in reversed(cache.groups.values()):
-         print('\t\t' + group.id)
-         group_page = website.group_pages[group.id]
-         make_group_users_page(website, group_page.users, group)
-         save_file(website, group_page.users)
-   if 'group_comments' in to_render:
-      print('Group comments...')
-      for group in cache.groups.values():
-         print('\t\t' + group.id)
-         group_page = website.group_pages[group.id]
-         if group_page.comments is not None:
-            make_group_comments_page(website, group_page.comments, group)
-            save_file(website, group_page.comments)
-   if 'secret_comments' in to_render:
+   if (groups := args.get('groups')) is not None:
+      filtered = list(render_filter(((x, x) for x in reversed(cache.groups)), groups.get('render')))
+      if groups.get('users', False):
+         print('Group users...')
+         for group_id in filtered:
+            group = cache.groups[group_id]
+            print('\t\t' + group.id)
+            group_page = website.group_pages[group.id]
+            make_group_users_page(website, group_page.users, group)
+            save_file(website, group_page.users)
+      if groups.get('comments', False):
+         print('Group comments...')
+         for group_id in filtered:
+            group = cache.groups[group_id]
+            print('\t\t' + group.id)
+            group_page = website.group_pages[group.id]
+            if group_page.comments is not None:
+               make_group_comments_page(website, group_page.comments, group)
+               save_file(website, group_page.comments)
+   if args.get('secret_comments', False):
       print('Secret comments...')
       if website.all_secret_comments_list is not None:
          make_secret_comments_page(website, website.all_secret_comments_list)
          save_file(website, website.all_secret_comments_list)
-   if 'users_list' in to_render:
-      print('All users...')
-      make_all_users_page(website, website.all_users_list)
-      save_file(website, website.all_users_list)
-   if 'users' in to_render:
+   if (users := args.get('users')) is not None:
+      if users.get('all', False):
+         print('All users...')
+         make_all_users_page(website, website.all_users_list)
+         save_file(website, website.all_users_list)
+      filtered = render_filter(((x, cache.just_user.get(x)['name']) for x in cache.all_users), users.get('render'))
       print('Users...')
-      for i, user_key in enumerate(cache.all_users):
+      for i, user_key in enumerate(filtered):
          user = cache.user_info.get(user_key)
          if i % 1000 == 0:
             print(f'\t== {i} ==')
          print('\t' + user.user['name'])
          path = website.get_user_path(user.user)
-         file = make_jira_file(root, path, user.user['displayName'])
+         file = make_jira_file(root, website.web_export, path, user.user['displayName'])
          make_user_page(website, file, user)
          save_file(website, file)
 
@@ -401,16 +504,17 @@ def main_content(website: Website, file: HtmlFile) -> bs4.Tag:
    return content
 
 def make_generic_header(website: Website, file: HtmlFile) -> bs4.Tag:
+   jump_start = relative_path(website.root, (website.web_export / file.path).parent, website.root / website.web_export)
    header = new_content_tag(file.page.soup, 'header', [
       # header-main for misode.css
-      new_content_tag(file.page.soup, 'a', 'Mojira Archive', attrs={'class': 'header-main', 'href': relative_link(website.root, file.path, website.home.path)}),
+      new_content_tag(file.page.soup, 'a', 'Mojira Archive', attrs={'class': 'header-main', 'href': website.link_to_file(file, website.home)}),
       new_content_tag(file.page.soup, 'form', attrs={'id': 'jump', 'class': 'jump'}, content=[
          file.page.soup.new_tag('input', attrs={'id': 'jump-input', 'type': 'text', 'name': 'jump', 'placeholder': 'Issue or User'}),
          new_content_tag(file.page.soup, 'button', attrs={'id': 'jump-submit', 'type': 'submit'}, content='Go'),
-         new_content_tag(file.page.soup, 'script', f'window.jumpStart = "{relative_path(website.root, file.path, website.root / website.web_export)}";')
+         new_content_tag(file.page.soup, 'script', f'window.jumpStart = "{jump_start}";')
       ])
    ])
-   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/jump.js'))))
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=website.link_to_web(file, pathlib.PurePath('js/jump.js'))))
    return header
 
 def make_generic_footer(website: Website, file: HtmlFile) -> bs4.Tag:
@@ -426,38 +530,38 @@ def make_generic_footer(website: Website, file: HtmlFile) -> bs4.Tag:
    return footer
 
 def include_wiki_rendering(website: Website, file: HtmlFile):
-   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href': relative_link(website.root, file.path, pathlib.PurePath('web/css/jira-wiki.css'))}))
-   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href': relative_link(website.root, file.path, pathlib.PurePath('web/css/wiki-tweaks.css'))}))
+   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href': website.link_to_asset(file, pathlib.PurePath('css/jira-wiki.css'))}))
+   file.page.head.append(file.page.soup.new_tag('link', attrs={'rel': 'preload', 'as': 'style', 'href': website.link_to_asset(file, pathlib.PurePath('css/wiki-tweaks.css'))}))
 
 def fix_markup(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup):
    for entry in parsed.issues:
       issue_id = website.keys.get_issue_key(entry.key)
       if issue_id in website.cache.valid_issues:
-         entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_issue_key_path(entry.key))
+         entry.tag.attrs[entry.attr] = website.link_to_web(file, website.get_issue_key_path(entry.key))
       else:
          del entry.tag.attrs[entry.attr]
          del entry.tag.attrs['title']
    for entry in parsed.users:
       _user_key = website.keys.get_user_key(entry.username)
-      entry.tag.attrs[entry.attr] = relative_link(website.root, file.path, website.get_user_name_path(entry.username))
+      entry.tag.attrs[entry.attr] = website.link_to_web(file, website.get_user_name_path(entry.username))
    for entry in parsed.attachments + parsed.thumbnails:
       data = website.cache.attachment.get(entry.id)
-      path = relative_path(website.root, file.path, website.archive.get_attachment_content_path(entry.id, data['filename']))
-      entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
+      path = website.link_to_data(file, website.archive.get_attachment_content_path(entry.id, data['filename']))
+      entry.tag.attrs[entry.attr] = path
    for entry in parsed.thumbnails:
       append_class(entry.tag, 'thumbnail')
    for entry in parsed.icons:
-      path = relative_path(website.root, file.path, website.archive.folder / 'assets/images' / entry.path)
-      entry.tag.attrs[entry.attr] = urllib.parse.quote(str(path))
+      path = website.link_to_data(file, website.archive.folder / 'assets/images' / entry.path)
+      entry.tag.attrs[entry.attr] = path
 
 def embed_wiki(website: Website, file: HtmlFile, parsed: markup.ParsedMarkup) -> bs4.Tag:
    cloned = parsed.clone()
    fix_markup(website, file, cloned)
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'jira-wiki'}, content=[
       new_content_tag(file.page.soup, 'template', attrs={'shadowrootmode': 'open'}, content=[
-         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/jira-wiki.css'))),
-         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('data/assets/mojira.css'))),
-         file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/wiki-tweaks.css'))),
+         file.page.soup.new_tag('link', rel='stylesheet', href=website.link_to_web(file, pathlib.PurePath('css/jira-wiki.css'))),
+         file.page.soup.new_tag('link', rel='stylesheet', href=website.link_to_asset(file, pathlib.PurePath('data/assets/mojira.css'))),
+         file.page.soup.new_tag('link', rel='stylesheet', href=website.link_to_web(file, pathlib.PurePath('css/wiki-tweaks.css'))),
          new_content_tag(file.page.soup, 'div', cloned.root)
       ])
    ])
@@ -473,18 +577,19 @@ def make_home_page(website: Website, file: HtmlFile):
 
    full_list_grid: list[list[Tag]] = [
       [
-         new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': relative_link(website.root, file.path, website.all_issues_list.path)}, content='All Issues'),
+         new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': website.link_to_file(file, website.all_issues_list)}, content='All Issues'),
          f'{format_number(issue_count)} issues'
       ],
       [
-         new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': relative_link(website.root, file.path, website.all_users_list.path)}, content='All Users'),
+         new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': website.link_to_file(file, website.all_users_list)}, content='All Users'),
          f'{format_number(user_count)} users'
       ]
    ]
    if website.all_secret_comments_list is not None:
+      assert website.secret_comments is not None
       comment_count = sum(len(x) for x in website.secret_comments.comments.values())
       full_list_grid.append([
-         new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': relative_link(website.root, file.path, website.all_secret_comments_list.path)}, content='Secret Comments'),
+         new_content_tag(soup, 'a', attrs={'class': 'tile-grid-name', 'href': website.link_to_file(file, website.all_secret_comments_list)}, content='Secret Comments'),
          f'{format_number(comment_count)} comments'
       ])
 
@@ -543,19 +648,19 @@ def project_grid_entry(website: Website, file: HtmlFile, info: CachedProjectInfo
       project_link(website, file, info.project, with_icon=True),
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'span', attrs={'class': 'tile-grid-name'}, content=info.project['name']),
-      new_content_tag(file.page.soup, 'a', f'{format_number(len(info.issues))} issues', attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}),
+      new_content_tag(file.page.soup, 'a', f'{format_number(len(info.issues))} issues', attrs={'href': website.link_to_file(file, project_page.issues)}),
    ]
    if project_page.versions is not None:
-      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(len(info.versions))} versions', attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
+      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(len(info.versions))} versions', attrs={'href': website.link_to_file(file, project_page.versions)}))
    return content
 
 def meta_grid_entry(website: Website, file: HtmlFile, meta: CachedMetaInfo) -> list[Tag]:
-   link = relative_link(website.root, file.path, website.meta_pages[meta.id].page.path)
+   link = website.link_to_file(file, website.meta_pages[meta.id].page)
    content: list[Tag] = [
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name', 'href': link}, content=meta.name),
    ]
-   if len(meta.values) > 15:
+   if len(meta.values) >= 15:
       content.append(f'{format_number(len(meta.values))} values')
    else:
       tags = inline_list(file.page.soup, (meta_link_display(website, file, meta.id, x.display) for x in meta.values.values()))
@@ -563,12 +668,12 @@ def meta_grid_entry(website: Website, file: HtmlFile, meta: CachedMetaInfo) -> l
    return content
 
 def field_grid_entry(website: Website, file: HtmlFile, field: CachedFieldInfo) -> list[Tag]:
-   link = relative_link(website.root, file.path, website.field_pages[field.id].page.path)
+   link = website.link_to_file(file, website.field_pages[field.id].page)
    content: list[Tag] = [
       # tile-grid-name for style.css
       new_content_tag(file.page.soup, 'a', attrs={'class': 'tile-grid-name', 'href': link}, content=field.name),
    ]
-   if len(field.values) > 15:
+   if len(field.values) >= 15:
       content.append(f'{format_number(len(field.values))} values')
    else:
       tags = inline_list(file.page.soup, (field_link_display(website, file, field.id, x.display) for x in field.values.values()))
@@ -581,11 +686,11 @@ def group_grid_entry(website: Website, file: HtmlFile, group: CachedGroupInfo) -
    append_class(title, 'tile-grid-name')
    content: list[Tag] = [
       title,
-      new_content_tag(file.page.soup, 'a', f'{format_number(len(group.users))} users', attrs={'href': relative_link(website.root, file.path, website.group_pages[group.id].users.path)}),
+      new_content_tag(file.page.soup, 'a', f'{format_number(len(group.users))} users', attrs={'href': website.link_to_file(file, website.group_pages[group.id].users)}),
    ]
    group_page = website.group_pages[group.id]
    if group_page.comments is not None:
-      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(len(group.comments))} restricted comments', attrs={'href': relative_link(website.root, file.path, group_page.comments.path)}))
+      content.append(new_content_tag(file.page.soup, 'a', f'{format_number(len(group.comments))} restricted comments', attrs={'href': website.link_to_file(file, group_page.comments)}))
    return content
 
 def meta_value_grid_entry(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value: CachedValueInfo) -> list[Tag]:
@@ -632,15 +737,12 @@ def make_project_main_page(website: Website, file: HtmlFile, info: CachedProject
 
 def project_details(website: Website, file: HtmlFile, info: CachedProjectInfo) -> typing.Generator[tuple[Tag, Tag]]:
    project_page = website.project_pages[info.project['id']]
-   if website.perms.hidden_json_data:
-      data_link = None
-   else:
-      data_link = relative_path(website.root, file.path, website.archive.folder / website.metas.projects_path)
+   data_link = website.link_to_data(file, website.archive.folder / website.metas.projects_path)
    links = project_detail_links(info.project, data_link)
    yield ('Project Lead:', user_link(website, file, info.project['lead']))
-   yield ('Issues:', new_content_tag(file.page.soup, 'a', format_number(len(info.issues)), attrs={'href': relative_link(website.root, file.path, project_page.issues.path)}))
+   yield ('Issues:', new_content_tag(file.page.soup, 'a', format_number(len(info.issues)), attrs={'href': website.link_to_file(file, project_page.issues)}))
    if project_page.versions is not None:
-      yield ('Versions:', new_content_tag(file.page.soup, 'a', format_number(len(info.versions)), attrs={'href': relative_link(website.root, file.path, project_page.versions.path)}))
+      yield ('Versions:', new_content_tag(file.page.soup, 'a', format_number(len(info.versions)), attrs={'href': website.link_to_file(file, project_page.versions)}))
    yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
 def make_version_page(website: Website, file: HtmlFile, info: CachedVersionInfo):
@@ -695,7 +797,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    content = main_content(website, file)
 
    include_wiki_rendering(website, file)
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=website.link_to_web(file, pathlib.PurePath('css/diff.css'))))
 
    ref = user_reference(website, file, info.user)
    top = build_info_top(soup, None, ref.outer)
@@ -776,13 +878,12 @@ def user_details(website: Website, file: HtmlFile, user: User | UnknownUser) -> 
          new_content_tag(file.page.soup, 'li', group_link(website, file, x['name'])) for x in user['groups']['items']
       ])
       yield ('Groups:', group_list)
-      data_link = relative_path(website.root, file.path, website.archive.get_user_path(user['key']))
+      data_link = website.link_to_data(file, website.archive.get_user_path(user['key']))
    else:
       yield ('Unknown User:', 'Yes')
-      data_link = relative_path(website.root, file.path, website.archive.get_user_path(user['key'], unknown=True))
-   if not website.perms.hidden_json_data:
-      links = [('JSON', urllib.parse.quote(str(data_link)))]
-      yield ('Links:', build_link_list(file.page.soup, 'ul', links))
+      data_link = website.link_to_data(file, website.archive.get_user_path(user['key'], unknown=True))
+   links = [('JSON', data_link)]
+   yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
 def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    soup = file.page.soup
@@ -796,7 +897,7 @@ def make_issue_page(website: Website, file: HtmlFile, issue: CachedIssue):
    full_title = f'[{key}] {summary}'
 
    include_wiki_rendering(website, file)
-   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
+   file.page.head.append(file.page.soup.new_tag('link', rel='stylesheet', href=website.link_to_web(file, pathlib.PurePath('css/diff.css'))))
 
    top = issue_top(website, file, project, key, summary)
 
@@ -927,10 +1028,7 @@ def issue_details(website: Website, file: HtmlFile, issue: Issue) -> typing.Gene
    if 'fixVersions' in fields and project is not None:
       versions = [website.cache.projects[project['id']].versions[x].version for x in fields['fixVersions']]
       yield ('Fix Versions:', version_list(website, file, project, versions))
-   if website.perms.hidden_json_data:
-      data_link = None
-   else:
-      data_link = relative_path(website.root, file.path, website.archive.get_issue_path(issue['id']))
+   data_link = website.link_to_data(file, website.archive.get_issue_path(issue['id']))
    links = issue_detail_links(issue, project, data_link)
    yield ('Links:', build_link_list(file.page.soup, 'ul', links))
 
@@ -1059,7 +1157,7 @@ def make_meta_value_page(website: Website, file: HtmlFile, meta: CachedMetaInfo,
 
    add_metadata(file, value.display.name, value.display.description, value.display.icon)
 
-   flink = relative_link(website.root, file.path, website.meta_pages[meta.id].page.path)
+   flink = website.link_to_file(file, website.meta_pages[meta.id].page)
    badge = meta_badge_display(website, file, meta.id, value.display)
    if badge.resolved:
       h2_tag = new_content_tag(file.page.soup, 'span', attrs={'class': 'issue-resolved'}, content=badge.outer)
@@ -1081,7 +1179,7 @@ def make_field_value_page(website: Website, file: HtmlFile, field: CachedFieldIn
 
    add_metadata(file, value.display.name, value.display.description, value.display.icon)
 
-   flink = relative_link(website.root, file.path, website.field_pages[field.id].page.path)
+   flink = website.link_to_file(file, website.field_pages[field.id].page)
    value_tag = field_badge_display(website, file, field.id, value.display)
    h1: list[Tag] = [new_content_tag(soup, 'a', attrs={'href': flink}, content=field.name)]
    h2: list[Tag] = [value_tag.outer, ' issues']
@@ -1161,6 +1259,7 @@ def make_secret_comments_page(website: Website, file: HtmlFile):
    include_wiki_rendering(website, file)
 
    all_comments: list[RenderableComment] = []
+   assert website.secret_comments is not None
    for issue_id, comments in website.secret_comments.comments.items():
       if issue_id in website.cache.valid_issues:
          issue = website.cache.just_issue.get(issue_id)
@@ -1211,7 +1310,7 @@ def create_versions_table(website: Website, file: HtmlFile, project: Project, ve
    # version-table for style.css
    table.attrs['class'] = 'issue-table'
    for info in versions:
-      link = relative_link(website.root, file.path, website.project_pages[project['id']].get_version_path(info.version))
+      link = website.link_to_web(file, website.project_pages[project['id']].get_version_path(info.version))
       badge = status_badge(soup, info.version['name'])
       append_row(soup, table, [
          # classes for style.css
@@ -1282,7 +1381,7 @@ def set_promise_str(file: HtmlFile, access: str, data: str):
    ))
 
 def append_decompressor(website: Website, file: HtmlFile):
-   src = relative_link(website.root, file.path, pathlib.PurePath('web/js/decompress.js'))
+   src = website.link_to_web(file, pathlib.PurePath('js/decompress.js'))
    existing = file.page.head.find(name='script', attrs={'src': src})
    if existing is None:
       file.page.head.append(file.page.soup.new_tag('script', attrs={'src': src}))
@@ -1309,7 +1408,7 @@ def add_table_scripts(website: Website, file: HtmlFile, tables: list[tuple[Table
       set_promise_obj(file, f'window.tablePromises[{i}].data', entry.data)
       for j, row_batch in enumerate(entry.row_batches):
          set_promise_obj(file, f'window.tablePromises[{i}].rowBatches[{j}].data', row_batch)
-   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/table.js'))))
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=website.link_to_web(file, pathlib.PurePath('js/table.js'))))
    append_decompressor(website, file)
 
 def add_page_scripts(website: Website, file: HtmlFile, sections: list[tuple[PageSectionData, list[bs4.Tag]]]):
@@ -1334,7 +1433,7 @@ def add_page_scripts(website: Website, file: HtmlFile, sections: list[tuple[Page
       set_promise_obj(file, f'window.pagePromises[{i}].data', entry.data)
       for j, content_batch in enumerate(entry.content_batches):
          set_promise_obj(file, f'window.pagePromises[{i}].contentBatches[{j}].content', content_batch)
-   file.page.head.append(file.page.soup.new_tag('script', defer='', src=relative_link(website.root, file.path, pathlib.PurePath('web/js/pages.js'))))
+   file.page.head.append(file.page.soup.new_tag('script', defer='', src=website.link_to_web(file, pathlib.PurePath('js/pages.js'))))
    append_decompressor(website, file)
 
 @dataclasses.dataclass
@@ -1435,7 +1534,7 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
    }
    sort_data: list[list[tuple[int, typing.Any]]] = [[], [], [], [], [], []]
    for i, issue in enumerate(issues):
-      link = relative_link(website.root, file.path, website.get_issue_path(issue))
+      link = website.link_to_web(file, website.get_issue_path(issue))
       key_part = issue_key_issue(website, file, issue, with_icon=True)
       key = new_content_tag(soup, 'a', attrs={'class': 'issue-table-key', 'href': link}, content=key_part)
       if issue['fields']['reporter'] is not None:
@@ -1537,7 +1636,7 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
          index = 9999
       else:
          group, index = role
-         link = relative_link(website.root, file.path, website.group_pages[group].users.path)
+         link = website.link_to_file(file, website.group_pages[group].users)
          role_tag = new_content_tag(soup, 'a', attrs={'class': 'user-table-role', 'href': link}, content=[
             group_name(website, file, group)
          ])
@@ -1618,7 +1717,7 @@ def revision_to_user(website: Website, file: HtmlFile, revision: RenderableRevis
    if revision.external_issue is None:
       link = f'#{anchor}'
    else:
-      link = relative_link(website.root, file.path, website.get_issue_path(revision.external_issue)) + f'#{anchor}'
+      link = website.link_to_web(file, website.get_issue_path(revision.external_issue)) + f'#{anchor}'
    if revision.user_key is not None:
       head.extend([
          comment_author(website, file, revision.user_key),
@@ -1828,13 +1927,13 @@ class TrackedMultiSetRevision:
       soup = file.page.soup
       # revision-change for style.css
       if len(self.added) > 0:
-         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': website.link_to_file(file, website.field_pages[self.field_id].page)}) if self.field_id is not None else self.name
          yield new_content_tag(soup, 'div', attrs={'class': 'revision-change'}, content=[
             revision_label(soup, ['Added ', link, ': ']),
             self.creator(self.added)
          ])
       if len(self.removed) > 0:
-         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': website.link_to_file(file, website.field_pages[self.field_id].page)}) if self.field_id is not None else self.name
          yield new_content_tag(soup, 'div', attrs={'class': 'revision-change'}, content=[
             revision_label(soup, ['Removed ', link, ': ']),
             self.creator(self.removed)
@@ -1860,13 +1959,13 @@ class TrackedMultiSetProjectRevision:
       soup = file.page.soup
       # revision-change for style.css
       if len(self.added) > 0:
-         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': website.link_to_file(file, website.field_pages[self.field_id].page)}) if self.field_id is not None else self.name
          yield new_content_tag(soup, 'div', attrs={'class': 'revision-change'}, content=[
             revision_label(soup, ['Added ', link, ': ']),
             self.creator(self.added)
          ])
       if len(self.removed) > 0:
-         link = new_content_tag(soup, 'a', self.name, attrs={'href': relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)}) if self.field_id is not None else self.name
+         link = new_content_tag(soup, 'a', self.name, attrs={'href': website.link_to_file(file, website.field_pages[self.field_id].page)}) if self.field_id is not None else self.name
          yield new_content_tag(soup, 'div', attrs={'class': 'revision-change'}, content=[
             revision_label(soup, ['Removed ', link, ': ']),
             self.creator(self.removed)
@@ -1887,7 +1986,7 @@ class TrackedMultiValueRevision:
       new_values = self.splitter(revision['to'], revision['toString'])
       added_values = [x for x in new_values if x not in self.previous]
       removed_values = [x for x in self.previous if x not in new_values]
-      link = relative_link(website.root, file.path, website.field_pages[self.field_id].page.path)
+      link = website.link_to_file(file, website.field_pages[self.field_id].page)
       # revision-change for style.css
       if len(added_values) > 0:
          label = new_content_tag(soup, 'a', self.name, attrs={'href': link})
@@ -1915,7 +2014,7 @@ def revision_field(website: Website, file: HtmlFile, field_id: str, change: Revi
    else:
       new_tag = None
    label = website.cache.fields[field_id].name
-   link = new_content_tag(file.page.soup, 'a', label, attrs={'href': relative_link(website.root, file.path, website.field_pages[field_id].page.path)})
+   link = new_content_tag(file.page.soup, 'a', label, attrs={'href': website.link_to_file(file, website.field_pages[field_id].page)})
    return revision_change(file.page.soup, link, old_tag, new_tag)
 
 def revision_text(soup: bs4.BeautifulSoup, label: str, revision: RevisionChange) -> bs4.Tag:
@@ -1992,7 +2091,7 @@ def revision_large_diff(website: Website, file: HtmlFile, label: str, revision: 
       wiki =  embed_wiki(website, file, markup.parse_markup(tag))
       template = wiki.find('template')
       assert template is not None
-      template.insert(0, file.page.soup.new_tag('link', rel='stylesheet', href=relative_link(website.root, file.path, pathlib.PurePath('web/css/diff.css'))))
+      template.insert(0, file.page.soup.new_tag('link', rel='stylesheet', href=website.link_to_web(file, pathlib.PurePath('css/diff.css'))))
       return wiki
    # diff-panel-side for style.css
    return revision_html_diff(file.page.soup, label, revision, process, 'diff-panel-side')
@@ -2085,7 +2184,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue_id: str, rev
          case 'resolution':
             old_tag = historic_meta(website, file, 'resolution', change['from'], change['fromString'])
             new_tag = historic_meta(website, file, 'resolution', change['to'], change['toString'])
-            link = new_content_tag(soup, 'a', 'Resolution', attrs={'href': relative_link(website.root, file.path, website.meta_pages['resolution'].page.path)})
+            link = new_content_tag(soup, 'a', 'Resolution', attrs={'href': website.link_to_file(file, website.meta_pages['resolution'].page)})
             yield revision_change(soup, link, old_tag, new_tag)
          case 'status':
             assert change['from'] is not None
@@ -2093,7 +2192,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue_id: str, rev
             if change['from'] != change['to']:
                old_tag = historic_meta(website, file, 'status', change['from'], change['fromString'])
                new_tag = historic_meta(website, file, 'status', change['to'], change['toString'])
-               link = new_content_tag(soup, 'a', 'Status', attrs={'href': relative_link(website.root, file.path, website.meta_pages['status'].page.path)})
+               link = new_content_tag(soup, 'a', 'Status', attrs={'href': website.link_to_file(file, website.meta_pages['status'].page)})
                yield revision_change(soup, link, old_tag, new_tag)
          # text field changes
          # source always null, string either null or empty or text
@@ -2159,7 +2258,7 @@ def merged_revision_changes(website: Website, file: HtmlFile, issue_id: str, rev
          case 'Comment': # from always text, all the rest always null
             assert change['from'] is not None
             assert change['to'] is None
-            if UNKNOWN_COMMENT_RE.match(change['from']) is None and not website.perms.hidden_deleted_comments:
+            if UNKNOWN_COMMENT_RE.match(change['from']) is None:
                comment = website.markup_source.get_deleted_comment_body(issue_id, rev_id)
                yield revision_quoted(soup, 'Deleted Comment:', [embed_wiki(website, file, markup.parse_markup(comment))])
          case (
@@ -2191,7 +2290,7 @@ class UserReference:
 def user_reference(website: Website, file: HtmlFile, user: User | UnknownUser) -> UserReference:
    display_name = user['displayName']
    img = user_avatar(website, file, user)
-   link_url = relative_link(website.root, file.path, website.get_user_name_path(user['name']))
+   link_url = website.link_to_web(file, website.get_user_name_path(user['name']))
    # user-hover and rel for mojira.css
    # user-link for misode.css
    inner = new_content_tag(file.page.soup, 'span', attrs={'class':'user-hover user-link', 'rel': user['name']}, content=display_name)
@@ -2241,7 +2340,7 @@ def user_head_issue(website: Website, file: HtmlFile, issue: Issue) -> typing.Ge
    if issue['fields']['reporter'] is not None:
       yield comment_author(website, file, issue['fields']['reporter'])
       yield ' '
-   link = relative_link(website.root, file.path, website.get_issue_path(issue))
+   link = website.link_to_web(file, website.get_issue_path(issue))
    # comment-link for misode.css
    # comment-on for misode.css
    link_part = soup.new_tag('a', attrs={'class': 'comment-link', 'href': link})
@@ -2266,7 +2365,7 @@ def user_head_comment(website: Website, file: HtmlFile, comment: Comment | NewCo
    if issue is None:
       link = f'#comment-id-{comment['id']}'
    else:
-      link = relative_link(website.root, file.path, website.get_issue_path(issue)) + f'#comment-id-{comment['id']}'
+      link = website.link_to_web(file, website.get_issue_path(issue)) + f'#comment-id-{comment['id']}'
    # comment-link for misode.css
    # comment-on for misode.css
    link_part = soup.new_tag('a', attrs={'class': 'comment-link', 'href': link})
@@ -2304,14 +2403,14 @@ def user_head_comment(website: Website, file: HtmlFile, comment: Comment | NewCo
          restriction = new_content_tag(soup, 'span', attrs={'class': 'user-group-name'}, content=comment['visibility']['value'])
       more_info.extend([
          ' • ',
-         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': 'Restricted', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
+         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': 'Restricted', 'src': website.link_to_asset(file, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
          ' Restricted to ',
          restriction
       ])
    if secret:
       more_info.extend([
          ' • ',
-         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': 'Restricted', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
+         soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': 'Restricted', 'src': website.link_to_asset(file, pathlib.PurePath('data/assets/images/icons/ic_locked.png'))}),
          ' Secret comment',
       ])
    yield more_info
@@ -2331,7 +2430,7 @@ def issue_key_issue(website: Website, file: HtmlFile, issue: Issue, with_icon: b
    return issue_key(website, file, project, issue['key'], with_icon)
 
 def issue_link(website: Website, file: HtmlFile, issue: Issue, with_icon: bool) -> bs4.Tag:
-   link = relative_link(website.root, file.path, website.get_issue_path(issue))
+   link = website.link_to_web(file, website.get_issue_path(issue))
    tag = issue_key_issue(website, file, issue, with_icon)
    tag.name = 'a'
    tag.attrs['href'] = link
@@ -2347,7 +2446,7 @@ def project_key(website: Website, file: HtmlFile, project: Project, with_icon: b
 def project_link(website: Website, file: HtmlFile, project: Project, with_icon: bool) -> bs4.Tag:
    tag = project_key(website, file, project, with_icon)
    tag.name = 'a'
-   tag.attrs['href'] = relative_link(website.root, file.path, website.project_pages[project['id']].main.path)
+   tag.attrs['href'] = website.link_to_file(file, website.project_pages[project['id']].main)
    return tag
 
 def group_name(website: Website, file: HtmlFile, group: str) -> bs4.Tag:
@@ -2357,7 +2456,7 @@ def group_name(website: Website, file: HtmlFile, group: str) -> bs4.Tag:
 
 def group_link(website: Website, file: HtmlFile, group: str) -> bs4.Tag:
    assert group in website.cache.groups
-   link = relative_link(website.root, file.path, website.group_pages[group].users.path)
+   link = website.link_to_file(file, website.group_pages[group].users)
    # user-group-name for style.css
    return new_content_tag(file.page.soup, 'a', attrs={'class': 'user-group-name', 'href': link}, content=group)
 
@@ -2381,11 +2480,11 @@ def render_attachment(website: Website, file: HtmlFile, attachment: Attachment, 
    attach_div.append(preview)
    attach_div.append(details_div)
    if external_issue is not None:
-      issue_link = relative_link(website.root, file.path, website.get_issue_path(external_issue))
+      issue_link = website.link_to_web(file, website.get_issue_path(external_issue))
       details_div.append(new_content_tag(soup, 'a', attrs={'href': issue_link}, content=[
          issue_key_issue(website, file, external_issue, with_icon=True)
       ]))
-   link = relative_link(website.root, file.path, attach_path)
+   link = website.link_to_asset(file, attach_path)
    details_div.append(new_content_tag(soup, 'a', attrs={'href': link}, content=attachment['filename']))
    if include_author and 'author' in attachment:
          details_div.append(
@@ -2400,7 +2499,7 @@ def render_attachment(website: Website, file: HtmlFile, attachment: Attachment, 
 
 def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment) -> bs4.Tag:
    attach_path = website.archive.get_attachment_content_path(attachment['id'], attachment['filename'])
-   link = relative_link(website.root, file.path, attach_path)
+   link = website.link_to_asset(file, attach_path)
    mime = attachment['mimeType']
    # attachment-img for style.css
    if mime.startswith('image/'):
@@ -2439,7 +2538,7 @@ def attachment_preview(website: Website, file: HtmlFile, attachment: Attachment)
       icon = 'file'
    # attachment-icon for style.css
    return new_content_tag(file.page.soup, 'a', attrs={'href': link}, content=[
-      file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'width': '16', 'height': '16', 'alt': f'Attached {icon} file', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach') / (icon + '.gif'))})
+      file.page.soup.new_tag('img', attrs={'class': 'attachment-icon', 'width': '16', 'height': '16', 'alt': f'Attached {icon} file', 'src': website.link_to_asset(file, pathlib.PurePath('data/assets/images/icons/attach') / (icon + '.gif'))})
    ])
 
 def historic_attachments(website: Website, file: HtmlFile, attachments: list[HistoricValue]) -> bs4.Tag:
@@ -2453,7 +2552,7 @@ def historic_attachment(website: Website, file: HtmlFile, attach: HistoricValue)
    attachment = website.archive.get_attachment_data(attach.id)
    if attachment is not None:
       return render_attachment(website, file, attachment, external_issue=None, include_author=False, include_time=False)
-   broken = file.page.soup.new_tag('img', attrs={'width': '32', 'height': '32', 'loading': 'lazy', 'alt': 'Unavailable attachment', 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/attach/noimage.svg'))})
+   broken = file.page.soup.new_tag('img', attrs={'width': '32', 'height': '32', 'loading': 'lazy', 'alt': 'Unavailable attachment', 'src': website.link_to_asset(file, pathlib.PurePath('data/assets/images/icons/attach/noimage.svg'))})
    # broken-attachment for style.css
    return new_content_tag(file.page.soup, 'div', attrs={'class': 'broken-attachment'}, content=[broken, attach.name])
 
@@ -2475,7 +2574,7 @@ def linked_issue(website: Website, file: HtmlFile, issue: Issue) -> bs4.Tag:
       cls += ' issue-resolved'
    elif status.kind == 'progress':
       cls += ' issue-progress'
-   link = relative_link(website.root, file.path, website.get_issue_path(issue))
+   link = website.link_to_web(file, website.get_issue_path(issue))
    key = issue_key_issue(website, file, issue, with_icon=True)
    # issue-link-key for misode.css
    append_class(key, 'issue-link-key')
@@ -2528,7 +2627,7 @@ def version_link(website: Website, file: HtmlFile, project: Project, version: Ve
    name = version['name']
    name = name.removeprefix('Minecraft ').removeprefix('Snapshot ')
    name = name.replace(' Pre-Release ', '-pre').replace(' Pre-release ', '-pre').replace(' Release Candidate ', '-rc')
-   link = relative_link(website.root, file.path, website.project_pages[project['id']].get_version_path(version))
+   link = website.link_to_web(file, website.project_pages[project['id']].get_version_path(version))
    return new_content_tag(file.page.soup, 'a', name, attrs={'class': 'status-badge', 'href': link})
 
 def historic_version_list(website: Website, file: HtmlFile, versions: typing.Iterable[HistoricProjectValue]) -> bs4.Tag:
@@ -2551,7 +2650,7 @@ class FieldBadge:
    progress: bool
 
 def meta_badge_display(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, display: ValueDisplay) -> FieldBadge:
-   link = relative_link(website.root, file.path, website.meta_pages[meta_id].get_value_path(display.name))
+   link = website.link_to_web(file, website.meta_pages[meta_id].get_value_path(display.name))
    tag = status_badge(file.page.soup, display.name)
    append_class(tag, f'field-value-{meta_id}')
    if display.description is not None:
@@ -2581,12 +2680,12 @@ def meta_link(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE, value
 
 def field_badge_display(website: Website, file: HtmlFile, field_id: str, display: ValueDisplay) -> FieldBadge:
    field_name_str = website.cache.fields[field_id].name.lower().replace(' ', '-').replace('/', '')
-   link = relative_link(website.root, file.path, website.field_pages[field_id].get_value_path(display.name))
+   link = website.link_to_web(file, website.field_pages[field_id].get_value_path(display.name))
    content: list[Tag] = [display.name]
    if display.icon is not None:
       assert display.icon.startswith('https://bugs.mojang.com/')
       relative = pathlib.PurePath(display.icon[len('https://bugs.mojang.com/'):])
-      img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': display.name, 'src': relative_link(website.root, file.path, pathlib.PurePath('data/assets') / relative)})
+      img = file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'alt': display.name, 'src': website.link_to_asset(file, pathlib.PurePath('data/assets') / relative)})
       content.insert(0, img)
    elif field_id == 'customfield_12200':
       content.insert(0, mojang_priority_icon(website, file, display.name))
@@ -2649,13 +2748,13 @@ def merged_status(website: Website, file: HtmlFile, issue: Issue) -> MergedStatu
    return MergedStatus('unresolved', meta_badge(website, file, 'resolution', None))
 
 def issue_detail_field_label(website: Website, file: HtmlFile, field_id: str) -> bs4.Tag:
-   link = relative_link(website.root, file.path, website.field_pages[field_id].page.path)
+   link = website.link_to_file(file, website.field_pages[field_id].page)
    fname = website.cache.fields[field_id].name
    label = new_content_tag(file.page.soup, 'a', fname + ':', attrs={'href': link})
    return label
 
 def issue_detail_meta_label(website: Website, file: HtmlFile, meta_id: mojira.META_TYPE) -> bs4.Tag:
-   link = relative_link(website.root, file.path, website.meta_pages[meta_id].page.path)
+   link = website.link_to_file(file, website.meta_pages[meta_id].page)
    fname = website.cache.metas[meta_id].name
    label = new_content_tag(file.page.soup, 'a', fname + ':', attrs={'href': link})
    return label
@@ -2690,7 +2789,7 @@ def issue_top(website: Website, file: HtmlFile, project: Project | None, key: st
    key_tag = issue_key(website, file, project, key, with_icon=True)
    if project is not None:
       key_tag.name = 'a'
-      key_tag.attrs['href'] = relative_link(website.root, file.path, website.project_pages[project['id']].main.path)
+      key_tag.attrs['href'] = website.link_to_file(file, website.project_pages[project['id']].main)
    return build_info_top(
       file.page.soup,
       # issue-key for misode.css
@@ -2792,20 +2891,20 @@ def status_badge(soup: bs4.BeautifulSoup, content: Tag | list[Tag]) -> bs4.Tag:
    return new_content_tag(soup, 'span', attrs={'class': 'status-badge'}, content=content)
 
 def bug_icon(website: Website, file: HtmlFile) -> bs4.Tag:
-   link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))
+   link = website.link_to_asset(file, pathlib.PurePath('data/assets/images/icons/issuetypes/bug.svg'))
    return file.page.soup.new_tag('img', attrs={'width': '16', 'height': '16', 'loading': 'lazy', 'src': link, 'alt': 'Issue'})
 
 def user_avatar_link(website: Website, file: HtmlFile, user: User | UnknownUser) -> str:
    gravatar_path1 = website.archive.folder / 'assets/gravatar' / (mojira.encode_user_string(user['key']) + '.png')
    gravatar_path2 = website.archive.folder / 'assets/gravatar' / (mojira.encode_user_string(user['key']) + '.jpeg')
    if gravatar_path1.exists():
-      return str(relative_path(website.root, file.path, gravatar_path1))
+      return website.link_to_data(file, gravatar_path1)
    if gravatar_path2.exists():
-      return str(relative_path(website.root, file.path, gravatar_path2))
+      return website.link_to_data(file, gravatar_path2)
    avatar_url = user['avatarUrls']['48x48']
    avatar_path = get_avatar_path(website.archive, website.archive.users_avatars_folder, avatar_url)
    assert avatar_path is not None
-   return str(relative_path(website.root, file.path, avatar_path))
+   return website.link_to_data(file, avatar_path)
 
 def user_avatar(website: Website, file: HtmlFile, user: User | UnknownUser) -> bs4.Tag:
    link = user_avatar_link(website, file, user)
@@ -2816,12 +2915,12 @@ def project_avatar(website: Website, file: HtmlFile, project: Project) -> bs4.Ta
    avatar_url = project['avatarUrls']['48x48']
    avatar_path = get_avatar_path(website.archive, website.archive.project_avatars_folder, avatar_url)
    assert avatar_path is not None
-   link = str(relative_path(website.root, file.path, avatar_path))
+   link = website.link_to_data(file, avatar_path)
    return file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': project['name']})
 
 def mojang_priority_icon(website: Website, file: HtmlFile, value: str) -> bs4.Tag:
    prio = {'Trivial': 'trivial', 'Low': 'low', 'Normal': 'medium', 'Important': 'high', 'Very Important': 'major'}[value]
-   link = relative_link(website.root, file.path, pathlib.PurePath('data/assets/images/icons/priorities') / f'{prio}.svg')
+   link = website.link_to_asset(file, pathlib.PurePath('data/assets/images/icons/priorities') / f'{prio}.svg')
    img = file.page.soup.new_tag('img', attrs={'width': '48', 'height': '48', 'loading': 'lazy', 'src': link, 'alt': value})
    return img
 
