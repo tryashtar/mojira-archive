@@ -445,8 +445,8 @@ def do_render(website: Website, args: RenderArgs):
                print('\t' + issue_key)
                from_path = website.get_issue_key_path(issue_key)
                to_path = website.get_issue_path(issue)
-               relative = relative_path(root, website.web_export / from_path, root / to_path)
-               from_full = root / from_path
+               relative = relative_path(root, website.web_export / from_path, root / website.web_export / to_path)
+               from_full = root / website.web_export / from_path
                if from_full.is_symlink():
                   if from_full.readlink() != relative:
                      from_full.unlink()
@@ -773,7 +773,7 @@ def make_version_page(website: Website, file: HtmlFile, info: CachedVersionInfo)
          [affected_table.filters, affected_table.table]
       ))
    if len(info.fixed) > 0:
-      fixed_table = create_issue_list(website, file, 'fixed', website.cache.get_issues(info.affected))
+      fixed_table = create_issue_list(website, file, 'fixed', website.cache.get_issues(info.fixed))
       tables.append(fixed_table)
       tab_data.append(InfoTabData(
          'fixed',
@@ -847,7 +847,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
          ['Attachments', count_badge(soup, sum(len(x) for x in info.attachments.values()))],
          [attachment_section.controls, attachment_section.section]
       ))
-   activity_section = user_activity(website, file, info.changes)
+   activity_section = user_activity(website, file, info.created, info.changes)
    pages.append(activity_section)
    tab_data.append(InfoTabData(
       'activity',
@@ -1566,8 +1566,7 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
          new_content_tag(soup, 'div', render_datetime(soup, created_date), attrs={'class': 'issue-table-time'})
       ]
       def sorter_key(x: tuple[int, typing.Any]):
-         key = natsort.natsort_keygen(alg=natsort.ns.IGNORECASE)
-         return key(x[1])
+         return NATSORT(x[1])
       status_order = ['unresolved', 'progress', 'confirmed', 'priority', 'resolved']
       bisect.insort_left(sort_data[0], (i, issue['key']), key=sorter_key)
       bisect.insort_left(sort_data[1], (i, issue['fields']['summary']), key=sorter_key)
@@ -1603,6 +1602,8 @@ def create_issue_list(website: Website, file: HtmlFile, id_prefix: str, issues: 
       'rows': len(rows)
    }
    return build_virtual_table(soup, settings, data, rows)
+
+NATSORT = natsort.natsort_keygen(alg=natsort.ns.IGNORECASE)
 
 def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: typing.Iterable[CachedUser]) -> VirtualTable:
    soup = file.page.soup
@@ -1648,8 +1649,7 @@ def create_user_list(website: Website, file: HtmlFile, id_prefix: str, users: ty
          new_content_tag(soup, 'div', attrs={'class': 'user-table-number'}, content=f'{format_number(len(info.assigned))} issues' if len(info.assigned) > 0 else []),
       ]
       def sorter_key(x: tuple[int, typing.Any]):
-         key = natsort.natsort_keygen(alg=natsort.ns.IGNORECASE)
-         return key(x[1])
+         return NATSORT(x[1])
       bisect.insort_left(sort_data[0], (i, user['name']), key=sorter_key)
       bisect.insort_left(sort_data[1], (i, user['displayName']), key=sorter_key)
       bisect.insort_left(sort_data[2], (i, index), key=lambda x: x[1])
@@ -2815,7 +2815,7 @@ def issue_body(soup: bs4.BeautifulSoup, desc: bs4.Tag | None, env: bs4.Tag | Non
 def issue_comments(website: Website, file: HtmlFile, comments: typing.Iterable[RenderableComment]) -> PageSection:
    return build_user_section(file.page.soup, 'comment', 200, (comment_to_user(website, file, x) for x in comments))
 
-def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revisions: list[Revision]) -> PageSection:
+def initial_render(website: Website, file: HtmlFile, issue: CachedIssue, external: bool) -> RenderableRevision:
    initial_content = historic_issue(website, file, issue, issue.initial)
    initial_tag: list[Tag] = [
       # classes for style.css
@@ -2826,15 +2826,17 @@ def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revision
          ])
       ])
    ]
-   initial_render = RenderableRevision('initial', issue.issue['fields'].get('creator'), issue.created, None, None, initial_tag)
+   return RenderableRevision('initial', issue.issue['fields'].get('creator'), issue.created, None, issue.issue if external else None, initial_tag)
+
+def issue_history(website: Website, file: HtmlFile, issue: CachedIssue, revisions: list[Revision]) -> PageSection:
    renderable = get_renderable_revisions(website, file, issue.issue['id'], None, issue.initial.fields['project'], revisions)
-   renderable.insert(0, initial_render)
+   renderable.insert(0, initial_render(website, file, issue, external=False))
    return build_user_section(file.page.soup, 'history', 200, (revision_to_user(website, file, x) for x in renderable))
 
 def issue_mentions(website: Website, file: HtmlFile, mentions: typing.Iterable[RenderableMention]) -> PageSection:
    return build_user_section(file.page.soup, 'mention', 200, (mention_to_user(website, file, x) for x in mentions))
 
-def user_activity(website: Website, file: HtmlFile, revisions: dict[str, list[str]]) -> PageSection:
+def user_activity(website: Website, file: HtmlFile, created: list[str], revisions: dict[str, list[str]]) -> PageSection:
    revision_data: list[tuple[CachedIssue, list[Revision]]] = []
    for issue_id, revision_ids in revisions.items():
       info = website.cache.issue_info.get(issue_id)
@@ -2851,6 +2853,10 @@ def user_activity(website: Website, file: HtmlFile, revisions: dict[str, list[st
    for info, revs in revision_data:
       renderable = get_renderable_revisions(website, file, info.issue['id'], info.issue, info.initial.fields['project'], revs)
       all_renderable.extend(renderable)
+   for issue_id in created:
+      issue = website.cache.issue_info.get(issue_id)
+      all_renderable.append(initial_render(website, file, issue, external=True))
+   all_renderable.sort(key=lambda x: x.start_time)
    return build_user_section(file.page.soup, 'history', 200, (revision_to_user(website, file, x) for x in all_renderable))
 
 def user_attachments(website: Website, file: HtmlFile, attachments: dict[str, list[str]]) -> PageSection:

@@ -132,7 +132,7 @@ class InitialData:
 def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue: Issue, final_project: Project | None, revisions: list[Revision]) -> InitialData:
    fields = issue['fields']
    result: HistoricFields = {
-      'issuelinks': [to_historic_link(archive, metas, x) for x in fields['issuelinks']],
+      'issuelinks': [x for x in (to_historic_link(archive, metas, x) for x in fields['issuelinks']) if x is not None],
       'attachments': [to_historic_attachment(archive, x) for x in fields['attachment']],
       'components': [HistoricValue(x['id'], x['name']) for x in fields['components']] if 'components' in fields else [],
       'versions': [to_historic_version(final_project, x) for x in fields['versions']] if 'versions' in fields and final_project is not None else [],
@@ -317,7 +317,7 @@ def get_initial_data(archive: mojira.Archive, metas: mojira.ArchiveMetas, issue:
       result['summary'] = fields['summary']
    return InitialData(result, description_revision, environment_revision)
 
-def to_historic_link(archive: mojira.Archive, metas: mojira.ArchiveMetas, link: OutwardIssueLink | InwardIssueLink) -> HistoricValue:
+def to_historic_link(archive: mojira.Archive, metas: mojira.ArchiveMetas, link: OutwardIssueLink | InwardIssueLink) -> HistoricValue | None:
    link_type = metas.link_types[link['type']]
    if 'inwardIssue' in link:
       dir = link_type['inward']
@@ -325,7 +325,8 @@ def to_historic_link(archive: mojira.Archive, metas: mojira.ArchiveMetas, link: 
    else:
       dir = link_type['outward']
       issue_data = archive.get_issue_data(link['outwardIssue'])
-   assert issue_data is not None
+   if issue_data is None:
+      return None
    return HistoricValue(issue_data['key'], f'This issue {dir} {issue_data['key']}')
 
 def to_historic_attachment(archive: mojira.Archive, attach_id: str) -> HistoricValue:
