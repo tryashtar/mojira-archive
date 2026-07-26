@@ -851,7 +851,7 @@ def make_user_page(website: Website, file: HtmlFile, info: CachedUser):
    pages.append(activity_section)
    tab_data.append(InfoTabData(
       'activity',
-      ['Activity', count_badge(soup, sum(len(x) for x in info.changes.values()))],
+      ['Activity', count_badge(soup, sum(len(x) for x in info.changes.values()) + len(info.created))],
       [activity_section.controls, activity_section.section]
    ))
    if len(markup.mentions) > 0:

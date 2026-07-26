@@ -58,7 +58,7 @@ def render_revision(renderer: subprocess.Popen, issue_id: int, change: RevisionC
          before = bs4.BeautifulSoup(html, 'html.parser')
       after = load_if_exists(paths.after)
       if after is None:
-         html = convert(renderer, change['fromString'], issue_id)
+         html = convert(renderer, change['toString'], issue_id)
          write(paths.after, html)
          after = bs4.BeautifulSoup(html, 'html.parser')
       diff = html_diff(bs4.BeautifulSoup(), before, after)
