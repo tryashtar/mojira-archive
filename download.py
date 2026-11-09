@@ -32,7 +32,6 @@ def main():
    print('Connecting...')
    client = jira.JIRA(os.environ['JIRA_URL'], token_auth=key)
    print('Fetching metas...')
-   urllib.request.urlretrieve('https://launchermeta.mojang.com/mc/jira/mojira.css', archive.folder / 'assets/mojira.css')
    fetch_metas(metas, users, client)
    flush_users(archive, users, client, dry=False)
    metas.save(archive.folder)

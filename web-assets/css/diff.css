@@ -1,0 +1,10 @@
+.diff-delete:not(.diff-delete .diff-delete) {
+    background-color: #e69c9c60;
+    color: #661c1c;
+    text-decoration: line-through;
+}
+.diff-insert:not(.diff-insert .diff-insert) {
+    background-color: #9ce69c60;
+    color: #1c661c;
+    text-decoration: unset;
+}

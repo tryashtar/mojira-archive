@@ -482,7 +482,8 @@ def do_render(website: Website, args: RenderArgs):
          print('All users...')
          make_all_users_page(website, website.all_users_list)
          save_file(website, website.all_users_list)
-      filtered = render_filter(((x, cache.just_user.get(x)['name']) for x in cache.all_users), users.get('render'))
+      reversed_ids = {v: k for k, v in website.keys.user_keys.items()}
+      filtered = render_filter(((x, reversed_ids[x]) for x in cache.all_users), users.get('render'))
       print('Users...')
       for i, user_key in enumerate(filtered):
          user = cache.user_info.get(user_key)
@@ -493,6 +494,7 @@ def do_render(website: Website, args: RenderArgs):
          file = make_jira_file(root, website.web_export, path, user.user['displayName'])
          make_user_page(website, file, user)
          save_file(website, file)
+   print('All done!')
 
 # all pages
 def main_content(website: Website, file: HtmlFile) -> bs4.Tag:

@@ -1,0 +1,17 @@
+img {
+    max-width: 100%;
+}
+div {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overflow-wrap: anywhere;
+}
+div.preformattedContent pre {
+    white-space: pre-wrap;
+}
+.mention {
+    background-color: #c79ce660;
+}
+.thumbnail {
+    width: 200px;
+}
